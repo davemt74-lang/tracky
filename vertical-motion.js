@@ -153,7 +153,8 @@ const state = {
     lastDecision: 'standby',
     rejectedSegments: 0,
     ttsPending: 0,
-    captureMode: 'offline'
+    captureMode: 'offline',
+    generation: 0
   }
 };
 
@@ -769,19 +770,31 @@ function onRoomAudioLevel(level) {
   renderVoiceHud();
 }
 
+function voiceSegmentIsCurrent(segment) {
+  return Boolean(
+    state.voice.active &&
+    segment?.generation === state.voice.generation
+  );
+}
+
 async function processRoomSegment(segment) {
+  if (!voiceSegmentIsCurrent(segment)) return;
   state.voice.processing = true;
   renderVoiceHud();
 
   try {
     const speakerReady = await ensureSpeakerEngine();
-    if (!speakerReady) return;
+    if (!speakerReady || !voiceSegmentIsCurrent(segment)) return;
 
     const embedding = await state.voice.engine.embedding(segment.samples);
+    if (!voiceSegmentIsCurrent(segment)) return;
+
     const voiceMatch = bestVoiceMatch(embedding, state.identity.participants);
     const participant = voiceMatch.matched ? voiceMatch.participant : null;
+    const roomTracks = segment.roomTracks || [];
+    const roomGroups = buildConversationGroups(roomTracks);
     const track = participant
-      ? state.identity.tracks.find((candidate) => candidate.participantId === participant.id)
+      ? roomTracks.find((candidate) => candidate.participantId === participant.id)
       : null;
 
     const bodyConfirmed = Boolean(track);
@@ -799,7 +812,7 @@ async function processRoomSegment(segment) {
     let nearbyIds = [];
 
     if (track) {
-      group = conversationGroupForTrack(state.voice.groups, track.id);
+      group = conversationGroupForTrack(roomGroups, track.id);
       nearbyNames = (group?.tracks || [])
         .filter((candidate) => candidate.id !== track.id)
         .map((candidate) => candidate.participantName || candidate.id)
@@ -809,7 +822,11 @@ async function processRoomSegment(segment) {
         .map((candidate) => candidate.participantId)
         .filter(Boolean);
 
-      const liveTrack = state.identity.tracks.find((candidate) => candidate.id === track.id);
+      const liveTrack = state.identity.tracks.find(
+        (candidate) =>
+          candidate.id === track.id &&
+          candidate.participantId === participant?.id
+      );
       if (liveTrack) {
         liveTrack.voiceMatchConfidence = voiceMatch.similarity;
         liveTrack.lastVoiceAt = performance.now();
@@ -837,8 +854,9 @@ async function processRoomSegment(segment) {
     let transcript = '';
     if (ui.liveTranscription.checked) {
       const transcriptReady = await ensureTranscriptionEngine();
-      if (transcriptReady) {
+      if (transcriptReady && voiceSegmentIsCurrent(segment)) {
         transcript = await state.voice.transcriber.transcribe(segment.samples);
+        if (!voiceSegmentIsCurrent(segment)) return;
       }
     }
 
@@ -864,6 +882,8 @@ async function processRoomSegment(segment) {
     state.voice.turns.push(turn);
     if (state.voice.turns.length > 50) state.voice.turns.splice(0, state.voice.turns.length - 50);
     state.voice.lastDecision = 'accepted';
+
+    if (!voiceSegmentIsCurrent(segment)) return;
 
     try {
       await saveDialogueTurn({
@@ -895,8 +915,24 @@ async function drainRoomAudioQueue() {
   if (state.voice.queue.length) void drainRoomAudioQueue();
 }
 
+function roomTrackSnapshot() {
+  return state.identity.tracks.map((track) => ({
+    id: track.id,
+    participantId: track.participantId || null,
+    participantName: track.participantName || null,
+    cx: track.cx,
+    cy: track.cy,
+    status: track.status,
+    box: track.box ? { ...track.box } : null
+  }));
+}
+
 function onRoomAudioSegment(segment) {
-  state.voice.queue.push(segment);
+  state.voice.queue.push({
+    ...segment,
+    generation: state.voice.generation,
+    roomTracks: roomTrackSnapshot()
+  });
   if (state.voice.queue.length > 6) state.voice.queue.splice(0, state.voice.queue.length - 6);
   void drainRoomAudioQueue();
 }
@@ -915,6 +951,8 @@ async function clearSavedDialogue() {
   if (!window.confirm('Clear all locally saved dialogue and transcript turns on this device?')) return;
 
   try {
+    state.voice.generation += 1;
+    state.voice.queue = [];
     await clearDialogueTurns();
     state.voice.turns = [];
     renderDialogueTurns();
@@ -928,6 +966,7 @@ async function clearSavedDialogue() {
 async function startRoomAudio() {
   if (state.voice.active) return;
 
+  state.voice.generation += 1;
   try {
     await reloadIdentityParticipants();
     state.voice.audio = new RoomAudioCapture({
@@ -961,7 +1000,8 @@ async function startRoomAudio() {
 }
 
 function stopRoomAudio() {
-  state.voice.audio?.stop();
+  state.voice.generation += 1;
+  void state.voice.audio?.stop();
   state.voice.audio = null;
   state.voice.active = false;
   state.voice.vad = false;
