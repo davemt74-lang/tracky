@@ -279,3 +279,47 @@ export function augmentBodiesWithFaceFallbacks(faces, bodies) {
 
   return output;
 }
+
+
+function participantTrackEvidence(track) {
+  const faceEvidence = track.face ? 3 : 0;
+  const liveBodyEvidence = track.status !== 'occluded' && track.status !== 'reacquiring' ? 2 : 0;
+  const similarity = Number(track.similarity || 0);
+  const freshness = Math.min(1, Number(track.lastBodySeenAt || track.lastSeenAt || 0) / 1e9);
+  return faceEvidence + liveBodyEvidence + similarity + freshness;
+}
+
+export function dedupeParticipantAssignments(tracks) {
+  const winners = new Map();
+
+  for (let index = 0; index < (tracks || []).length; index += 1) {
+    const track = tracks[index];
+    if (!track.participantId) continue;
+
+    const current = winners.get(track.participantId);
+    if (
+      !current ||
+      participantTrackEvidence(track) > participantTrackEvidence(current.track)
+    ) {
+      winners.set(track.participantId, { index, track });
+    }
+  }
+
+  return (tracks || []).map((track, index) => {
+    if (!track.participantId) return track;
+    const winner = winners.get(track.participantId);
+    if (!winner || winner.index === index) return track;
+
+    return {
+      ...track,
+      participantId: null,
+      participantName: null,
+      similarity: 0,
+      voiceParticipantId: null,
+      voiceParticipantName: null,
+      voiceMatchConfidence: 0,
+      status: track.face ? 'ready' : 'body-detected',
+      identitySource: track.face ? 'face' : 'body'
+    };
+  });
+}
