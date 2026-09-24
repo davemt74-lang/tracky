@@ -372,6 +372,10 @@ function createParticipantCard(track) {
   body.append(current, identity);
 
   const participant = track.participantId ? participantById(track.participantId) : null;
+  const voiceReadiness = voiceProfileReadiness(participant || {});
+  const recentlySpoke = Boolean(track.lastVoiceAt && performance.now() - track.lastVoiceAt < 2600);
+  if (recentlySpoke) card.classList.add('speaking');
+
   if (participant?.primaryPhoto) {
     const saved = document.createElement('img');
     saved.className = 'participant-primary-badge';
@@ -381,7 +385,28 @@ function createParticipantCard(track) {
     body.append(saved);
   }
 
-  card.append(top, body);
+  const voiceData = document.createElement('div');
+  voiceData.className = 'participant-voice-readout';
+
+  const voiceRows = [
+    ['VOICE PROFILE', participant ? (voiceReadiness.ready ? 'READY' : (voiceReadiness.embeddingCount + '/3')) : '—'],
+    ['VOICE MATCH', track.voiceMatchConfidence ? Math.round(track.voiceMatchConfidence * 100) + '%' : '—'],
+    ['AUDIO', recentlySpoke ? 'SPEAKER CONFIRMED' : 'QUIET'],
+    ['BODY', track.participantId ? (track.status === 'occluded' ? 'MEMORY' : 'LOCK') : '—'],
+    ['GROUP', track.conversationGroupId || '—']
+  ];
+
+  for (const [label, value] of voiceRows) {
+    const row = document.createElement('span');
+    const key = document.createElement('i');
+    const val = document.createElement('b');
+    key.textContent = label;
+    val.textContent = value;
+    row.append(key, val);
+    voiceData.append(row);
+  }
+
+  card.append(top, body, voiceData);
 
   const actions = document.createElement('div');
   actions.className = 'participant-card-actions';
@@ -422,13 +447,14 @@ function renderRoomRadar(visibleTracks) {
     const dot = document.createElement('div');
     dot.className = 'radar-track ' + (track.participantId ? 'identified' : 'unknown');
     if (track.status === 'occluded') dot.classList.add('occluded');
+    if (track.lastVoiceAt && performance.now() - track.lastVoiceAt < 2600) dot.classList.add('speaking');
 
     dot.style.left = ((track.cx || 0.5) * 100) + '%';
     dot.style.top = ((track.cy || 0.5) * 100) + '%';
     dot.title = (track.participantName || 'Unknown') + ' · ' + track.id;
 
     const label = document.createElement('span');
-    label.textContent = track.participantName || track.id;
+    label.textContent = (track.participantName || track.id) + (track.conversationGroupId ? ' · ' + track.conversationGroupId : '');
     dot.append(label);
     ui.roomRadarTracks.append(dot);
   }
