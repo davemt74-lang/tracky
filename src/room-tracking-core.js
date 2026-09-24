@@ -244,3 +244,38 @@ export function roomPresenceState(track, now = 0) {
   if (bodyAge <= 1200) return 'body-detected';
   return 'reacquiring';
 }
+
+
+export function syntheticBodyFromFace(face) {
+  const faceBox = face?.box || { x: 0, y: 0, width: 0, height: 0, cx: 0.5, cy: 0.5 };
+  const width = clamp(Math.max(faceBox.width * 3.2, 0.18), 0.12, 0.55);
+  const height = clamp(Math.max(faceBox.height * 6.5, 0.48), 0.35, 0.95);
+  const x = clamp(faceBox.cx - width / 2, 0, 1 - width);
+  const y = clamp(faceBox.y - faceBox.height * 0.35, 0, 1 - height);
+  return {
+    raw: null,
+    box: {
+      x,
+      y,
+      width,
+      height,
+      cx: clamp(x + width / 2),
+      cy: clamp(y + height / 2)
+    },
+    score: Math.max(0.35, Number(face?.score || 0) * 0.75),
+    keypoints: [],
+    synthetic: true
+  };
+}
+
+export function augmentBodiesWithFaceFallbacks(faces, bodies) {
+  const output = [...(bodies || [])];
+  const assignments = associateFacesToBodies(faces, output);
+
+  for (let faceIndex = 0; faceIndex < (faces || []).length; faceIndex += 1) {
+    if (assignments.has(faceIndex)) continue;
+    output.push(syntheticBodyFromFace(faces[faceIndex]));
+  }
+
+  return output;
+}
