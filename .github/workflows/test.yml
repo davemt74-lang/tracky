@@ -25,17 +25,17 @@ jobs:
       - name: Build deploy ZIP
         shell: bash
         run: |
-          rm -rf dist tracky-v0.4-deploy.zip
-          mkdir -p dist/tracky-v0.4/src
-          cp index.html games.html vertical-motion.html participants.html app.js vertical-motion.js participants.js styles.css README.md package.json dist/tracky-v0.4/
-          cp src/tracker-core.js src/movement-core.js src/gameplay-core.js src/participant-core.js src/participant-store.js src/identity-engine.js dist/tracky-v0.4/src/
+          rm -rf dist tracky-v0.5-deploy.zip
+          mkdir -p dist/tracky-v0.5/src
+          cp index.html games.html vertical-motion.html participants.html app.js vertical-motion.js participants.js styles.css README.md package.json dist/tracky-v0.5/
+          cp src/tracker-core.js src/movement-core.js src/gameplay-core.js src/participant-core.js src/participant-store.js src/identity-engine.js src/room-tracking-core.js dist/tracky-v0.5/src/
           cd dist
-          zip -r ../tracky-v0.4-deploy.zip tracky-v0.4
+          zip -r ../tracky-v0.5-deploy.zip tracky-v0.5
 
       - name: Upload deploy ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: tracky-v0.4-deploy
-          path: tracky-v0.4-deploy.zip
+          name: tracky-v0.5-deploy
+          path: tracky-v0.5-deploy.zip
           if-no-files-found: error
           retention-days: 30
