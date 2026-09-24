@@ -93,6 +93,7 @@ function updatePhotos() {
 
 function clearForm() {
   state.editingId = null;
+  document.body.dataset.participantId = '';
   state.primaryPhoto = null;
   state.latestPhoto = null;
   state.embeddings = [];
@@ -174,6 +175,8 @@ async function loadParticipant(id) {
   if (!participant) return;
 
   state.editingId = participant.id;
+  document.body.dataset.participantId = participant.id;
+  window.dispatchEvent(new CustomEvent('tracky:participant-loaded', { detail: { participantId: participant.id } }));
   state.primaryPhoto = participant.primaryPhoto || null;
   state.latestPhoto = participant.latestPhoto || null;
   state.embeddings = (participant.embeddings || []).map((value) => Array.from(value));
@@ -382,6 +385,8 @@ async function saveForm() {
   });
 
   state.editingId = record.id;
+  document.body.dataset.participantId = record.id;
+  window.dispatchEvent(new CustomEvent('tracky:participant-saved', { detail: { participantId: record.id } }));
   ui.formModeLabel.textContent = 'PARTICIPANT PROFILE';
   ui.formTitle.textContent = record.name;
   ui.delete.hidden = false;
@@ -446,3 +451,8 @@ window.addEventListener('beforeunload', stopCamera);
 clearForm();
 await reloadParticipants();
 await loadPendingFromUrl();
+
+
+window.addEventListener('tracky:participant-voice-updated', async () => {
+  await reloadParticipants();
+});
