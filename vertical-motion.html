@@ -30,8 +30,13 @@
 
     <aside class="room-identity-hud" aria-label="Detected participants">
       <div class="room-identity-head">
-        <div><small>ROOM IDENTITY</small><strong>Participant scan</strong></div>
+        <div><small>ROOM IDENTITY · FULL BODY</small><strong>Persistent participant tracking</strong></div>
         <span class="hud-pulse" aria-hidden="true"></span>
+      </div>
+      <div class="room-radar" id="roomRadar" aria-label="Live room body positions">
+        <div class="radar-crosshair" aria-hidden="true"></div>
+        <div id="roomRadarTracks" class="room-radar-tracks"></div>
+        <span class="radar-label">ROOM MAP</span>
       </div>
       <div id="participantCards" class="room-participant-cards" aria-live="polite"></div>
       <div id="participantHudEmpty" class="participant-hud-empty">
