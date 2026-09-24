@@ -1,4 +1,4 @@
-import { clamp, cosineSimilarity } from './participant-core.js';
+import { clamp, cosineSimilarity, robustProfileSimilarity } from './participant-core.js';
 
 export const VOICE_MATCH_THRESHOLD = 0.72;
 export const CONVERSATION_DISTANCE = 0.28;
@@ -39,15 +39,12 @@ export function bestVoiceMatch(
 
   for (const participant of participants || []) {
     if (participant.voiceRecognitionEnabled === false) continue;
+    if (!voiceProfileReadiness(participant).ready) continue;
 
-    let participantBest = 0;
-    for (const reference of participant.voiceEmbeddings || []) {
-      participantBest = Math.max(participantBest, cosineSimilarity(embedding, reference));
-    }
-
-    if (participantBest > 0) {
-      candidates.push({ participant, similarity: participantBest });
-    }
+    candidates.push({
+      participant,
+      similarity: robustProfileSimilarity(embedding, participant.voiceEmbeddings || [])
+    });
   }
 
   candidates.sort((a, b) => b.similarity - a.similarity);
@@ -115,11 +112,31 @@ export function transcriptSignalGate(input = {}) {
   };
 }
 
+export function trackSpatialPoint(track) {
+  const box = track?.box;
+  if (box && Number.isFinite(box.x) && Number.isFinite(box.y)) {
+    const height = Math.max(0.05, Number(box.height || 0.5));
+    return {
+      x: Number.isFinite(box.cx) ? box.cx : box.x + Number(box.width || 0) / 2,
+      y: box.y + height,
+      height
+    };
+  }
+
+  return {
+    x: Number(track?.cx ?? 0.5),
+    y: Number(track?.cy ?? 0.5),
+    height: 0.5
+  };
+}
+
 export function trackDistance(a, b) {
-  return Math.hypot(
-    Number(a?.cx ?? 0.5) - Number(b?.cx ?? 0.5),
-    Number(a?.cy ?? 0.5) - Number(b?.cy ?? 0.5)
-  );
+  const pa = trackSpatialPoint(a);
+  const pb = trackSpatialPoint(b);
+  const horizontal = Math.abs(pa.x - pb.x);
+  const groundDepth = Math.abs(pa.y - pb.y) * 0.55;
+  const scaleMismatch = Math.min(1, Math.abs(Math.log(pa.height / pb.height))) * 0.18;
+  return Math.hypot(horizontal, groundDepth) + scaleMismatch;
 }
 
 export function nearbyParticipants(tracks, sourceTrack, maxDistance = CONVERSATION_DISTANCE) {
@@ -204,6 +221,64 @@ export function acknowledgeNewTrack(track, knownParticipant = null) {
     message: knownParticipant
       ? 'Participant recognized: ' + knownParticipant.name
       : 'New participant tracked: ' + track.id
+  };
+}
+
+export function voiceEnrollmentConsistency(
+  embedding,
+  existingEmbeddings,
+  minSimilarity = 0.65
+) {
+  const references = existingEmbeddings || [];
+  if (!references.length) {
+    return { accept: true, similarity: 1, reason: 'first-sample' };
+  }
+
+  const similarity = robustProfileSimilarity(embedding, references);
+  return {
+    accept: similarity >= minSimilarity,
+    similarity,
+    reason: similarity >= minSimilarity ? 'consistent' : 'speaker-mismatch'
+  };
+}
+
+export function assessVoiceSampleLevels(levels, options = {}) {
+  const clean = (levels || []).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!clean.length) {
+    return {
+      accept: false,
+      peakDb: -100,
+      averageDb: -100,
+      noiseFloorDb: -100,
+      speechFraction: 0,
+      signalDb: 0
+    };
+  }
+
+  const peakDb = clean[clean.length - 1];
+  const averageDb = clean.reduce((sum, value) => sum + value, 0) / clean.length;
+  const floorIndex = Math.min(clean.length - 1, Math.floor(clean.length * 0.25));
+  const noiseFloorDb = clean[floorIndex];
+  const speechThresholdDb = Math.max(
+    options.minAbsoluteSpeechDb ?? -50,
+    noiseFloorDb + (options.minSignalDb ?? 9)
+  );
+  const speechFrames = clean.filter((value) => value >= speechThresholdDb).length;
+  const speechFraction = speechFrames / clean.length;
+  const signalDb = peakDb - noiseFloorDb;
+  const accept = (
+    peakDb >= (options.minPeakDb ?? -48) &&
+    signalDb >= (options.minSignalDb ?? 9) &&
+    speechFraction >= (options.minSpeechFraction ?? 0.20)
+  );
+
+  return {
+    accept,
+    peakDb,
+    averageDb,
+    noiseFloorDb,
+    speechFraction,
+    signalDb
   };
 }
 
