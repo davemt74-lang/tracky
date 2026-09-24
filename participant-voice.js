@@ -33,6 +33,7 @@ const state = {
   engine: new VoiceIdentityEngine(),
   capture: new MicrophoneCapture(),
   recording: false,
+  recordingParticipantId: null,
   recordStartedAt: 0,
   meterRaf: 0,
   autoStopTimer: 0,
@@ -116,7 +117,28 @@ function render() {
   }
 }
 
+async function cancelRecordingForProfileChange() {
+  if (!state.recording) return;
+
+  state.recording = false;
+  state.recordingParticipantId = null;
+  cancelAnimationFrame(state.meterRaf);
+  clearTimeout(state.autoStopTimer);
+  state.capture.stopStream();
+  state.levels = [];
+  ui.liveDb.textContent = '— dB';
+  ui.progress.style.width = '0%';
+  renderBars(-100);
+}
+
 async function loadParticipant(participantId) {
+  if (
+    state.recording &&
+    participantId !== state.recordingParticipantId
+  ) {
+    await cancelRecordingForProfileChange();
+  }
+
   if (!participantId) {
     state.participant = null;
     state.stage = 'idle';
@@ -168,6 +190,7 @@ async function startRecording() {
   try {
     await state.capture.start();
     state.recording = true;
+    state.recordingParticipantId = state.participant.id;
     state.recordStartedAt = performance.now();
     state.levels = [];
     ui.progress.style.width = '0%';
@@ -188,7 +211,9 @@ async function startRecording() {
 async function stopRecording() {
   if (!state.recording) return;
 
+  const recordingParticipantId = state.recordingParticipantId;
   state.recording = false;
+  state.recordingParticipantId = null;
   cancelAnimationFrame(state.meterRaf);
   clearTimeout(state.autoStopTimer);
 
@@ -224,7 +249,13 @@ async function stopRecording() {
     setStage('extracting voice identity', 'Converting the clean speech sample into a local speaker signature.');
     const embedding = await extractVoiceEmbedding(state.engine, sample.blob);
 
-    const current = await getParticipant(state.participant.id);
+    const current = recordingParticipantId
+      ? await getParticipant(recordingParticipantId)
+      : null;
+    if (!current) {
+      setStage('profile changed', 'The participant changed before this sample completed, so the sample was discarded.');
+      return;
+    }
     const consistency = voiceEnrollmentConsistency(
       embedding,
       current.voiceEmbeddings || []
@@ -303,7 +334,12 @@ ui.recognition.addEventListener('change', saveRecognitionPreference);
 
 window.addEventListener('tracky:participant-loaded', (event) => loadParticipant(event.detail.participantId));
 window.addEventListener('tracky:participant-saved', (event) => loadParticipant(event.detail.participantId));
-window.addEventListener('beforeunload', () => state.capture.stopStream());
+window.addEventListener('tracky:participant-cleared', () => loadParticipant(''));
+window.addEventListener('beforeunload', () => {
+  state.recording = false;
+  state.recordingParticipantId = null;
+  state.capture.stopStream();
+});
 
 const initialId = document.body.dataset.participantId || '';
 await loadParticipant(initialId);
