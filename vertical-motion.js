@@ -646,44 +646,48 @@ function renderDialogueTurns() {
 
 async function ensureSpeakerEngine() {
   if (state.voice.speakerReady) return true;
-  if (state.voice.speakerLoading) return false;
 
-  state.voice.speakerLoading = true;
-  renderVoiceHud();
+  const ownsLoadingState = !state.voice.speakerLoading;
+  if (ownsLoadingState) {
+    state.voice.speakerLoading = true;
+    renderVoiceHud();
+  }
 
   try {
     await state.voice.engine.init();
     state.voice.speakerReady = true;
-    pushRoomEvent('Voice Profile engine online.', 'system');
+    if (ownsLoadingState) pushRoomEvent('Voice Profile engine online.', 'system');
     return true;
   } catch (error) {
     console.error(error);
-    pushRoomEvent('Voice Profile engine could not load.', 'error');
+    if (ownsLoadingState) pushRoomEvent('Voice Profile engine could not load.', 'error');
     return false;
   } finally {
-    state.voice.speakerLoading = false;
+    if (ownsLoadingState) state.voice.speakerLoading = false;
     renderVoiceHud();
   }
 }
 
 async function ensureTranscriptionEngine() {
   if (state.voice.transcriptReady) return true;
-  if (state.voice.transcriptLoading) return false;
 
-  state.voice.transcriptLoading = true;
-  renderVoiceHud();
+  const ownsLoadingState = !state.voice.transcriptLoading;
+  if (ownsLoadingState) {
+    state.voice.transcriptLoading = true;
+    renderVoiceHud();
+  }
 
   try {
     await state.voice.transcriber.init();
     state.voice.transcriptReady = true;
-    pushRoomEvent('Local transcription engine online.', 'system');
+    if (ownsLoadingState) pushRoomEvent('Local transcription engine online.', 'system');
     return true;
   } catch (error) {
     console.error(error);
-    pushRoomEvent('Local transcription model could not load.', 'error');
+    if (ownsLoadingState) pushRoomEvent('Local transcription model could not load.', 'error');
     return false;
   } finally {
-    state.voice.transcriptLoading = false;
+    if (ownsLoadingState) state.voice.transcriptLoading = false;
     renderVoiceHud();
   }
 }
