@@ -75,6 +75,18 @@ export class MicrophoneCapture {
   async start() {
     this.stopStream();
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Microphone capture is not supported in this browser.');
+    }
+    if (!window.MediaRecorder) {
+      throw new Error('MediaRecorder is not supported in this browser.');
+    }
+
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw new Error('Web Audio is not supported in this browser.');
+    }
+
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -85,7 +97,10 @@ export class MicrophoneCapture {
       video: false
     });
 
-    this.context = new AudioContext();
+    this.context = new AudioContextCtor();
+    if (this.context.state === 'suspended') {
+      await this.context.resume().catch(() => {});
+    }
     this.source = this.context.createMediaStreamSource(this.stream);
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 2048;
@@ -97,9 +112,12 @@ export class MicrophoneCapture {
       'audio/webm;codecs=opus',
       'audio/webm',
       'audio/ogg;codecs=opus'
-    ].find((type) => MediaRecorder.isTypeSupported(type)) || '';
+    ].find((type) => window.MediaRecorder.isTypeSupported?.(type)) || '';
 
-    this.mediaRecorder = new MediaRecorder(this.stream, mimeType ? { mimeType } : undefined);
+    this.mediaRecorder = new window.MediaRecorder(
+      this.stream,
+      mimeType ? { mimeType } : undefined
+    );
     this.mediaRecorder.addEventListener('dataavailable', (event) => {
       if (event.data?.size) this.chunks.push(event.data);
     });
@@ -146,8 +164,16 @@ export class MicrophoneCapture {
 }
 
 export async function decodeAndResample(blob, targetRate = TARGET_SAMPLE_RATE) {
+  if (!blob?.arrayBuffer) throw new Error('Invalid recorded voice sample.');
+
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  const OfflineAudioContextCtor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!AudioContextCtor || !OfflineAudioContextCtor) {
+    throw new Error('Web Audio decoding is not supported in this browser.');
+  }
+
   const arrayBuffer = await blob.arrayBuffer();
-  const context = new AudioContext();
+  const context = new AudioContextCtor();
   try {
     const decoded = await context.decodeAudioData(arrayBuffer.slice(0));
     const source = decoded.numberOfChannels === 1
@@ -157,7 +183,7 @@ export async function decodeAndResample(blob, targetRate = TARGET_SAMPLE_RATE) {
     if (decoded.sampleRate === targetRate) return Float32Array.from(source);
 
     const targetLength = Math.ceil(source.length * targetRate / decoded.sampleRate);
-    const offline = new OfflineAudioContext(1, targetLength, targetRate);
+    const offline = new OfflineAudioContextCtor(1, targetLength, targetRate);
     const buffer = offline.createBuffer(1, source.length, decoded.sampleRate);
     buffer.copyToChannel(source, 0);
     const node = offline.createBufferSource();
