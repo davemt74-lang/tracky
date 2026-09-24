@@ -7,6 +7,7 @@ import {
   attachFacesToTracks,
   bodyDetection,
   carryOccludedTracks,
+  dedupeParticipantAssignments,
   roomPresenceState
 } from '../src/room-tracking-core.js';
 
@@ -128,4 +129,31 @@ test('motion prediction helps preserve IDs when two people cross paths', () => {
   const p1 = next.find((track) => track.participantId === 'p1');
   const p2 = next.find((track) => track.participantId === 'p2');
   assert.ok(p1.cx > p2.cx);
+});
+
+
+test('dedupeParticipantAssignments keeps the freshest live identity track', () => {
+  const tracks = [
+    {
+      id:'T001',
+      participantId:'p1',
+      participantName:'Dave',
+      status:'occluded',
+      lastBodySeenAt:1000,
+      similarity:0.91,
+      face:null
+    },
+    {
+      id:'T002',
+      participantId:'p1',
+      participantName:'Dave',
+      status:'matched',
+      lastBodySeenAt:2000,
+      similarity:0.88,
+      face:{}
+    }
+  ];
+  const result = dedupeParticipantAssignments(tracks);
+  assert.equal(result[1].participantId, 'p1');
+  assert.equal(result[0].participantId, null);
 });

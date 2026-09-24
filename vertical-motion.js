@@ -12,6 +12,7 @@ import {
   augmentBodiesWithFaceFallbacks,
   attachFacesToTracks,
   carryOccludedTracks,
+  dedupeParticipantAssignments,
   roomPresenceState
 } from './src/room-tracking-core.js';
 import { IdentityEngine, cropFacePhoto } from './src/identity-engine.js';
@@ -27,6 +28,9 @@ import {
 import { VoiceIdentityEngine } from './src/voice-engine.js';
 import { LocalTranscriptionEngine, RoomAudioCapture } from './src/room-audio-engine.js';
 import {
+  clearDialogueTurns,
+  deleteDialogueTurn,
+  listDialogueTurns,
   listParticipants,
   patchParticipant,
   saveDialogueTurn,
@@ -57,6 +61,7 @@ const ui = {
   roomNoiseDb: $('#roomNoiseDb'),
   roomVadState: $('#roomVadState'),
   roomVoiceModel: $('#roomVoiceModel'),
+  roomAudioPath: $('#roomAudioPath'),
   roomSpeaker: $('#roomSpeaker'),
   roomVoiceConfidence: $('#roomVoiceConfidence'),
   roomBodyLock: $('#roomBodyLock'),
@@ -66,6 +71,7 @@ const ui = {
   dialogueTurns: $('#dialogueTurns'),
   startRoomAudio: $('#startRoomAudio'),
   stopRoomAudio: $('#stopRoomAudio'),
+  clearDialogue: $('#clearDialogue'),
   liveTranscription: $('#liveTranscription'),
   voiceAcknowledgements: $('#voiceAcknowledgements'),
   mirror: $('#mirrorCamera'),
@@ -147,7 +153,10 @@ const state = {
       : 'room-' + Date.now().toString(36),
     queue: [],
     lastDecision: 'standby',
-    rejectedSegments: 0
+    rejectedSegments: 0,
+    ttsPending: 0,
+    captureMode: 'offline',
+    generation: 0
   }
 };
 
@@ -157,6 +166,7 @@ const MAX_TRACE_SAMPLES = 600;
 const MICRO_THRESHOLD = 0.015;
 const IDENTITY_SCAN_INTERVAL = 650;
 const TRACK_GRACE_MS = BODY_OCCLUSION_GRACE_MS;
+const PHOTO_REFRESH_INTERVAL_MS = 5000;
 
 function detectOptions() {
   return {
@@ -205,6 +215,14 @@ function setCursor(x, y, visible) {
   ui.cursor.hidden = false;
 }
 
+function setGameInstructions(title, detail) {
+  const strong = document.createElement('strong');
+  strong.textContent = title;
+  const span = document.createElement('span');
+  span.textContent = detail;
+  ui.instructions.replaceChildren(strong, span);
+}
+
 function renderGame() {
   const game = state.game;
   const targetNodes = ui.lane.querySelectorAll('[data-target-zone]');
@@ -229,24 +247,42 @@ function renderGame() {
   ui.startGame.textContent = game.over ? 'Play again' : 'Start game';
 
   if (game.over) {
-    ui.instructions.innerHTML = '<strong>Game over — ' + game.score + ' points.</strong><span>You reached your selected point goal. Press Play again for a new game.</span>';
+    setGameInstructions(
+      'Game over — ' + game.score + ' points.',
+      'You reached your selected point goal. Press Play again for a new game.'
+    );
     return;
   }
 
   if (!game.active) {
-    ui.instructions.innerHTML = '<strong>Choose your point goal and start the game.</strong><span>Each highlighted section cleared is worth one point.</span>';
+    setGameInstructions(
+      'Choose your point goal and start the game.',
+      'Each highlighted section cleared is worth one point.'
+    );
     return;
   }
 
   const zoneNumber = game.activeZone + 1;
   if (game.lastEvent === 'outside-zone') {
-    ui.instructions.innerHTML = '<strong>Move into Zone ' + zoneNumber + '.</strong><span>Only complete up → down reps inside the highlighted section count.</span>';
+    setGameInstructions(
+      'Move into Zone ' + zoneNumber + '.',
+      'Only complete up → down reps inside the highlighted section count.'
+    );
   } else if (game.lastEvent === 'rep') {
-    ui.instructions.innerHTML = '<strong>' + game.repsRemaining + ' reps left in Zone ' + zoneNumber + '.</strong><span>Keep the up → down rhythm inside the highlighted section.</span>';
+    setGameInstructions(
+      game.repsRemaining + ' reps left in Zone ' + zoneNumber + '.',
+      'Keep the up → down rhythm inside the highlighted section.'
+    );
   } else if (game.lastEvent === 'round-start') {
-    ui.instructions.innerHTML = '<strong>Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps.</strong><span>Complete up → down cycles inside the highlighted section.</span>';
+    setGameInstructions(
+      'Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps.',
+      'Complete up → down cycles inside the highlighted section.'
+    );
   } else {
-    ui.instructions.innerHTML = '<strong>Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps left.</strong><span>Complete up → down cycles inside the highlighted section.</span>';
+    setGameInstructions(
+      'Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps left.',
+      'Complete up → down cycles inside the highlighted section.'
+    );
   }
 }
 
@@ -255,7 +291,7 @@ async function enumerateCameras() {
   const cameras = devices.filter((d) => d.kind === 'videoinput');
   const current = ui.select.value;
 
-  ui.select.innerHTML = '';
+  ui.select.replaceChildren();
   cameras.forEach((camera, index) => {
     const option = document.createElement('option');
     option.value = camera.deviceId;
@@ -517,11 +553,41 @@ function renderRoomEvents() {
 
 function speakAcknowledgement(message) {
   if (!ui.voiceAcknowledgements.checked || !('speechSynthesis' in window)) return;
+
+  state.voice.ttsPending += 1;
+  state.voice.audio?.setSuppressed(true);
+
   const utterance = new SpeechSynthesisUtterance(message);
   utterance.rate = 1.02;
   utterance.pitch = 0.92;
   utterance.volume = 0.72;
-  speechSynthesis.speak(utterance);
+
+  let released = false;
+  let safetyTimer = 0;
+  const releaseMic = () => {
+    if (released) return;
+    released = true;
+    clearTimeout(safetyTimer);
+    state.voice.ttsPending = Math.max(0, state.voice.ttsPending - 1);
+    if (state.voice.ttsPending !== 0) return;
+
+    setTimeout(() => {
+      if (state.voice.ttsPending === 0) {
+        state.voice.audio?.setSuppressed(false);
+      }
+    }, 350);
+  };
+
+  safetyTimer = setTimeout(releaseMic, 12000);
+  utterance.addEventListener('end', releaseMic, { once: true });
+  utterance.addEventListener('error', releaseMic, { once: true });
+
+  try {
+    speechSynthesis.speak(utterance);
+  } catch (error) {
+    console.error(error);
+    releaseMic();
+  }
 }
 
 function pushRoomEvent(message, type = 'info', speak = false) {
@@ -572,6 +638,11 @@ function renderVoiceHud() {
     : state.voice.speakerLoading
       ? 'Loading…'
       : 'Standby';
+  ui.roomAudioPath.textContent = state.voice.captureMode === 'audio-worklet'
+    ? 'AudioWorklet'
+    : state.voice.captureMode === 'script-processor-fallback'
+      ? 'Compatibility'
+      : 'Offline';
   ui.roomSpeaker.textContent = state.voice.currentSpeakerName || '—';
   ui.roomVoiceConfidence.textContent = state.voice.currentVoiceConfidence
     ? Math.round(state.voice.currentVoiceConfidence * 100) + '%'
@@ -702,22 +773,35 @@ function onRoomAudioLevel(level) {
   state.voice.micDb = level.db;
   state.voice.noiseFloorDb = level.noiseFloorDb;
   state.voice.vad = level.speaking;
+  state.voice.captureMode = level.captureMode || state.voice.captureMode;
   renderVoiceHud();
 }
 
+function voiceSegmentIsCurrent(segment) {
+  return Boolean(
+    state.voice.active &&
+    segment?.generation === state.voice.generation
+  );
+}
+
 async function processRoomSegment(segment) {
+  if (!voiceSegmentIsCurrent(segment)) return;
   state.voice.processing = true;
   renderVoiceHud();
 
   try {
     const speakerReady = await ensureSpeakerEngine();
-    if (!speakerReady) return;
+    if (!speakerReady || !voiceSegmentIsCurrent(segment)) return;
 
     const embedding = await state.voice.engine.embedding(segment.samples);
+    if (!voiceSegmentIsCurrent(segment)) return;
+
     const voiceMatch = bestVoiceMatch(embedding, state.identity.participants);
     const participant = voiceMatch.matched ? voiceMatch.participant : null;
+    const roomTracks = segment.roomTracks || [];
+    const roomGroups = buildConversationGroups(roomTracks);
     const track = participant
-      ? state.identity.tracks.find((candidate) => candidate.participantId === participant.id)
+      ? roomTracks.find((candidate) => candidate.participantId === participant.id)
       : null;
 
     const bodyConfirmed = Boolean(track);
@@ -735,7 +819,7 @@ async function processRoomSegment(segment) {
     let nearbyIds = [];
 
     if (track) {
-      group = conversationGroupForTrack(state.voice.groups, track.id);
+      group = conversationGroupForTrack(roomGroups, track.id);
       nearbyNames = (group?.tracks || [])
         .filter((candidate) => candidate.id !== track.id)
         .map((candidate) => candidate.participantName || candidate.id)
@@ -745,7 +829,11 @@ async function processRoomSegment(segment) {
         .map((candidate) => candidate.participantId)
         .filter(Boolean);
 
-      const liveTrack = state.identity.tracks.find((candidate) => candidate.id === track.id);
+      const liveTrack = state.identity.tracks.find(
+        (candidate) =>
+          candidate.id === track.id &&
+          candidate.participantId === participant?.id
+      );
       if (liveTrack) {
         liveTrack.voiceMatchConfidence = voiceMatch.similarity;
         liveTrack.lastVoiceAt = performance.now();
@@ -773,8 +861,9 @@ async function processRoomSegment(segment) {
     let transcript = '';
     if (ui.liveTranscription.checked) {
       const transcriptReady = await ensureTranscriptionEngine();
-      if (transcriptReady) {
+      if (transcriptReady && voiceSegmentIsCurrent(segment)) {
         transcript = await state.voice.transcriber.transcribe(segment.samples);
+        if (!voiceSegmentIsCurrent(segment)) return;
       }
     }
 
@@ -801,12 +890,19 @@ async function processRoomSegment(segment) {
     if (state.voice.turns.length > 50) state.voice.turns.splice(0, state.voice.turns.length - 50);
     state.voice.lastDecision = 'accepted';
 
+    if (!voiceSegmentIsCurrent(segment)) return;
+
     try {
-      await saveDialogueTurn({
+      const savedTurn = await saveDialogueTurn({
         ...turn,
         sessionId: state.voice.sessionId,
         createdAt: new Date().toISOString()
       });
+
+      if (!voiceSegmentIsCurrent(segment)) {
+        await deleteDialogueTurn(savedTurn.id).catch(() => {});
+        return;
+      }
     } catch (error) {
       console.error('Could not persist dialogue turn', error);
     }
@@ -831,15 +927,58 @@ async function drainRoomAudioQueue() {
   if (state.voice.queue.length) void drainRoomAudioQueue();
 }
 
+function roomTrackSnapshot() {
+  return state.identity.tracks.map((track) => ({
+    id: track.id,
+    participantId: track.participantId || null,
+    participantName: track.participantName || null,
+    cx: track.cx,
+    cy: track.cy,
+    status: track.status,
+    box: track.box ? { ...track.box } : null
+  }));
+}
+
 function onRoomAudioSegment(segment) {
-  state.voice.queue.push(segment);
+  state.voice.queue.push({
+    ...segment,
+    generation: state.voice.generation,
+    roomTracks: roomTrackSnapshot()
+  });
   if (state.voice.queue.length > 6) state.voice.queue.splice(0, state.voice.queue.length - 6);
   void drainRoomAudioQueue();
+}
+
+async function loadSavedDialogue() {
+  try {
+    const rows = await listDialogueTurns();
+    state.voice.turns = rows.slice(-50);
+  } catch (error) {
+    console.error('Could not load saved dialogue', error);
+  }
+  renderDialogueTurns();
+}
+
+async function clearSavedDialogue() {
+  if (!window.confirm('Clear all locally saved dialogue and transcript turns on this device?')) return;
+
+  try {
+    state.voice.generation += 1;
+    state.voice.queue = [];
+    await clearDialogueTurns();
+    state.voice.turns = [];
+    renderDialogueTurns();
+    pushRoomEvent('Saved dialogue history cleared from this device.', 'system');
+  } catch (error) {
+    console.error(error);
+    pushRoomEvent('Saved dialogue history could not be cleared.', 'error');
+  }
 }
 
 async function startRoomAudio() {
   if (state.voice.active) return;
 
+  state.voice.generation += 1;
   try {
     await reloadIdentityParticipants();
     state.voice.audio = new RoomAudioCapture({
@@ -850,6 +989,8 @@ async function startRoomAudio() {
     });
 
     await state.voice.audio.start();
+    state.voice.captureMode = state.voice.audio.captureMode;
+    if (state.voice.ttsPending > 0) state.voice.audio.setSuppressed(true);
     state.voice.active = true;
     state.voice.lastDecision = 'listening';
     ui.startRoomAudio.disabled = true;
@@ -872,7 +1013,8 @@ async function startRoomAudio() {
 }
 
 function stopRoomAudio() {
-  state.voice.audio?.stop();
+  state.voice.generation += 1;
+  void state.voice.audio?.stop();
   state.voice.audio = null;
   state.voice.active = false;
   state.voice.vad = false;
@@ -882,6 +1024,7 @@ function stopRoomAudio() {
   state.voice.currentVoiceConfidence = 0;
   state.voice.currentBodyLock = false;
   state.voice.currentGroupId = null;
+  state.voice.captureMode = 'offline';
   state.voice.queue = [];
   ui.startRoomAudio.disabled = false;
   ui.stopRoomAudio.disabled = true;
@@ -932,10 +1075,13 @@ async function createParticipantFromTrack(track) {
   }
 }
 
-async function resolveTrackIdentity(track) {
+async function resolveTrackIdentity(track, excludedParticipantIds = new Set()) {
   if (!track.embedding || track.status === 'matched') return track;
 
-  const blocked = new Set(track.blockedParticipantIds || []);
+  const blocked = new Set([
+    ...(track.blockedParticipantIds || []),
+    ...excludedParticipantIds
+  ]);
   const candidates = state.identity.participants.filter((participant) => !blocked.has(participant.id));
   const match = bestParticipantMatch(track.embedding, candidates);
 
@@ -1008,7 +1154,14 @@ async function scanRoom(now) {
       }
 
       if (track.participantId) {
-        const photo = track.quality >= 0.52
+        const shouldRefreshPhoto = (
+          track.quality >= 0.52 &&
+          (
+            !track.latestPhoto ||
+            now - Number(track.lastPhotoCaptureAt || 0) >= PHOTO_REFRESH_INTERVAL_MS
+          )
+        );
+        const photo = shouldRefreshPhoto
           ? cropFacePhoto(ui.video, track.face.box, {
               mirror: ui.mirror.checked,
               size: 260,
@@ -1020,19 +1173,31 @@ async function scanRoom(now) {
           ...track,
           status: 'matched',
           scanProgress: 100,
-          latestPhoto: photo || track.latestPhoto
+          latestPhoto: photo || track.latestPhoto,
+          lastPhotoCaptureAt: photo ? now : track.lastPhotoCaptureAt
         };
       }
 
       const advanced = advanceScan(track, { minQuality: 0.48, increment: 24, decay: 7 });
       if (track.status === 'new' && advanced.scanProgress >= 100) advanced.status = 'new';
 
-      if (advanced.quality >= 0.52 && advanced.face?.box) {
-        advanced.latestPhoto = cropFacePhoto(ui.video, advanced.face.box, {
+      if (
+        advanced.quality >= 0.52 &&
+        advanced.face?.box &&
+        (
+          !advanced.latestPhoto ||
+          now - Number(advanced.lastPhotoCaptureAt || 0) >= PHOTO_REFRESH_INTERVAL_MS
+        )
+      ) {
+        const photo = cropFacePhoto(ui.video, advanced.face.box, {
           mirror: ui.mirror.checked,
           size: 260,
           quality: 0.82
-        }) || track.latestPhoto;
+        });
+        if (photo) {
+          advanced.latestPhoto = photo;
+          advanced.lastPhotoCaptureAt = now;
+        }
       }
 
       return advanced;
@@ -1041,6 +1206,12 @@ async function scanRoom(now) {
     const carried = carryOccludedTracks(previous, liveTracks, now, TRACK_GRACE_MS);
 
     const resolved = [];
+    const claimedParticipantIds = new Set(
+      liveTracks
+        .filter((track) => track.participantId)
+        .map((track) => track.participantId)
+    );
+
     for (const track of liveTracks) {
       if (
         track.scanProgress >= 100 &&
@@ -1048,13 +1219,27 @@ async function scanRoom(now) {
         !track.participantId &&
         track.status !== 'new'
       ) {
-        resolved.push(await resolveTrackIdentity(track));
+        const matchedTrack = await resolveTrackIdentity(track, claimedParticipantIds);
+        if (matchedTrack.participantId) claimedParticipantIds.add(matchedTrack.participantId);
+        resolved.push(matchedTrack);
       } else {
         resolved.push(track);
       }
     }
 
-    state.identity.tracks = [...resolved, ...carried];
+    const liveParticipantIds = new Set(
+      resolved
+        .filter((track) => track.participantId)
+        .map((track) => track.participantId)
+    );
+    const nonConflictingCarried = carried.filter(
+      (track) => !track.participantId || !liveParticipantIds.has(track.participantId)
+    );
+
+    state.identity.tracks = dedupeParticipantAssignments([
+      ...resolved,
+      ...nonConflictingCarried
+    ]);
     updateConversationGroups();
     acknowledgeRoomTracks(now);
 
@@ -1258,8 +1443,10 @@ function loop(now) {
   const videoWidth = ui.video.videoWidth || 1280;
   const videoHeight = ui.video.videoHeight || 720;
   const aspect = videoWidth / videoHeight;
-  ui.trackingCanvas.width = 320;
-  ui.trackingCanvas.height = Math.max(180, Math.round(320 / aspect));
+  const trackingWidth = 320;
+  const trackingHeight = Math.max(180, Math.round(trackingWidth / aspect));
+  if (ui.trackingCanvas.width !== trackingWidth) ui.trackingCanvas.width = trackingWidth;
+  if (ui.trackingCanvas.height !== trackingHeight) ui.trackingCanvas.height = trackingHeight;
 
   ctx.drawImage(ui.video, 0, 0, ui.trackingCanvas.width, ui.trackingCanvas.height);
   const image = ctx.getImageData(0, 0, ui.trackingCanvas.width, ui.trackingCanvas.height);
@@ -1316,6 +1503,7 @@ function loop(now) {
 ui.start.addEventListener('click', () => startCamera(ui.select.value));
 ui.startRoomAudio.addEventListener('click', startRoomAudio);
 ui.stopRoomAudio.addEventListener('click', stopRoomAudio);
+ui.clearDialogue.addEventListener('click', clearSavedDialogue);
 ui.stop.addEventListener('click', () => {
   if (state.game.active) endGameplay();
   stopCamera();
@@ -1348,6 +1536,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 await reloadIdentityParticipants();
+await loadSavedDialogue();
 updateConversationGroups();
 renderParticipantCards();
 renderRoomEvents();

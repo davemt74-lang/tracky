@@ -1,11 +1,13 @@
 {
   "name": "tracky",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Camera-based real-world object tracking input for browser games.",
   "scripts": {
-    "test": "node --test && node --check app.js && node --check vertical-motion.js && node --check participants.js && node --check participant-voice.js && node --check src/gameplay-core.js && node --check src/participant-core.js && node --check src/participant-store.js && node --check src/identity-engine.js && node --check src/room-tracking-core.js && node --check src/voice-core.js && node --check src/voice-engine.js && node --check src/room-audio-engine.js",
+    "test": "node --test && node --check app.js && node --check vertical-motion.js && node --check participants.js && node --check participant-voice.js && node --check src/tracker-core.js && node --check src/movement-core.js && node --check src/gameplay-core.js && node --check src/participant-core.js && node --check src/participant-store.js && node --check src/identity-engine.js && node --check src/room-tracking-core.js && node --check src/voice-core.js && node --check src/voice-engine.js && node --check src/room-audio-engine.js && node --check src/room-audio-worklet.js && node --check src/model-config.js",
+    "audit": "node scripts/audit.mjs",
+    "validate": "npm test && npm run audit",
     "serve": "python -m http.server 8080"
   }
 }

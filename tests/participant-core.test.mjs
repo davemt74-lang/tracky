@@ -6,7 +6,8 @@ import {
   bestParticipantMatch,
   cosineSimilarity,
   faceQuality,
-  normalizeBox
+  normalizeBox,
+  robustProfileSimilarity
 } from '../src/participant-core.js';
 
 test('normalizeBox converts pixel boxes into normalized coordinates', () => {
@@ -31,8 +32,8 @@ test('cosineSimilarity identifies identical embeddings', () => {
 
 test('bestParticipantMatch chooses enrolled participant above threshold', () => {
   const participants = [
-    { id: 'a', name: 'A', embeddings: [[1, 0, 0]], recognitionEnabled: true },
-    { id: 'b', name: 'B', embeddings: [[0, 1, 0]], recognitionEnabled: true }
+    { id: 'a', name: 'A', embeddings: [[1, 0, 0], [0.99, 0.02, 0], [0.98, 0.04, 0]], recognitionEnabled: true },
+    { id: 'b', name: 'B', embeddings: [[0, 1, 0], [0.02, 0.99, 0], [0.04, 0.98, 0]], recognitionEnabled: true }
   ];
   const match = bestParticipantMatch([0.99, 0.05, 0], participants, 0.8);
   assert.equal(match.matched, true);
@@ -40,7 +41,7 @@ test('bestParticipantMatch chooses enrolled participant above threshold', () => 
 });
 
 test('bestParticipantMatch refuses weak match', () => {
-  const participants = [{ id: 'a', embeddings: [[1, 0]], recognitionEnabled: true }];
+  const participants = [{ id: 'a', embeddings: [[1, 0], [0.99, 0.01], [0.98, 0.02]], recognitionEnabled: true }];
   const match = bestParticipantMatch([0, 1], participants, 0.8);
   assert.equal(match.matched, false);
 });
@@ -79,4 +80,31 @@ test('advanceScan reaches ready state with repeated high-quality samples', () =>
   for (let i = 0; i < 6; i += 1) track = advanceScan(track, { increment: 20 });
   assert.equal(track.scanProgress, 100);
   assert.equal(track.status, 'ready');
+});
+
+
+test('robustProfileSimilarity does not trust one outlier reference', () => {
+  const score = robustProfileSimilarity(
+    [1, 0],
+    [[1, 0], [0, 1], [0, 1]],
+    2
+  );
+  assert.ok(score < 0.6);
+});
+
+test('bestParticipantMatch ignores incomplete face profiles', () => {
+  const match = bestParticipantMatch([1, 0], [
+    { id:'a', recognitionEnabled:true, embeddings:[[1,0],[1,0]] }
+  ], 0.5);
+  assert.equal(match.matched, false);
+});
+
+test('bestParticipantMatch rejects ambiguous face profiles', () => {
+  const participants = [
+    { id:'a', recognitionEnabled:true, embeddings:[[1,0],[1,0],[1,0]] },
+    { id:'b', recognitionEnabled:true, embeddings:[[0.999,0.04],[0.999,0.04],[0.999,0.04]] }
+  ];
+  const match = bestParticipantMatch([1,0.02], participants, 0.8, 0.05);
+  assert.equal(match.matched, false);
+  assert.equal(match.ambiguous, true);
 });

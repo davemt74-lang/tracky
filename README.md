@@ -2,6 +2,63 @@
 
 Tracky turns real-world movement into browser-game input.
 
+## V0.7 — Codebase Hardening & Release Quality
+
+V0.7 is a full audit/hardening release. It does not change the game concept; it makes the camera, identity, Voice Profile, dialogue, privacy, performance, and release paths safer and more deterministic.
+
+### Identity correctness
+
+- Face matching requires a complete multi-sample profile and a clear margin over the second-best participant
+- Face and Voice Profile matching use robust multi-sample similarity instead of trusting one outlier enrollment sample
+- Voice Profile matching ignores incomplete profiles
+- Voice enrollment rejects samples that are too noisy, contain too little sustained speech, or conflict with the participant's existing Voice Profile
+- One participant cannot remain assigned to two live body tracks after reacquisition
+- Occluded/stale body positions are excluded from conversation-proximity grouping
+- Speech turns capture a room/body snapshot at the time the speech occurred so later movement does not rewrite transcript context
+
+### Audio/runtime hardening
+
+- Room audio uses AudioWorklet as the primary PCM path with ScriptProcessor only as a compatibility fallback
+- AudioWorklet PCM messages are batched to reduce cross-thread overhead
+- JARVIS spoken acknowledgements temporarily suppress room capture so Tracky does not transcribe itself
+- A safety timer releases microphone suppression if browser speech events fail
+- In-flight speech analysis is invalidated when audio is stopped or dialogue is cleared
+- Browser capability checks fail cleanly when camera, microphone, MediaRecorder, Web Audio, or OfflineAudioContext are unavailable
+- WavLM, Whisper, Human, and browser library versions/revisions are pinned in one model configuration module
+
+### Privacy and lifecycle
+
+- Pending face-capture handoffs expire automatically after 24 hours
+- Saved dialogue history is bounded to the most recent 500 turns
+- Deleting a participant removes their attributed dialogue and scrubs their nearby-participant references
+- The game can reload recent locally saved dialogue and provides a Clear saved dialogue control
+- Voice Profile recordings remain ephemeral; only speaker embeddings and quality metadata are stored
+- Switching participant profiles during voice enrollment cancels and discards the active sample instead of risking cross-profile assignment
+
+### Performance and maintainability
+
+- Camera/tracking canvases are resized only when dimensions actually change rather than reallocating every frame
+- The core tracker runtime was expanded from compressed source into maintainable functions
+- The calibration polling timer was removed; capture readiness now updates in the render loop
+- Runtime DOM updates use safe node construction/textContent instead of dynamic innerHTML
+
+### Release-quality CI
+
+V0.7 adds a repository audit that fails CI for:
+
+- missing deploy/runtime files
+- broken relative imports
+- missing HTML elements referenced by JavaScript
+- duplicate HTML IDs
+- external script tags
+- unsafe runtime DOM/eval patterns
+- obsolete voice-clone terminology
+- moving/unpinned model revisions
+- missing AudioWorklet/fallback paths
+- incomplete V0.7 deploy manifests
+
+The CI gate runs the complete unit suite, JavaScript syntax checks, the repository audit, deploy-ZIP construction, ZIP integrity verification, and SHA-256 generation.
+
 ## V0.6 — Voice Profiles + Spatial Dialogue
 
 V0.6 adds participant-specific Voice Profiles and combines them with full-body room tracking for conservative speaker attribution and transcription.

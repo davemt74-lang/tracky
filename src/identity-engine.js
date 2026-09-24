@@ -1,8 +1,6 @@
 import { faceQuality, normalizeBox } from './participant-core.js';
 import { bodyDetection } from './room-tracking-core.js';
-
-const HUMAN_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.esm.js';
-const MODEL_BASE = 'https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/models/';
+import { HUMAN_ESM_URL, HUMAN_MODEL_BASE } from './model-config.js';
 
 export class IdentityEngine {
   constructor() {
@@ -18,12 +16,12 @@ export class IdentityEngine {
 
     this.loading = (async () => {
       try {
-        const H = await import(HUMAN_URL);
+        const H = await import(HUMAN_ESM_URL);
         this.human = new H.Human({
           backend: 'webgl',
           debug: false,
           cacheSensitivity: 0.05,
-          modelBasePath: MODEL_BASE,
+          modelBasePath: HUMAN_MODEL_BASE,
           filter: { enabled: true, equalization: true, flip: false },
           face: {
             enabled: true,

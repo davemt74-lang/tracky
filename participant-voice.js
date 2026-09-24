@@ -1,5 +1,9 @@
 import { getParticipant, patchParticipant } from './src/participant-store.js';
-import { voiceProfileReadiness } from './src/voice-core.js';
+import {
+  assessVoiceSampleLevels,
+  voiceEnrollmentConsistency,
+  voiceProfileReadiness
+} from './src/voice-core.js';
 import {
   MicrophoneCapture,
   VoiceIdentityEngine,
@@ -29,6 +33,7 @@ const state = {
   engine: new VoiceIdentityEngine(),
   capture: new MicrophoneCapture(),
   recording: false,
+  recordingParticipantId: null,
   recordStartedAt: 0,
   meterRaf: 0,
   autoStopTimer: 0,
@@ -38,7 +43,6 @@ const state = {
 
 const AUTO_STOP_SECONDS = 8;
 const MIN_SAMPLE_SECONDS = 4;
-const MIN_PEAK_DB = -48;
 
 function setStage(stage, detail) {
   state.stage = stage;
@@ -113,7 +117,28 @@ function render() {
   }
 }
 
+async function cancelRecordingForProfileChange() {
+  if (!state.recording) return;
+
+  state.recording = false;
+  state.recordingParticipantId = null;
+  cancelAnimationFrame(state.meterRaf);
+  clearTimeout(state.autoStopTimer);
+  state.capture.stopStream();
+  state.levels = [];
+  ui.liveDb.textContent = '— dB';
+  ui.progress.style.width = '0%';
+  renderBars(-100);
+}
+
 async function loadParticipant(participantId) {
+  if (
+    state.recording &&
+    participantId !== state.recordingParticipantId
+  ) {
+    await cancelRecordingForProfileChange();
+  }
+
   if (!participantId) {
     state.participant = null;
     state.stage = 'idle';
@@ -165,6 +190,7 @@ async function startRecording() {
   try {
     await state.capture.start();
     state.recording = true;
+    state.recordingParticipantId = state.participant.id;
     state.recordStartedAt = performance.now();
     state.levels = [];
     ui.progress.style.width = '0%';
@@ -185,7 +211,9 @@ async function startRecording() {
 async function stopRecording() {
   if (!state.recording) return;
 
+  const recordingParticipantId = state.recordingParticipantId;
   state.recording = false;
+  state.recordingParticipantId = null;
   cancelAnimationFrame(state.meterRaf);
   clearTimeout(state.autoStopTimer);
 
@@ -203,12 +231,14 @@ async function stopRecording() {
       return;
     }
 
-    const levels = state.levels.filter(Number.isFinite);
-    const peakDb = levels.length ? Math.max(...levels) : -100;
-    const avgDb = levels.length ? levels.reduce((sum, value) => sum + value, 0) / levels.length : -100;
-
-    if (peakDb < MIN_PEAK_DB) {
-      setStage('sample rejected', 'Speech was too quiet relative to the microphone floor. Try again closer to the microphone.');
+    const quality = assessVoiceSampleLevels(state.levels);
+    if (!quality.accept) {
+      setStage(
+        'sample rejected',
+        quality.signalDb < 9
+          ? 'Speech did not separate enough from the room noise floor. Move closer or reduce background noise.'
+          : 'Not enough sustained speech was captured. Speak naturally for most of the sample.'
+      );
       return;
     }
 
@@ -219,12 +249,36 @@ async function stopRecording() {
     setStage('extracting voice identity', 'Converting the clean speech sample into a local speaker signature.');
     const embedding = await extractVoiceEmbedding(state.engine, sample.blob);
 
-    const current = await getParticipant(state.participant.id);
+    const current = recordingParticipantId
+      ? await getParticipant(recordingParticipantId)
+      : null;
+    if (!current) {
+      setStage('profile changed', 'The participant changed before this sample completed, so the sample was discarded.');
+      return;
+    }
+    const consistency = voiceEnrollmentConsistency(
+      embedding,
+      current.voiceEmbeddings || []
+    );
+
+    if (!consistency.accept) {
+      setPipeline('clean');
+      setStage(
+        'speaker mismatch',
+        'This sample does not match the existing Voice Profile closely enough. It was not added.'
+      );
+      return;
+    }
+
     const embeddings = [...(current.voiceEmbeddings || []), embedding].slice(-5);
     const profileSamples = [...(current.voiceProfileSamples || []), {
       durationSeconds: sample.durationSeconds,
-      peakDb,
-      avgDb,
+      peakDb: quality.peakDb,
+      avgDb: quality.averageDb,
+      noiseFloorDb: quality.noiseFloorDb,
+      signalDb: quality.signalDb,
+      speechFraction: quality.speechFraction,
+      consistency: consistency.similarity,
       createdAt: new Date().toISOString()
     }].slice(-5);
 
@@ -280,7 +334,12 @@ ui.recognition.addEventListener('change', saveRecognitionPreference);
 
 window.addEventListener('tracky:participant-loaded', (event) => loadParticipant(event.detail.participantId));
 window.addEventListener('tracky:participant-saved', (event) => loadParticipant(event.detail.participantId));
-window.addEventListener('beforeunload', () => state.capture.stopStream());
+window.addEventListener('tracky:participant-cleared', () => loadParticipant(''));
+window.addEventListener('beforeunload', () => {
+  state.recording = false;
+  state.recordingParticipantId = null;
+  state.capture.stopStream();
+});
 
 const initialId = document.body.dataset.participantId || '';
 await loadParticipant(initialId);

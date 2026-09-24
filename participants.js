@@ -6,6 +6,7 @@ import {
   getParticipant,
   getPendingCapture,
   listParticipants,
+  prunePendingCaptures,
   saveParticipant
 } from './src/participant-store.js';
 
@@ -95,6 +96,7 @@ function updatePhotos() {
 function clearForm() {
   state.editingId = null;
   document.body.dataset.participantId = '';
+  window.dispatchEvent(new CustomEvent('tracky:participant-cleared'));
   state.primaryPhoto = null;
   state.latestPhoto = null;
   state.embeddings = [];
@@ -120,7 +122,11 @@ function renderParticipantList() {
   if (!state.participants.length) {
     const empty = document.createElement('div');
     empty.className = 'roster-empty';
-    empty.innerHTML = '<strong>No enrolled participants</strong><span>Create the first participant to enable recognition.</span>';
+    const strong = document.createElement('strong');
+    strong.textContent = 'No enrolled participants';
+    const span = document.createElement('span');
+    span.textContent = 'Create the first participant to enable recognition.';
+    empty.append(strong, span);
     ui.list.append(empty);
     return;
   }
@@ -413,11 +419,13 @@ async function removeCurrentParticipant() {
   const participant = await getParticipant(state.editingId);
   if (!participant) return;
 
-  if (!window.confirm('Delete ' + participant.name + ' and their local face enrollment?')) return;
+  if (!window.confirm(
+    'Delete ' + participant.name + ' and their local face profile, Voice Profile, and attributed dialogue data?'
+  )) return;
   await deleteParticipant(participant.id);
   clearForm();
   await reloadParticipants();
-  setMessage('Participant deleted from this device.', 'ok');
+  setMessage('Participant identity data and attributed dialogue were deleted from this device.', 'ok');
 }
 
 async function loadPendingFromUrl() {
@@ -456,6 +464,7 @@ ui.delete.addEventListener('click', removeCurrentParticipant);
 window.addEventListener('beforeunload', stopCamera);
 
 clearForm();
+await prunePendingCaptures().catch(() => {});
 await reloadParticipants();
 await loadPendingFromUrl();
 
