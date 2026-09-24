@@ -1389,8 +1389,10 @@ function loop(now) {
   const videoWidth = ui.video.videoWidth || 1280;
   const videoHeight = ui.video.videoHeight || 720;
   const aspect = videoWidth / videoHeight;
-  ui.trackingCanvas.width = 320;
-  ui.trackingCanvas.height = Math.max(180, Math.round(320 / aspect));
+  const trackingWidth = 320;
+  const trackingHeight = Math.max(180, Math.round(trackingWidth / aspect));
+  if (ui.trackingCanvas.width !== trackingWidth) ui.trackingCanvas.width = trackingWidth;
+  if (ui.trackingCanvas.height !== trackingHeight) ui.trackingCanvas.height = trackingHeight;
 
   ctx.drawImage(ui.video, 0, 0, ui.trackingCanvas.width, ui.trackingCanvas.height);
   const image = ctx.getImageData(0, 0, ui.trackingCanvas.width, ui.trackingCanvas.height);
