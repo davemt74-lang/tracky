@@ -1,8 +1,30 @@
 # Tracky
 
-Tracky turns real-world movement into browser-game input. **V0.1 — Camera Tracking Core** uses a webcam to detect a green object and maps its position to an on-screen cursor.
+Tracky turns real-world movement into browser-game input.
 
-## V0.1 features
+## V0.2 — Games + Vertical Motion
+
+V0.2 adds the games layer and the first camera-tracked game: **Vertical Motion**.
+
+- Games library at `games.html`
+- Dedicated game loading page
+- 1 inch × 5 inch vertical movement lane
+- Lane centered horizontally and positioned slightly below vertical center
+- Cursor constrained inside the lane
+- Lane split into three equal tracking zones
+- High-volume frame-by-frame vertical movement capture
+- Overall and per-zone up/down travel
+- Micro-movement events and micro travel
+- Direction reversals and micro reversals
+- Oscillation rate
+- Dwell time per zone
+- Recent raw micro-movement trace
+- Adjustable micro-movement noise floor
+- Display smoothing kept separate from raw analytics
+
+The lane uses CSS physical units. Actual physical inches depend on browser/OS display scaling and monitor calibration.
+
+## V0.1 — Camera Tracking Core
 
 - Browser webcam capture with camera switching
 - HSV-based green object detection
@@ -11,50 +33,24 @@ Tracky turns real-world movement into browser-game input. **V0.1 — Camera Trac
 - Mirrored tracking mode
 - Smoothed X/Y cursor output
 - Velocity, speed, confidence, and FPS telemetry
-- Lost-object behavior: hide, hold, or ease toward center
-- Debug bounding box and center marker
-- Four-point perspective calibration for mapping a physical play area to the full game surface
+- Lost-object behavior
+- Four-point perspective calibration
 - No server-side image processing; frames stay in the browser
 
 ## Run locally
 
 Camera access requires a secure context. `localhost` qualifies.
 
-### Python
-
 ```bash
 python -m http.server 8080
 ```
 
-Open `http://localhost:8080` and click **Start camera**.
+Open `http://localhost:8080/games.html` and choose **Vertical Motion**.
 
-### Node tests
+## Tests
 
 ```bash
 npm test
 ```
 
 No npm dependencies are required.
-
-## Tracking pipeline
-
-```text
-Camera -> HSV green filter -> largest connected blob -> normalized X/Y
-       -> optional four-point calibration -> smoothing -> game cursor
-```
-
-## Calibration
-
-1. Start the camera and make sure the green object is detected.
-2. Click **Start calibration**.
-3. Hold the object at the physical play area's top-left corner and click **Capture point**.
-4. Repeat for top-right, bottom-right, and bottom-left.
-5. Tracky computes a projective transform so that quadrilateral maps to the full game surface.
-
-## Browser support
-
-Use a modern Chromium, Firefox, or Safari browser with `getUserMedia`, Canvas 2D, and ES module support.
-
-## Next milestone
-
-V0.2 can build the first actual game on top of the normalized tracking API while keeping the input layer hardware-agnostic.
