@@ -29,6 +29,7 @@ import { LocalTranscriptionEngine, RoomAudioCapture } from './src/room-audio-eng
 import {
   listParticipants,
   patchParticipant,
+  saveDialogueTurn,
   savePendingCapture
 } from './src/participant-store.js';
 
@@ -141,6 +142,9 @@ const state = {
     currentVoiceConfidence: 0,
     currentBodyLock: false,
     currentGroupId: null,
+    sessionId: (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'room-' + Date.now().toString(36),
     queue: [],
     lastDecision: 'standby',
     rejectedSegments: 0
@@ -583,9 +587,11 @@ function renderVoiceHud() {
       ? 'Analyzing speaker…'
       : state.voice.vad
         ? 'Speech detected'
-        : state.voice.lastDecision === 'noise-rejected'
-          ? 'Background rejected'
-          : 'Room audio live';
+        : state.voice.lastDecision === 'ambiguous-speaker'
+          ? 'Speaker ambiguous'
+          : state.voice.lastDecision === 'noise-rejected'
+            ? 'Background rejected'
+            : 'Room audio live';
 
   ui.transcriptModelState.textContent = !ui.liveTranscription.checked
     ? 'Transcription off'
@@ -715,10 +721,11 @@ async function processRoomSegment(segment) {
       : null;
 
     const bodyConfirmed = Boolean(track);
+    const effectiveVoiceConfidence = voiceMatch.matched ? voiceMatch.similarity : 0;
     const gate = transcriptSignalGate({
       levelDb: segment.avgDb,
       noiseFloorDb: segment.noiseFloorDb,
-      voiceConfidence: voiceMatch.similarity,
+      voiceConfidence: effectiveVoiceConfidence,
       bodyConfirmed,
       vadConfirmed: true
     });
@@ -747,7 +754,8 @@ async function processRoomSegment(segment) {
     }
 
     state.voice.currentSpeakerId = participant?.id || null;
-    state.voice.currentSpeakerName = participant?.name || (voiceMatch.similarity ? 'Unknown voice' : null);
+    state.voice.currentSpeakerName = participant?.name
+      || (voiceMatch.ambiguous ? 'Ambiguous voice' : (voiceMatch.similarity ? 'Unknown voice' : null));
     state.voice.currentVoiceConfidence = voiceMatch.similarity || 0;
     state.voice.currentBodyLock = bodyConfirmed;
     state.voice.currentGroupId = group
@@ -756,7 +764,7 @@ async function processRoomSegment(segment) {
 
     if (!gate.accept) {
       state.voice.rejectedSegments += 1;
-      state.voice.lastDecision = 'noise-rejected';
+      state.voice.lastDecision = voiceMatch.ambiguous ? 'ambiguous-speaker' : 'noise-rejected';
       renderParticipantCards();
       renderVoiceHud();
       return;
@@ -792,6 +800,16 @@ async function processRoomSegment(segment) {
     state.voice.turns.push(turn);
     if (state.voice.turns.length > 50) state.voice.turns.splice(0, state.voice.turns.length - 50);
     state.voice.lastDecision = 'accepted';
+
+    try {
+      await saveDialogueTurn({
+        ...turn,
+        sessionId: state.voice.sessionId,
+        createdAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Could not persist dialogue turn', error);
+    }
 
     renderParticipantCards();
     renderDialogueTurns();
