@@ -1,7 +1,10 @@
 import { dbFromRms, normalizeAudio, rmsLevel } from './voice-core.js';
+import {
+  TRANSFORMERS_ESM_URL,
+  VOICE_MODEL_ID,
+  VOICE_MODEL_REVISION
+} from './model-config.js';
 
-const TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
-const MODEL_ID = 'Xenova/wavlm-base-plus-sv';
 const TARGET_SAMPLE_RATE = 16000;
 
 export class VoiceIdentityEngine {
@@ -19,11 +22,16 @@ export class VoiceIdentityEngine {
 
     this.loading = (async () => {
       try {
-        const T = await import(TRANSFORMERS_URL);
+        const T = await import(TRANSFORMERS_ESM_URL);
         T.env.allowLocalModels = false;
         T.env.useBrowserCache = true;
-        this.processor = await T.AutoProcessor.from_pretrained(MODEL_ID);
-        this.model = await T.AutoModel.from_pretrained(MODEL_ID, { dtype: 'q8' });
+        this.processor = await T.AutoProcessor.from_pretrained(VOICE_MODEL_ID, {
+          revision: VOICE_MODEL_REVISION
+        });
+        this.model = await T.AutoModel.from_pretrained(VOICE_MODEL_ID, {
+          dtype: 'q8',
+          revision: VOICE_MODEL_REVISION
+        });
         this.ready = true;
         return this;
       } catch (error) {
