@@ -2,14 +2,15 @@ import { clamp, cosineSimilarity } from './participant-core.js';
 
 export const VOICE_MATCH_THRESHOLD = 0.72;
 export const CONVERSATION_DISTANCE = 0.28;
-export const SPEAKING_HOLD_MS = 900;
+export const DEFAULT_SPEECH_MARGIN_DB = 12;
+export const MIN_TRANSCRIPT_SIGNAL_DB = 8;
 
 export function rmsLevel(samples) {
   if (!samples?.length) return 0;
   let sum = 0;
   for (let i = 0; i < samples.length; i += 1) {
-    const v = Number(samples[i]) || 0;
-    sum += v * v;
+    const value = Number(samples[i]) || 0;
+    sum += value * value;
   }
   return Math.sqrt(sum / samples.length);
 }
@@ -30,17 +31,70 @@ export function normalizeAudio(samples) {
 
 export function bestVoiceMatch(embedding, participants, threshold = VOICE_MATCH_THRESHOLD) {
   let best = null;
+
   for (const participant of participants || []) {
     if (participant.voiceRecognitionEnabled === false) continue;
+
     for (const reference of participant.voiceEmbeddings || []) {
       const similarity = cosineSimilarity(embedding, reference);
-      if (!best || similarity > best.similarity) best = { participant, similarity };
+      if (!best || similarity > best.similarity) {
+        best = { participant, similarity };
+      }
     }
   }
 
   return !best || best.similarity < threshold
     ? { matched: false, participant: null, similarity: best?.similarity || 0 }
     : { matched: true, participant: best.participant, similarity: best.similarity };
+}
+
+export function voiceProfileReadiness(participant) {
+  const samples = participant?.voiceProfileSamples || [];
+  const embeddingCount = participant?.voiceEmbeddings?.length || 0;
+  const seconds = samples.reduce((sum, sample) => sum + Number(sample.durationSeconds || 0), 0);
+  return {
+    sampleCount: samples.length,
+    embeddingCount,
+    totalSeconds: seconds,
+    ready: embeddingCount >= 3 && seconds >= 15
+  };
+}
+
+export function speakingThreshold(noiseFloorDb, marginDb = DEFAULT_SPEECH_MARGIN_DB) {
+  return Math.max(-48, Number(noiseFloorDb || -60) + marginDb);
+}
+
+export function updateNoiseFloor(currentDb, observedDb, speaking = false, alpha = 0.04) {
+  if (speaking || !Number.isFinite(observedDb)) return currentDb;
+  const base = Number.isFinite(currentDb) ? currentDb : -60;
+  return base * (1 - alpha) + observedDb * alpha;
+}
+
+export function signalToNoiseDb(levelDb, noiseFloorDb) {
+  return Number(levelDb || -100) - Number(noiseFloorDb || -100);
+}
+
+export function transcriptSignalGate(input = {}) {
+  const signalDb = signalToNoiseDb(input.levelDb, input.noiseFloorDb);
+  const voiceConfidence = clamp(Number(input.voiceConfidence || 0));
+  const bodyConfirmed = Boolean(input.bodyConfirmed);
+  const vadConfirmed = Boolean(input.vadConfirmed);
+
+  const confidence = clamp(
+    (vadConfirmed ? 0.25 : 0) +
+    clamp(signalDb / 24) * 0.25 +
+    voiceConfidence * 0.40 +
+    (bodyConfirmed ? 0.10 : 0)
+  );
+
+  return {
+    accept: vadConfirmed && signalDb >= MIN_TRANSCRIPT_SIGNAL_DB && confidence >= 0.48,
+    confidence,
+    signalDb,
+    vadConfirmed,
+    bodyConfirmed,
+    voiceConfidence
+  };
 }
 
 export function trackDistance(a, b) {
@@ -53,6 +107,7 @@ export function trackDistance(a, b) {
 export function nearbyParticipants(tracks, sourceTrack, maxDistance = CONVERSATION_DISTANCE) {
   return (tracks || [])
     .filter((track) => track.id !== sourceTrack.id)
+    .filter((track) => track.participantId)
     .map((track) => ({ track, distance: trackDistance(sourceTrack, track) }))
     .filter((item) => item.distance <= maxDistance)
     .sort((a, b) => a.distance - b.distance);
@@ -65,6 +120,7 @@ export function buildConversationGroups(tracks, maxDistance = CONVERSATION_DISTA
 
   for (const track of active) {
     if (visited.has(track.id)) continue;
+
     const queue = [track];
     const group = [];
     visited.add(track.id);
@@ -72,6 +128,7 @@ export function buildConversationGroups(tracks, maxDistance = CONVERSATION_DISTA
     while (queue.length) {
       const current = queue.shift();
       group.push(current);
+
       for (const candidate of active) {
         if (visited.has(candidate.id)) continue;
         if (trackDistance(current, candidate) <= maxDistance) {
@@ -87,20 +144,36 @@ export function buildConversationGroups(tracks, maxDistance = CONVERSATION_DISTA
   return groups;
 }
 
+export function conversationGroupForTrack(groups, trackId) {
+  const index = (groups || []).findIndex((group) => group.some((track) => track.id === trackId));
+  if (index < 0) return null;
+  return {
+    index,
+    id: 'G' + String(index + 1).padStart(2, '0'),
+    tracks: groups[index]
+  };
+}
+
 export function createSpeakerTurn(input = {}) {
   return {
     id: input.id || 'turn-' + Math.random().toString(36).slice(2, 10),
     participantId: input.participantId || null,
     participantName: input.participantName || null,
     trackId: input.trackId || null,
+    groupId: input.groupId || null,
     confidence: Number(input.confidence || 0),
+    voiceConfidence: Number(input.voiceConfidence || 0),
+    signalConfidence: Number(input.signalConfidence || 0),
     startedAt: Number(input.startedAt || 0),
     endedAt: Number(input.endedAt || input.startedAt || 0),
     durationMs: Math.max(0, Number(input.endedAt || input.startedAt || 0) - Number(input.startedAt || 0)),
     peakDb: Number.isFinite(input.peakDb) ? input.peakDb : -100,
     avgDb: Number.isFinite(input.avgDb) ? input.avgDb : -100,
+    noiseFloorDb: Number.isFinite(input.noiseFloorDb) ? input.noiseFloorDb : -100,
     nearbyParticipantIds: Array.from(input.nearbyParticipantIds || []),
-    transcript: String(input.transcript || '').trim()
+    nearbyParticipantNames: Array.from(input.nearbyParticipantNames || []),
+    transcript: String(input.transcript || '').trim(),
+    attribution: input.attribution || 'unknown'
   };
 }
 
@@ -111,21 +184,8 @@ export function acknowledgeNewTrack(track, knownParticipant = null) {
     participantId: knownParticipant?.id || track.participantId || null,
     participantName: knownParticipant?.name || track.participantName || null,
     message: knownParticipant
-      ? 'Participant detected: ' + knownParticipant.name
-      : 'New participant detected: ' + track.id
-  };
-}
-
-export function cloneReadiness(participant) {
-  const samples = participant?.voiceSamples || [];
-  const consent = participant?.voiceCloneConsent === true;
-  const seconds = samples.reduce((sum, sample) => sum + Number(sample.durationSeconds || 0), 0);
-  return {
-    consent,
-    sampleCount: samples.length,
-    totalSeconds: seconds,
-    ready: consent && samples.length >= 1 && seconds >= 10,
-    cloned: Boolean(participant?.clonedVoiceId)
+      ? 'Participant recognized: ' + knownParticipant.name
+      : 'New participant tracked: ' + track.id
   };
 }
 
