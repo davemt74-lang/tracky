@@ -212,6 +212,14 @@ function setCursor(x, y, visible) {
   ui.cursor.hidden = false;
 }
 
+function setGameInstructions(title, detail) {
+  const strong = document.createElement('strong');
+  strong.textContent = title;
+  const span = document.createElement('span');
+  span.textContent = detail;
+  ui.instructions.replaceChildren(strong, span);
+}
+
 function renderGame() {
   const game = state.game;
   const targetNodes = ui.lane.querySelectorAll('[data-target-zone]');
@@ -236,24 +244,42 @@ function renderGame() {
   ui.startGame.textContent = game.over ? 'Play again' : 'Start game';
 
   if (game.over) {
-    ui.instructions.innerHTML = '<strong>Game over — ' + game.score + ' points.</strong><span>You reached your selected point goal. Press Play again for a new game.</span>';
+    setGameInstructions(
+      'Game over — ' + game.score + ' points.',
+      'You reached your selected point goal. Press Play again for a new game.'
+    );
     return;
   }
 
   if (!game.active) {
-    ui.instructions.innerHTML = '<strong>Choose your point goal and start the game.</strong><span>Each highlighted section cleared is worth one point.</span>';
+    setGameInstructions(
+      'Choose your point goal and start the game.',
+      'Each highlighted section cleared is worth one point.'
+    );
     return;
   }
 
   const zoneNumber = game.activeZone + 1;
   if (game.lastEvent === 'outside-zone') {
-    ui.instructions.innerHTML = '<strong>Move into Zone ' + zoneNumber + '.</strong><span>Only complete up → down reps inside the highlighted section count.</span>';
+    setGameInstructions(
+      'Move into Zone ' + zoneNumber + '.',
+      'Only complete up → down reps inside the highlighted section count.'
+    );
   } else if (game.lastEvent === 'rep') {
-    ui.instructions.innerHTML = '<strong>' + game.repsRemaining + ' reps left in Zone ' + zoneNumber + '.</strong><span>Keep the up → down rhythm inside the highlighted section.</span>';
+    setGameInstructions(
+      game.repsRemaining + ' reps left in Zone ' + zoneNumber + '.',
+      'Keep the up → down rhythm inside the highlighted section.'
+    );
   } else if (game.lastEvent === 'round-start') {
-    ui.instructions.innerHTML = '<strong>Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps.</strong><span>Complete up → down cycles inside the highlighted section.</span>';
+    setGameInstructions(
+      'Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps.',
+      'Complete up → down cycles inside the highlighted section.'
+    );
   } else {
-    ui.instructions.innerHTML = '<strong>Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps left.</strong><span>Complete up → down cycles inside the highlighted section.</span>';
+    setGameInstructions(
+      'Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps left.',
+      'Complete up → down cycles inside the highlighted section.'
+    );
   }
 }
 
@@ -262,7 +288,7 @@ async function enumerateCameras() {
   const cameras = devices.filter((d) => d.kind === 'videoinput');
   const current = ui.select.value;
 
-  ui.select.innerHTML = '';
+  ui.select.replaceChildren();
   cameras.forEach((camera, index) => {
     const option = document.createElement('option');
     option.value = camera.deviceId;
