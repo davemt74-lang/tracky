@@ -96,6 +96,7 @@ function updatePhotos() {
 function clearForm() {
   state.editingId = null;
   document.body.dataset.participantId = '';
+  window.dispatchEvent(new CustomEvent('tracky:participant-cleared'));
   state.primaryPhoto = null;
   state.latestPhoto = null;
   state.embeddings = [];
