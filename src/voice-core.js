@@ -149,7 +149,12 @@ export function nearbyParticipants(tracks, sourceTrack, maxDistance = CONVERSATI
 }
 
 export function buildConversationGroups(tracks, maxDistance = CONVERSATION_DISTANCE) {
-  const active = (tracks || []).filter((track) => track.id);
+  const active = (tracks || []).filter(
+    (track) =>
+      track.id &&
+      track.status !== 'occluded' &&
+      track.status !== 'reacquiring'
+  );
   const visited = new Set();
   const groups = [];
 
