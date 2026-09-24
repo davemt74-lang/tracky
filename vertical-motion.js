@@ -1,6 +1,17 @@
 import { clamp01, detectColorBlob } from './src/tracker-core.js';
 import { createMotionStats, recordMotion, summarizeMotion, zoneForY } from './src/movement-core.js';
 import { createGameState, recordGameSample, startGame, stopGame } from './src/gameplay-core.js';
+import {
+  advanceScan,
+  assignTracks,
+  bestParticipantMatch
+} from './src/participant-core.js';
+import { IdentityEngine, cropFacePhoto } from './src/identity-engine.js';
+import {
+  listParticipants,
+  patchParticipant,
+  savePendingCapture
+} from './src/participant-store.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -17,6 +28,9 @@ const ui = {
   instructions: $('#gameInstructions'),
   cameraStatus: $('#cameraStatus'),
   trackingStatus: $('#trackingStatus'),
+  identityStatus: $('#identityStatus'),
+  participantCards: $('#participantCards'),
+  participantHudEmpty: $('#participantHudEmpty'),
   mirror: $('#mirrorCamera'),
   sensitivity: $('#motionSensitivity'),
   pointGoal: $('#pointGoal'),
@@ -57,13 +71,25 @@ const state = {
   stats: createMotionStats(),
   game: createGameState(5),
   trace: [],
-  lastUiUpdate: 0
+  lastUiUpdate: 0,
+  identity: {
+    engine: new IdentityEngine(),
+    ready: false,
+    loading: false,
+    busy: false,
+    lastScanAt: 0,
+    tracks: [],
+    participants: [],
+    counter: 0
+  }
 };
 
 const LANE_HEIGHT_IN = 5;
 const CURSOR_RADIUS_IN = 0.09;
 const MAX_TRACE_SAMPLES = 600;
 const MICRO_THRESHOLD = 0.015;
+const IDENTITY_SCAN_INTERVAL = 650;
+const TRACK_GRACE_MS = 2600;
 
 function detectOptions() {
   return {
@@ -174,6 +200,315 @@ async function enumerateCameras() {
   ui.select.disabled = cameras.length < 2;
 }
 
+async function reloadIdentityParticipants() {
+  try {
+    state.identity.participants = await listParticipants();
+  } catch (error) {
+    console.error(error);
+    state.identity.participants = [];
+  }
+}
+
+async function initRoomIdentity() {
+  if (state.identity.ready || state.identity.loading) return;
+  state.identity.loading = true;
+  ui.identityStatus.textContent = 'Loading identity…';
+
+  try {
+    await reloadIdentityParticipants();
+    await state.identity.engine.init();
+    state.identity.ready = true;
+    ui.identityStatus.textContent = 'Identity online';
+  } catch (error) {
+    console.error(error);
+    ui.identityStatus.textContent = 'Identity unavailable';
+  } finally {
+    state.identity.loading = false;
+  }
+}
+
+function nextTrackId() {
+  state.identity.counter += 1;
+  return 'T' + String(state.identity.counter).padStart(3, '0');
+}
+
+function participantById(id) {
+  return state.identity.participants.find((participant) => participant.id === id) || null;
+}
+
+function statusLabel(track) {
+  if (track.status === 'matched') return 'PROFILE MATCH';
+  if (track.status === 'new') return 'NO ENROLLED MATCH';
+  if (track.status === 'reacquiring') return 'REACQUIRING';
+  if (track.status === 'align-face') return 'ALIGN FACE';
+  if (track.status === 'ready') return 'MATCHING PROFILE';
+  return 'SCANNING FACE';
+}
+
+function createParticipantCard(track) {
+  const card = document.createElement('article');
+  card.className = 'participant-scan-card ' + (track.status || 'scanning');
+
+  const top = document.createElement('div');
+  top.className = 'participant-card-top';
+
+  const trackLabel = document.createElement('span');
+  trackLabel.textContent = track.id;
+
+  const stateLabel = document.createElement('b');
+  stateLabel.textContent = statusLabel(track);
+
+  top.append(trackLabel, stateLabel);
+
+  const body = document.createElement('div');
+  body.className = 'participant-card-body';
+
+  const current = document.createElement('div');
+  current.className = 'participant-current-photo';
+  if (track.latestPhoto) {
+    const image = document.createElement('img');
+    image.src = track.latestPhoto;
+    image.alt = '';
+    current.append(image);
+  } else {
+    const scan = document.createElement('span');
+    scan.className = 'scan-icon mini';
+    current.append(scan);
+  }
+
+  const identity = document.createElement('div');
+  identity.className = 'participant-card-identity';
+
+  const name = document.createElement('strong');
+  name.textContent = track.participantName || 'Unknown participant';
+
+  const detail = document.createElement('span');
+  if (track.status === 'matched') {
+    detail.textContent = Math.round(track.similarity * 100) + '% match · current capture saved';
+  } else if (track.status === 'new') {
+    detail.textContent = 'Ready to create participant profile';
+  } else if (track.status === 'reacquiring') {
+    detail.textContent = 'Face temporarily out of view';
+  } else {
+    detail.textContent = Math.round(track.quality * 100) + '% face quality';
+  }
+
+  const meter = document.createElement('div');
+  meter.className = 'participant-scan-meter';
+  const fill = document.createElement('i');
+  fill.style.width = Math.round(track.scanProgress || 0) + '%';
+  meter.append(fill);
+
+  identity.append(name, detail, meter);
+  body.append(current, identity);
+
+  const participant = track.participantId ? participantById(track.participantId) : null;
+  if (participant?.primaryPhoto) {
+    const saved = document.createElement('img');
+    saved.className = 'participant-primary-badge';
+    saved.src = participant.primaryPhoto;
+    saved.alt = 'Saved primary profile photo';
+    saved.title = 'Saved primary profile photo';
+    body.append(saved);
+  }
+
+  card.append(top, body);
+
+  const actions = document.createElement('div');
+  actions.className = 'participant-card-actions';
+
+  if (track.status === 'matched' && track.participantId) {
+    const updatePhoto = document.createElement('button');
+    updatePhoto.type = 'button';
+    updatePhoto.textContent = 'Use current photo';
+    updatePhoto.disabled = !track.latestPhoto;
+    updatePhoto.addEventListener('click', () => useTrackPhotoAsPrimary(track));
+
+    const wrong = document.createElement('button');
+    wrong.type = 'button';
+    wrong.textContent = 'Not this person';
+    wrong.addEventListener('click', () => rejectTrackMatch(track));
+
+    const open = document.createElement('a');
+    open.href = './participants.html';
+    open.textContent = 'Profiles';
+
+    actions.append(updatePhoto, wrong, open);
+  } else if (track.status === 'new' && track.embedding) {
+    const create = document.createElement('button');
+    create.type = 'button';
+    create.textContent = 'Create participant';
+    create.addEventListener('click', () => createParticipantFromTrack(track));
+    actions.append(create);
+  }
+
+  if (actions.children.length) card.append(actions);
+  return card;
+}
+
+function renderParticipantCards() {
+  ui.participantCards.replaceChildren();
+  const visible = state.identity.tracks
+    .filter((track) => performance.now() - track.lastSeenAt < TRACK_GRACE_MS)
+    .slice(0, 6);
+
+  ui.participantHudEmpty.hidden = visible.length > 0;
+
+  for (const track of visible) {
+    ui.participantCards.append(createParticipantCard(track));
+  }
+}
+
+async function useTrackPhotoAsPrimary(track) {
+  if (!track.participantId || !track.latestPhoto) return;
+  try {
+    await patchParticipant(track.participantId, {
+      primaryPhoto: track.latestPhoto,
+      latestPhoto: track.latestPhoto,
+      lastSeenAt: new Date().toISOString()
+    });
+    await reloadIdentityParticipants();
+    renderParticipantCards();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function rejectTrackMatch(track) {
+  const live = state.identity.tracks.find((candidate) => candidate.id === track.id);
+  if (!live) return;
+
+  live.blockedParticipantIds = Array.from(new Set([
+    ...(live.blockedParticipantIds || []),
+    live.participantId
+  ].filter(Boolean)));
+  live.participantId = null;
+  live.participantName = null;
+  live.similarity = 0;
+  live.status = 'new';
+  renderParticipantCards();
+}
+
+async function createParticipantFromTrack(track) {
+  try {
+    const pending = await savePendingCapture({
+      photo: track.latestPhoto,
+      embedding: track.embedding,
+      trackId: track.id
+    });
+    location.href = './participants.html?pending=' + encodeURIComponent(pending.id);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function resolveTrackIdentity(track) {
+  if (!track.embedding || track.status === 'matched') return track;
+
+  const blocked = new Set(track.blockedParticipantIds || []);
+  const candidates = state.identity.participants.filter((participant) => !blocked.has(participant.id));
+  const match = bestParticipantMatch(track.embedding, candidates);
+
+  if (!match.matched) {
+    return {
+      ...track,
+      status: 'new',
+      participantId: null,
+      participantName: null,
+      similarity: match.similarity
+    };
+  }
+
+  const currentPhoto = track.latestPhoto || cropFacePhoto(ui.video, track.box, {
+    mirror: ui.mirror.checked,
+    size: 300,
+    quality: 0.88
+  });
+
+  const matched = {
+    ...track,
+    status: 'matched',
+    scanProgress: 100,
+    participantId: match.participant.id,
+    participantName: match.participant.name,
+    similarity: match.similarity,
+    latestPhoto: currentPhoto
+  };
+
+  try {
+    await patchParticipant(match.participant.id, {
+      latestPhoto: currentPhoto || match.participant.latestPhoto || match.participant.primaryPhoto,
+      lastSeenAt: new Date().toISOString()
+    });
+    await reloadIdentityParticipants();
+  } catch (error) {
+    console.error(error);
+  }
+
+  return matched;
+}
+
+async function scanRoom(now) {
+  if (!state.running || !state.identity.ready || state.identity.busy || ui.video.readyState < 2) return;
+  state.identity.busy = true;
+  state.identity.lastScanAt = now;
+
+  try {
+    const faces = await state.identity.engine.detect(ui.video);
+    const previous = state.identity.tracks;
+
+    let liveTracks = assignTracks(previous, faces, now, {
+      nextId: nextTrackId
+    });
+
+    liveTracks = liveTracks.map((track) => {
+      if (track.status === 'matched') return { ...track, scanProgress: 100 };
+      const advanced = advanceScan(track, { minQuality: 0.48, increment: 24, decay: 7 });
+      if (track.status === 'new' && advanced.scanProgress >= 100) advanced.status = 'new';
+
+      if (advanced.quality >= 0.52 && advanced.box) {
+        advanced.latestPhoto = cropFacePhoto(ui.video, advanced.box, {
+          mirror: ui.mirror.checked,
+          size: 260,
+          quality: 0.82
+        }) || track.latestPhoto;
+      }
+      return advanced;
+    });
+
+    const liveIds = new Set(liveTracks.map((track) => track.id));
+    const staleTracks = previous
+      .filter((track) => !liveIds.has(track.id) && now - track.lastSeenAt < TRACK_GRACE_MS)
+      .map((track) => ({ ...track, status: track.status === 'matched' ? 'matched' : 'reacquiring' }));
+
+    const resolved = [];
+    for (const track of liveTracks) {
+      if (track.scanProgress >= 100 && track.embedding && track.status !== 'matched' && track.status !== 'new') {
+        resolved.push(await resolveTrackIdentity(track));
+      } else {
+        resolved.push(track);
+      }
+    }
+
+    state.identity.tracks = [...resolved, ...staleTracks];
+    ui.identityStatus.textContent = faces.length
+      ? faces.length + ' face' + (faces.length === 1 ? '' : 's') + ' detected'
+      : 'Scanning room';
+    renderParticipantCards();
+  } catch (error) {
+    console.error(error);
+    ui.identityStatus.textContent = 'Identity scan error';
+  } finally {
+    state.identity.busy = false;
+  }
+}
+
+function maybeScanRoom(now) {
+  if (!state.identity.ready || state.identity.busy) return;
+  if (now - state.identity.lastScanAt < IDENTITY_SCAN_INTERVAL) return;
+  void scanRoom(now);
+}
+
 function stopCamera() {
   state.running = false;
   cancelAnimationFrame(state.raf);
@@ -185,6 +520,9 @@ function stopCamera() {
   ui.select.disabled = true;
   ui.cameraStatus.textContent = 'Camera stopped';
   ui.trackingStatus.textContent = 'No signal';
+  ui.identityStatus.textContent = state.identity.ready ? 'Identity standby' : 'Identity offline';
+  state.identity.tracks = [];
+  renderParticipantCards();
   setCursor(0.5, 0.5, false);
 }
 
@@ -216,6 +554,8 @@ async function startCamera(deviceId = '') {
     ui.stop.disabled = false;
     ui.cameraStatus.textContent = 'Camera live';
     ui.trackingStatus.textContent = 'Searching for green…';
+    state.identity.lastScanAt = 0;
+    void initRoomIdentity();
     state.raf = requestAnimationFrame(loop);
     return true;
   } catch (error) {
@@ -271,7 +611,7 @@ function drawTrace() {
   }
 
   traceCtx.clearRect(0, 0, width, height);
-  traceCtx.strokeStyle = 'rgba(255,255,255,.12)';
+  traceCtx.strokeStyle = 'rgba(78,232,255,.14)';
   traceCtx.lineWidth = 1 * dpr;
   traceCtx.beginPath();
   traceCtx.moveTo(0, height / 2);
@@ -284,7 +624,7 @@ function drawTrace() {
   for (const point of state.trace) max = Math.max(max, Math.abs(point.delta));
   max = Math.min(max, 0.05);
 
-  traceCtx.strokeStyle = '#56e36f';
+  traceCtx.strokeStyle = '#5cff9d';
   traceCtx.lineWidth = 1.5 * dpr;
   traceCtx.beginPath();
 
@@ -384,6 +724,8 @@ function loop(now) {
     ui.liveZone.textContent = String(zoneForY(rawY) + 1);
   }
 
+  maybeScanRoom(now);
+
   if (now - state.lastUiUpdate >= 100) {
     renderStats(now);
     if (state.game.active) renderGame();
@@ -415,6 +757,8 @@ ui.pause.addEventListener('click', () => {
 });
 window.addEventListener('resize', drawTrace);
 
+await reloadIdentityParticipants();
+renderParticipantCards();
 renderStats(performance.now());
 renderGame();
 drawTrace();
