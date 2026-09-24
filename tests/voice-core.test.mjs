@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   acknowledgeNewTrack,
+  assessVoiceSampleLevels,
   bestVoiceMatch,
   buildConversationGroups,
   conversationGroupForTrack,
@@ -10,7 +11,9 @@ import {
   rmsLevel,
   speakingThreshold,
   transcriptSignalGate,
+  trackDistance,
   updateNoiseFloor,
+  voiceEnrollmentConsistency,
   voiceProfileReadiness
 } from '../src/voice-core.js';
 
@@ -27,8 +30,8 @@ test('normalizeAudio scales peak to target', () => {
 
 test('bestVoiceMatch selects enrolled voice profile', () => {
   const participants = [
-    { id:'a', voiceRecognitionEnabled:true, voiceEmbeddings:[[1,0,0]] },
-    { id:'b', voiceRecognitionEnabled:true, voiceEmbeddings:[[0,1,0]] }
+    { id:'a', voiceRecognitionEnabled:true, voiceEmbeddings:[[1,0,0],[0.99,0.02,0],[0.98,0.04,0]], voiceProfileSamples:[{durationSeconds:5},{durationSeconds:5},{durationSeconds:6}] },
+    { id:'b', voiceRecognitionEnabled:true, voiceEmbeddings:[[0,1,0],[0.02,0.99,0],[0.04,0.98,0]], voiceProfileSamples:[{durationSeconds:5},{durationSeconds:5},{durationSeconds:6}] }
   ];
   const match = bestVoiceMatch([0.98,0.04,0], participants, 0.8);
   assert.equal(match.matched, true);
@@ -97,10 +100,53 @@ test('transcript gate rejects noisy weak attribution', () => {
 
 test('bestVoiceMatch rejects two nearly equal speaker candidates', () => {
   const participants = [
-    { id:'a', voiceRecognitionEnabled:true, voiceEmbeddings:[[1,0]] },
-    { id:'b', voiceRecognitionEnabled:true, voiceEmbeddings:[[0.999,0.045]] }
+    { id:'a', voiceRecognitionEnabled:true, voiceEmbeddings:[[1,0],[1,0],[1,0]], voiceProfileSamples:[{durationSeconds:5},{durationSeconds:5},{durationSeconds:5}] },
+    { id:'b', voiceRecognitionEnabled:true, voiceEmbeddings:[[0.999,0.045],[0.999,0.045],[0.999,0.045]], voiceProfileSamples:[{durationSeconds:5},{durationSeconds:5},{durationSeconds:5}] }
   ];
   const match = bestVoiceMatch([1,0.02], participants, 0.8, 0.05);
   assert.equal(match.matched, false);
   assert.equal(match.ambiguous, true);
+});
+
+
+test('bestVoiceMatch ignores incomplete voice profiles', () => {
+  const match = bestVoiceMatch([1,0], [
+    {
+      id:'a',
+      voiceRecognitionEnabled:true,
+      voiceEmbeddings:[[1,0],[1,0]],
+      voiceProfileSamples:[{durationSeconds:6},{durationSeconds:6}]
+    }
+  ], 0.7);
+  assert.equal(match.matched, false);
+});
+
+test('voice enrollment rejects a different speaker sample', () => {
+  const result = voiceEnrollmentConsistency([0,1], [[1,0],[0.99,0.01]], 0.65);
+  assert.equal(result.accept, false);
+});
+
+test('voice sample quality requires sustained speech over room floor', () => {
+  const noisy = assessVoiceSampleLevels([-46,-45,-47,-44,-46,-45,-44,-43]);
+  assert.equal(noisy.accept, false);
+
+  const speech = assessVoiceSampleLevels([-61,-60,-59,-37,-31,-29,-33,-35,-32,-30]);
+  assert.equal(speech.accept, true);
+  assert.ok(speech.speechFraction >= 0.2);
+});
+
+test('spatial distance penalizes different apparent depth', () => {
+  const near = {
+    box:{x:0.20,y:0.10,width:0.20,height:0.80,cx:0.30},
+    cx:0.30,cy:0.50
+  };
+  const beside = {
+    box:{x:0.33,y:0.10,width:0.20,height:0.80,cx:0.43},
+    cx:0.43,cy:0.50
+  };
+  const farDepth = {
+    box:{x:0.31,y:0.34,width:0.09,height:0.36,cx:0.355},
+    cx:0.355,cy:0.52
+  };
+  assert.ok(trackDistance(near, beside) < trackDistance(near, farDepth));
 });
