@@ -102,6 +102,8 @@ export class RoomAudioCapture {
     this.stream = null;
     this.context = null;
     this.source = null;
+    this.highpass = null;
+    this.lowpass = null;
     this.processor = null;
     this.mute = null;
 
@@ -133,12 +135,20 @@ export class RoomAudioCapture {
 
     this.context = new AudioContext({ latencyHint: 'interactive' });
     this.source = this.context.createMediaStreamSource(this.stream);
+    this.highpass = this.context.createBiquadFilter();
+    this.highpass.type = 'highpass';
+    this.highpass.frequency.value = 80;
+    this.lowpass = this.context.createBiquadFilter();
+    this.lowpass.type = 'lowpass';
+    this.lowpass.frequency.value = 7600;
     this.processor = this.context.createScriptProcessor(4096, 1, 1);
     this.mute = this.context.createGain();
     this.mute.gain.value = 0;
 
     this.processor.onaudioprocess = (event) => this.processFrame(event);
-    this.source.connect(this.processor);
+    this.source.connect(this.highpass);
+    this.highpass.connect(this.lowpass);
+    this.lowpass.connect(this.processor);
     this.processor.connect(this.mute);
     this.mute.connect(this.context.destination);
 
@@ -156,7 +166,7 @@ export class RoomAudioCapture {
     const thresholdDb = speakingThreshold(this.noiseFloorDb);
     const aboveThreshold = db >= thresholdDb && db >= -55;
 
-    if (!this.speaking) {
+    if (!this.speaking && !aboveThreshold) {
       this.noiseFloorDb = updateNoiseFloor(this.noiseFloorDb, db, false);
     }
 
@@ -237,6 +247,8 @@ export class RoomAudioCapture {
     this.levels = [];
 
     try { this.source?.disconnect(); } catch {}
+    try { this.highpass?.disconnect(); } catch {}
+    try { this.lowpass?.disconnect(); } catch {}
     try { this.processor?.disconnect(); } catch {}
     try { this.mute?.disconnect(); } catch {}
 
@@ -247,6 +259,8 @@ export class RoomAudioCapture {
     this.stream = null;
     this.context = null;
     this.source = null;
+    this.highpass = null;
+    this.lowpass = null;
     this.processor = null;
     this.mute = null;
   }
