@@ -120,7 +120,11 @@ function renderParticipantList() {
   if (!state.participants.length) {
     const empty = document.createElement('div');
     empty.className = 'roster-empty';
-    empty.innerHTML = '<strong>No enrolled participants</strong><span>Create the first participant to enable recognition.</span>';
+    const strong = document.createElement('strong');
+    strong.textContent = 'No enrolled participants';
+    const span = document.createElement('span');
+    span.textContent = 'Create the first participant to enable recognition.';
+    empty.append(strong, span);
     ui.list.append(empty);
     return;
   }
