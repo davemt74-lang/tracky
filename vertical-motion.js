@@ -3,9 +3,16 @@ import { createMotionStats, recordMotion, summarizeMotion, zoneForY } from './sr
 import { createGameState, recordGameSample, startGame, stopGame } from './src/gameplay-core.js';
 import {
   advanceScan,
-  assignTracks,
   bestParticipantMatch
 } from './src/participant-core.js';
+import {
+  BODY_OCCLUSION_GRACE_MS,
+  associateFacesToBodies,
+  assignBodyTracks,
+  attachFacesToTracks,
+  carryOccludedTracks,
+  roomPresenceState
+} from './src/room-tracking-core.js';
 import { IdentityEngine, cropFacePhoto } from './src/identity-engine.js';
 import {
   listParticipants,
@@ -89,7 +96,7 @@ const CURSOR_RADIUS_IN = 0.09;
 const MAX_TRACE_SAMPLES = 600;
 const MICRO_THRESHOLD = 0.015;
 const IDENTITY_SCAN_INTERVAL = 650;
-const TRACK_GRACE_MS = 2600;
+const TRACK_GRACE_MS = BODY_OCCLUSION_GRACE_MS;
 
 function detectOptions() {
   return {
@@ -237,7 +244,10 @@ function participantById(id) {
 }
 
 function statusLabel(track) {
-  if (track.status === 'matched') return 'PROFILE MATCH';
+  if (track.status === 'matched') return 'FACE + BODY LOCK';
+  if (track.status === 'body-lock') return 'BODY LOCK';
+  if (track.status === 'occluded') return 'OCCLUSION MEMORY';
+  if (track.status === 'body-detected') return 'PERSON DETECTED';
   if (track.status === 'new') return 'NO ENROLLED MATCH';
   if (track.status === 'reacquiring') return 'REACQUIRING';
   if (track.status === 'align-face') return 'ALIGN FACE';
@@ -284,11 +294,17 @@ function createParticipantCard(track) {
 
   const detail = document.createElement('span');
   if (track.status === 'matched') {
-    detail.textContent = Math.round(track.similarity * 100) + '% match · current capture saved';
+    detail.textContent = Math.round(track.similarity * 100) + '% face match · full-body track active';
+  } else if (track.status === 'body-lock') {
+    detail.textContent = 'Face not visible · identity held by body track';
+  } else if (track.status === 'occluded') {
+    detail.textContent = 'Temporarily occluded · preserving room identity';
+  } else if (track.status === 'body-detected') {
+    detail.textContent = 'Body detected · waiting for a usable face angle';
   } else if (track.status === 'new') {
     detail.textContent = 'Ready to create participant profile';
   } else if (track.status === 'reacquiring') {
-    detail.textContent = 'Face temporarily out of view';
+    detail.textContent = 'Person temporarily out of view';
   } else {
     detail.textContent = Math.round(track.quality * 100) + '% face quality';
   }
@@ -317,7 +333,7 @@ function createParticipantCard(track) {
   const actions = document.createElement('div');
   actions.className = 'participant-card-actions';
 
-  if (track.status === 'matched' && track.participantId) {
+  if (track.participantId) {
     const updatePhoto = document.createElement('button');
     updatePhoto.type = 'button';
     updatePhoto.textContent = 'Use current photo';
@@ -419,11 +435,11 @@ async function resolveTrackIdentity(track) {
     };
   }
 
-  const currentPhoto = track.latestPhoto || cropFacePhoto(ui.video, track.box, {
+  const currentPhoto = track.latestPhoto || (track.face?.box ? cropFacePhoto(ui.video, track.face.box, {
     mirror: ui.mirror.checked,
     size: 300,
     quality: 0.88
-  });
+  }) : null);
 
   const matched = {
     ...track,
@@ -454,50 +470,94 @@ async function scanRoom(now) {
   state.identity.lastScanAt = now;
 
   try {
-    const faces = await state.identity.engine.detect(ui.video);
+    const room = await state.identity.engine.detectRoom(ui.video);
+    const faces = room.faces || [];
+    const bodies = room.bodies || [];
     const previous = state.identity.tracks;
 
-    let liveTracks = assignTracks(previous, faces, now, {
+    let liveTracks = assignBodyTracks(previous, bodies, now, {
       nextId: nextTrackId
     });
 
+    const assignments = associateFacesToBodies(faces, bodies);
+    liveTracks = attachFacesToTracks(liveTracks, faces, bodies, assignments, now);
+
     liveTracks = liveTracks.map((track) => {
-      if (track.status === 'matched') return { ...track, scanProgress: 100 };
+      const presence = roomPresenceState(track, now);
+
+      if (!track.face) {
+        return {
+          ...track,
+          status: track.participantId ? presence : 'body-detected',
+          scanProgress: track.participantId ? 100 : track.scanProgress
+        };
+      }
+
+      if (track.participantId) {
+        const photo = track.quality >= 0.52
+          ? cropFacePhoto(ui.video, track.face.box, {
+              mirror: ui.mirror.checked,
+              size: 260,
+              quality: 0.82
+            })
+          : null;
+
+        return {
+          ...track,
+          status: 'matched',
+          scanProgress: 100,
+          latestPhoto: photo || track.latestPhoto
+        };
+      }
+
       const advanced = advanceScan(track, { minQuality: 0.48, increment: 24, decay: 7 });
       if (track.status === 'new' && advanced.scanProgress >= 100) advanced.status = 'new';
 
-      if (advanced.quality >= 0.52 && advanced.box) {
-        advanced.latestPhoto = cropFacePhoto(ui.video, advanced.box, {
+      if (advanced.quality >= 0.52 && advanced.face?.box) {
+        advanced.latestPhoto = cropFacePhoto(ui.video, advanced.face.box, {
           mirror: ui.mirror.checked,
           size: 260,
           quality: 0.82
         }) || track.latestPhoto;
       }
+
       return advanced;
     });
 
-    const liveIds = new Set(liveTracks.map((track) => track.id));
-    const staleTracks = previous
-      .filter((track) => !liveIds.has(track.id) && now - track.lastSeenAt < TRACK_GRACE_MS)
-      .map((track) => ({ ...track, status: track.status === 'matched' ? 'matched' : 'reacquiring' }));
+    const carried = carryOccludedTracks(previous, liveTracks, now, TRACK_GRACE_MS);
 
     const resolved = [];
     for (const track of liveTracks) {
-      if (track.scanProgress >= 100 && track.embedding && track.status !== 'matched' && track.status !== 'new') {
+      if (
+        track.scanProgress >= 100 &&
+        track.embedding &&
+        !track.participantId &&
+        track.status !== 'new'
+      ) {
         resolved.push(await resolveTrackIdentity(track));
       } else {
         resolved.push(track);
       }
     }
 
-    state.identity.tracks = [...resolved, ...staleTracks];
-    ui.identityStatus.textContent = faces.length
-      ? faces.length + ' face' + (faces.length === 1 ? '' : 's') + ' detected'
-      : 'Scanning room';
+    state.identity.tracks = [...resolved, ...carried];
+
+    const identified = state.identity.tracks.filter((track) => track.participantId).length;
+    const bodyLocked = state.identity.tracks.filter((track) => track.status === 'body-lock').length;
+    ui.identityStatus.textContent = bodies.length
+      ? bodies.length + ' person' + (bodies.length === 1 ? '' : 's') +
+        ' · ' + identified + ' identified' +
+        (bodyLocked ? ' · ' + bodyLocked + ' body lock' : '')
+      : faces.length
+        ? faces.length + ' face' + (faces.length === 1 ? '' : 's') + ' · acquiring body'
+        : state.identity.tracks.some((track) => track.status === 'occluded')
+          ? 'Occlusion recovery active'
+          : 'Scanning room';
+
     renderParticipantCards();
   } catch (error) {
     console.error(error);
-    ui.identityStatus.textContent = 'Identity scan error';
+    ui.identityStatus.textContent = 'Room tracking error';
   } finally {
     state.identity.busy = false;
   }
