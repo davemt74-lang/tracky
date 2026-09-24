@@ -126,11 +126,29 @@ export async function deleteParticipant(id) {
     const participants = tx.objectStore(PARTICIPANTS);
     const dialogue = tx.objectStore(DIALOGUE);
 
+    const participant = await requestToPromise(participants.get(id));
     await requestToPromise(participants.delete(id));
+
     const rows = await requestToPromise(dialogue.getAll());
     for (const row of rows) {
       if (row.participantId === id) {
         dialogue.delete(row.id);
+        continue;
+      }
+
+      const nearbyIds = Array.from(row.nearbyParticipantIds || []);
+      const nearbyNames = Array.from(row.nearbyParticipantNames || []);
+      const hasNearbyReference = nearbyIds.includes(id);
+      const hasNameReference = participant?.name && nearbyNames.includes(participant.name);
+
+      if (hasNearbyReference || hasNameReference) {
+        dialogue.put({
+          ...row,
+          nearbyParticipantIds: nearbyIds.filter((participantId) => participantId !== id),
+          nearbyParticipantNames: participant?.name
+            ? nearbyNames.filter((name) => name !== participant.name)
+            : nearbyNames
+        });
       }
     }
 
