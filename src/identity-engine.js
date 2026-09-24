@@ -1,4 +1,5 @@
 import { faceQuality, normalizeBox } from './participant-core.js';
+import { bodyDetection } from './room-tracking-core.js';
 
 const HUMAN_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.esm.js';
 const MODEL_BASE = 'https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/models/';
@@ -40,7 +41,11 @@ export class IdentityEngine {
             antispoof: { enabled: false },
             liveness: { enabled: false }
           },
-          body: { enabled: false },
+          body: {
+            enabled: true,
+            maxDetected: 8,
+            minConfidence: 0.25
+          },
           hand: { enabled: false },
           object: { enabled: false },
           gesture: { enabled: false },
@@ -62,13 +67,13 @@ export class IdentityEngine {
     return this.loading;
   }
 
-  async detect(input) {
+  async detectRoom(input) {
     if (!this.ready) await this.init();
     const result = await this.human.detect(input);
     const frameWidth = Number(input.videoWidth || input.width || 1);
     const frameHeight = Number(input.videoHeight || input.height || 1);
 
-    return (result.face || []).map((face) => ({
+    const faces = (result.face || []).map((face) => ({
       raw: face,
       box: normalizeBox(face.box, frameWidth, frameHeight),
       embedding: face.embedding ? Array.from(face.embedding) : null,
@@ -76,6 +81,15 @@ export class IdentityEngine {
       quality: faceQuality(face, frameWidth, frameHeight),
       rotation: face.rotation || null
     }));
+
+    const bodies = (result.body || []).map((body) => bodyDetection(body, frameWidth, frameHeight));
+
+    return { faces, bodies, raw: result };
+  }
+
+  async detect(input) {
+    const room = await this.detectRoom(input);
+    return room.faces;
   }
 
   similarity(a, b) {

@@ -2,6 +2,37 @@
 
 Tracky turns real-world movement into browser-game input.
 
+## V0.5 — Full-Body Room Persistence
+
+V0.5 upgrades participant identity from face-only tracking to persistent person/body tracking.
+
+### Persistent room tracking
+
+- Detect multiple full bodies in the camera view
+- Bind a recognized face to the corresponding body track
+- Keep the participant identity attached when the person turns their face away
+- Maintain per-person room Track IDs such as `T001`, `T002`, and `T003`
+- Predict short-term motion to reduce ID swaps when participants cross paths
+- Use body-box overlap and body-size consistency when associating frames
+- Preserve an identified track through brief occlusion for up to about 6 seconds
+- Reconnect the participant when the same body track becomes visible again
+- Fall back to an estimated body region when a usable face is visible but the body detector misses
+- Keep face recognition as the identity authority; body tracking preserves an already-established identity rather than identifying someone from their body alone
+
+### Futuristic room radar
+
+The live game HUD now includes a room map showing the normalized position of every active body track.
+
+- cyan dot: unknown person/body track
+- green dot: identified participant
+- faded/dashed dot: participant temporarily occluded
+- labels show participant name or Track ID
+- cards transition between **FACE + BODY LOCK**, **BODY LOCK**, **OCCLUSION MEMORY**, and reacquisition states
+
+### Identity limits
+
+Body tracking preserves identity while a participant remains continuously trackable or is only briefly occluded. If someone leaves the camera view long enough for the body track to expire and later returns with no usable face visible, Tracky does not guess who they are; it waits for a face match before restoring identity.
+
 ## V0.4 — Futuristic UI + Participants & Identity
 
 V0.4 adds a local-first participant identity layer and redesigns Tracky as a futuristic room/game HUD.
@@ -9,7 +40,6 @@ V0.4 adds a local-first participant identity layer and redesigns Tracky as a fut
 ### Live room identity
 
 - Detect multiple faces in the same camera view
-- Maintain short-lived room Track IDs such as `T001`, `T002`, and `T003`
 - Upper-right participant cards on the game screen
 - Live face-quality and scan-progress states
 - Match only against participants explicitly enrolled on the current device
@@ -24,71 +54,51 @@ V0.4 adds a local-first participant identity layer and redesigns Tracky as a fut
 
 - Dedicated `participants.html` contact / participant list
 - Create, edit, and delete participant profiles
-- Name, nickname, notes, recognition-enabled setting
 - Camera-based **Capture / replace primary photo**
 - Separate current/latest photo
 - 3–5 local face-enrollment samples
-- Import a pending live-room capture as the first onboarding photo/sample
 - Face descriptors and profile photos stored in browser IndexedDB on the device
 
-### Face recognition engine
+### Recognition engine
 
-Tracky uses the browser build of `@vladmandic/human@3.3.6` for multi-face detection and face descriptors.
+Tracky uses the browser build of `@vladmandic/human@3.3.6` for face descriptions and full-body detection.
 
-- Recognition inference runs in the browser
+- Inference runs in the browser
 - Pretrained model files are loaded from jsDelivr and may be cached by the browser
-- Initial face-model loading therefore requires network access
+- Initial model loading requires network access
 - Tracky does not query an outside identity database
-- Recognition compares current face descriptors only with Tracky participants enrolled on this device
-- The movement/game tracker remains usable if the identity model cannot load
+- Recognition compares current face descriptors only with participants enrolled on this device
+- Movement/game tracking remains usable if the identity model cannot load
 
 ## V0.3 — Vertical Motion gameplay
 
-- Choose a point goal from 1–50 before starting
-- One of the three lane sections is highlighted as the active target
-- Every active section receives a random rep target from 4–10
-- One complete upward leg followed by one downward leg counts as one repetition
-- Gameplay reps only count while the tracked object remains inside the highlighted section
-- Completed reps count the displayed number down toward zero
+- Choose a point goal from 1–50
+- Highlight one of three lane sections
+- Assign a random 4–10 rep target
+- One upward leg followed by one downward leg counts as one repetition
 - Clearing the section scores 1 point
-- The next round moves to a different section and receives a new 4–10 rep target
 - Reaching the selected point goal ends the game
-- Raw high-volume micro-movement analytics continue independently of gameplay
+- High-volume micro-movement analytics continue independently
 
 ## V0.2 — Games + Vertical Motion
 
-- Games library at `games.html`
-- 1 inch × 5 inch vertical movement lane
-- Lane centered horizontally and positioned slightly below vertical center
-- Cursor constrained inside the lane
-- Lane split into three equal tracking zones
-- High-volume frame-by-frame vertical movement capture
-- Overall and per-zone up/down travel
-- Micro-movement events and micro travel
-- Direction reversals and micro reversals
-- Oscillation rate
-- Dwell time per zone
-- Recent raw micro-movement trace
-- Adjustable micro-movement noise floor
-- Display smoothing kept separate from raw analytics
-
-The lane uses CSS physical units. Actual physical inches depend on browser/OS display scaling and monitor calibration.
+- Games library
+- 1 inch × 5 inch vertical lane
+- Three equal tracking zones
+- High-volume frame-by-frame vertical movement
+- Overall and per-zone analytics
 
 ## V0.1 — Camera Tracking Core
 
-- Browser webcam capture with camera switching
-- HSV-based green object detection
-- Largest connected-object selection
-- Adjustable color thresholds
-- Mirrored tracking mode
-- Smoothed X/Y cursor output
-- Velocity, speed, confidence, and FPS telemetry
-- Four-point perspective calibration
-- No server-side camera processing
+- Browser webcam capture
+- HSV green-object tracking
+- Smoothed game cursor
+- Tracking telemetry
+- Four-point calibration
 
 ## Run locally
 
-Camera access requires a secure context. `localhost` qualifies.
+Camera access requires localhost or HTTPS.
 
 ```bash
 python -m http.server 8080
