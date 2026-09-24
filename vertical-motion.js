@@ -140,7 +140,10 @@ const state = {
     currentSpeakerName: null,
     currentVoiceConfidence: 0,
     currentBodyLock: false,
-    currentGroupId: null
+    currentGroupId: null,
+    queue: [],
+    lastDecision: 'standby',
+    rejectedSegments: 0
   }
 };
 
@@ -472,6 +475,396 @@ function renderParticipantCards() {
   for (const track of visible) {
     ui.participantCards.append(createParticipantCard(track));
   }
+}
+
+
+function updateConversationGroups() {
+  const groups = buildConversationGroups(state.identity.tracks);
+  state.voice.groups = groups;
+
+  state.identity.tracks = state.identity.tracks.map((track) => {
+    const group = conversationGroupForTrack(groups, track.id);
+    return {
+      ...track,
+      conversationGroupId: group
+        ? (group.tracks.length > 1 ? group.id : 'SOLO')
+        : null
+    };
+  });
+}
+
+function renderRoomEvents() {
+  ui.roomEvents.replaceChildren();
+
+  for (const event of state.voice.events.slice(-5).reverse()) {
+    const row = document.createElement('div');
+    row.className = 'room-event ' + (event.type || 'info');
+
+    const time = document.createElement('span');
+    time.textContent = new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    const message = document.createElement('b');
+    message.textContent = event.message;
+
+    row.append(time, message);
+    ui.roomEvents.append(row);
+  }
+}
+
+function speakAcknowledgement(message) {
+  if (!ui.voiceAcknowledgements.checked || !('speechSynthesis' in window)) return;
+  const utterance = new SpeechSynthesisUtterance(message);
+  utterance.rate = 1.02;
+  utterance.pitch = 0.92;
+  utterance.volume = 0.72;
+  speechSynthesis.speak(utterance);
+}
+
+function pushRoomEvent(message, type = 'info', speak = false) {
+  state.voice.events.push({
+    message,
+    type,
+    at: Date.now()
+  });
+  if (state.voice.events.length > 30) state.voice.events.splice(0, state.voice.events.length - 30);
+  renderRoomEvents();
+  if (speak) speakAcknowledgement(message);
+}
+
+function acknowledgeRoomTracks(now) {
+  for (const track of state.identity.tracks) {
+    if (track.participantId && !state.voice.announcedParticipants.has(track.participantId)) {
+      state.voice.announcedParticipants.add(track.participantId);
+      state.voice.announcedTracks.add(track.id);
+      const participant = participantById(track.participantId);
+      const event = acknowledgeNewTrack(track, participant);
+      pushRoomEvent(event.message, 'recognized', true);
+      continue;
+    }
+
+    if (
+      !track.participantId &&
+      !state.voice.announcedTracks.has(track.id) &&
+      now - (track.firstSeenAt || now) >= 1200
+    ) {
+      state.voice.announcedTracks.add(track.id);
+      const event = acknowledgeNewTrack(track);
+      pushRoomEvent(event.message, 'new', true);
+    }
+  }
+}
+
+function renderVoiceHud() {
+  ui.roomMicDb.textContent = Number.isFinite(state.voice.micDb)
+    ? state.voice.micDb.toFixed(1) + ' dB'
+    : '— dB';
+  ui.roomNoiseDb.textContent = Number.isFinite(state.voice.noiseFloorDb)
+    ? state.voice.noiseFloorDb.toFixed(1) + ' dB'
+    : '— dB';
+  ui.roomVadState.textContent = state.voice.vad ? 'SPEECH' : 'QUIET';
+  ui.roomVadState.dataset.active = state.voice.vad ? 'true' : 'false';
+  ui.roomVoiceModel.textContent = state.voice.speakerReady
+    ? 'Voice Profile online'
+    : state.voice.speakerLoading
+      ? 'Loading…'
+      : 'Standby';
+  ui.roomSpeaker.textContent = state.voice.currentSpeakerName || '—';
+  ui.roomVoiceConfidence.textContent = state.voice.currentVoiceConfidence
+    ? Math.round(state.voice.currentVoiceConfidence * 100) + '%'
+    : '—';
+  ui.roomBodyLock.textContent = state.voice.currentSpeakerId
+    ? (state.voice.currentBodyLock ? 'CONFIRMED' : 'NOT VISIBLE')
+    : '—';
+  ui.roomDialogueGroup.textContent = state.voice.currentGroupId || '—';
+
+  ui.voiceStatus.textContent = !state.voice.active
+    ? 'Voice standby'
+    : state.voice.processing
+      ? 'Analyzing speaker…'
+      : state.voice.vad
+        ? 'Speech detected'
+        : state.voice.lastDecision === 'noise-rejected'
+          ? 'Background rejected'
+          : 'Room audio live';
+
+  ui.transcriptModelState.textContent = !ui.liveTranscription.checked
+    ? 'Transcription off'
+    : state.voice.transcriptReady
+      ? 'Local transcription online'
+      : state.voice.transcriptLoading
+        ? 'Loading transcription…'
+        : 'Loads on first accepted turn';
+}
+
+function renderDialogueTurns() {
+  ui.dialogueTurns.replaceChildren();
+
+  const turns = state.voice.turns.slice(-8).reverse();
+  if (!turns.length) {
+    const empty = document.createElement('div');
+    empty.className = 'dialogue-empty';
+    empty.textContent = state.voice.active
+      ? 'Listening for a clean speech turn…'
+      : 'Enable room audio to begin speaker tracking.';
+    ui.dialogueTurns.append(empty);
+    return;
+  }
+
+  for (const turn of turns) {
+    const card = document.createElement('article');
+    card.className = 'dialogue-turn ' + (turn.participantId ? 'identified' : 'unknown');
+
+    const top = document.createElement('div');
+    top.className = 'dialogue-turn-top';
+
+    const speaker = document.createElement('strong');
+    speaker.textContent = turn.participantName || 'Unknown speaker';
+
+    const meta = document.createElement('span');
+    const bits = [];
+    if (turn.groupId) bits.push(turn.groupId);
+    if (turn.voiceConfidence) bits.push('voice ' + Math.round(turn.voiceConfidence * 100) + '%');
+    bits.push('signal ' + Math.round(turn.signalConfidence * 100) + '%');
+    meta.textContent = bits.join(' · ');
+
+    top.append(speaker, meta);
+
+    const transcript = document.createElement('p');
+    transcript.textContent = turn.transcript || '[speaker turn detected — transcription unavailable]';
+
+    const context = document.createElement('small');
+    context.textContent = turn.nearbyParticipantNames.length
+      ? 'Nearby: ' + turn.nearbyParticipantNames.join(', ')
+      : turn.trackId
+        ? 'Body track: ' + turn.trackId
+        : 'No confirmed body association';
+
+    card.append(top, transcript, context);
+    ui.dialogueTurns.append(card);
+  }
+}
+
+async function ensureSpeakerEngine() {
+  if (state.voice.speakerReady) return true;
+  if (state.voice.speakerLoading) return false;
+
+  state.voice.speakerLoading = true;
+  renderVoiceHud();
+
+  try {
+    await state.voice.engine.init();
+    state.voice.speakerReady = true;
+    pushRoomEvent('Voice Profile engine online.', 'system');
+    return true;
+  } catch (error) {
+    console.error(error);
+    pushRoomEvent('Voice Profile engine could not load.', 'error');
+    return false;
+  } finally {
+    state.voice.speakerLoading = false;
+    renderVoiceHud();
+  }
+}
+
+async function ensureTranscriptionEngine() {
+  if (state.voice.transcriptReady) return true;
+  if (state.voice.transcriptLoading) return false;
+
+  state.voice.transcriptLoading = true;
+  renderVoiceHud();
+
+  try {
+    await state.voice.transcriber.init();
+    state.voice.transcriptReady = true;
+    pushRoomEvent('Local transcription engine online.', 'system');
+    return true;
+  } catch (error) {
+    console.error(error);
+    pushRoomEvent('Local transcription model could not load.', 'error');
+    return false;
+  } finally {
+    state.voice.transcriptLoading = false;
+    renderVoiceHud();
+  }
+}
+
+function onRoomAudioLevel(level) {
+  state.voice.micDb = level.db;
+  state.voice.noiseFloorDb = level.noiseFloorDb;
+  state.voice.vad = level.speaking;
+  renderVoiceHud();
+}
+
+async function processRoomSegment(segment) {
+  state.voice.processing = true;
+  renderVoiceHud();
+
+  try {
+    const speakerReady = await ensureSpeakerEngine();
+    if (!speakerReady) return;
+
+    const embedding = await state.voice.engine.embedding(segment.samples);
+    const voiceMatch = bestVoiceMatch(embedding, state.identity.participants);
+    const participant = voiceMatch.matched ? voiceMatch.participant : null;
+    const track = participant
+      ? state.identity.tracks.find((candidate) => candidate.participantId === participant.id)
+      : null;
+
+    const bodyConfirmed = Boolean(track);
+    const gate = transcriptSignalGate({
+      levelDb: segment.avgDb,
+      noiseFloorDb: segment.noiseFloorDb,
+      voiceConfidence: voiceMatch.similarity,
+      bodyConfirmed,
+      vadConfirmed: true
+    });
+
+    let group = null;
+    let nearbyNames = [];
+    let nearbyIds = [];
+
+    if (track) {
+      group = conversationGroupForTrack(state.voice.groups, track.id);
+      nearbyNames = (group?.tracks || [])
+        .filter((candidate) => candidate.id !== track.id)
+        .map((candidate) => candidate.participantName)
+        .filter(Boolean);
+      nearbyIds = (group?.tracks || [])
+        .filter((candidate) => candidate.id !== track.id)
+        .map((candidate) => candidate.participantId)
+        .filter(Boolean);
+
+      const liveTrack = state.identity.tracks.find((candidate) => candidate.id === track.id);
+      if (liveTrack) {
+        liveTrack.voiceMatchConfidence = voiceMatch.similarity;
+        liveTrack.lastVoiceAt = performance.now();
+        liveTrack.voiceLevelDb = segment.avgDb;
+      }
+    }
+
+    state.voice.currentSpeakerId = participant?.id || null;
+    state.voice.currentSpeakerName = participant?.name || (voiceMatch.similarity ? 'Unknown voice' : null);
+    state.voice.currentVoiceConfidence = voiceMatch.similarity || 0;
+    state.voice.currentBodyLock = bodyConfirmed;
+    state.voice.currentGroupId = group
+      ? (group.tracks.length > 1 ? group.id : 'SOLO')
+      : null;
+
+    if (!gate.accept) {
+      state.voice.rejectedSegments += 1;
+      state.voice.lastDecision = 'noise-rejected';
+      renderParticipantCards();
+      renderVoiceHud();
+      return;
+    }
+
+    let transcript = '';
+    if (ui.liveTranscription.checked) {
+      const transcriptReady = await ensureTranscriptionEngine();
+      if (transcriptReady) {
+        transcript = await state.voice.transcriber.transcribe(segment.samples);
+      }
+    }
+
+    const turn = createSpeakerTurn({
+      participantId: participant?.id || null,
+      participantName: participant?.name || null,
+      trackId: track?.id || null,
+      groupId: group ? (group.tracks.length > 1 ? group.id : 'SOLO') : null,
+      confidence: gate.confidence,
+      voiceConfidence: voiceMatch.similarity,
+      signalConfidence: gate.confidence,
+      startedAt: segment.startedAt,
+      endedAt: segment.endedAt,
+      peakDb: segment.peakDb,
+      avgDb: segment.avgDb,
+      noiseFloorDb: segment.noiseFloorDb,
+      nearbyParticipantIds: nearbyIds,
+      nearbyParticipantNames: nearbyNames,
+      transcript,
+      attribution: participant ? (bodyConfirmed ? 'voice+body' : 'voice-only') : 'unknown'
+    });
+
+    state.voice.turns.push(turn);
+    if (state.voice.turns.length > 50) state.voice.turns.splice(0, state.voice.turns.length - 50);
+    state.voice.lastDecision = 'accepted';
+
+    renderParticipantCards();
+    renderDialogueTurns();
+    renderVoiceHud();
+  } catch (error) {
+    console.error(error);
+    pushRoomEvent('Speech turn could not be analyzed.', 'error');
+  } finally {
+    state.voice.processing = false;
+    renderVoiceHud();
+  }
+}
+
+async function drainRoomAudioQueue() {
+  if (state.voice.processing) return;
+  const next = state.voice.queue.shift();
+  if (!next) return;
+  await processRoomSegment(next);
+  if (state.voice.queue.length) void drainRoomAudioQueue();
+}
+
+function onRoomAudioSegment(segment) {
+  state.voice.queue.push(segment);
+  if (state.voice.queue.length > 6) state.voice.queue.splice(0, state.voice.queue.length - 6);
+  void drainRoomAudioQueue();
+}
+
+async function startRoomAudio() {
+  if (state.voice.active) return;
+
+  try {
+    await reloadIdentityParticipants();
+    state.voice.audio = new RoomAudioCapture({
+      minSegmentSeconds: 1.05,
+      hangoverMs: 650,
+      onLevel: onRoomAudioLevel,
+      onSegment: async (segment) => onRoomAudioSegment(segment)
+    });
+
+    await state.voice.audio.start();
+    state.voice.active = true;
+    state.voice.lastDecision = 'listening';
+    ui.startRoomAudio.disabled = true;
+    ui.stopRoomAudio.disabled = false;
+    pushRoomEvent('Room audio online · adaptive noise gate active.', 'system');
+    renderDialogueTurns();
+    renderVoiceHud();
+    void ensureSpeakerEngine();
+  } catch (error) {
+    console.error(error);
+    state.voice.active = false;
+    pushRoomEvent(
+      window.isSecureContext
+        ? 'Microphone could not be started.'
+        : 'Microphone requires localhost or HTTPS.',
+      'error'
+    );
+    renderVoiceHud();
+  }
+}
+
+function stopRoomAudio() {
+  state.voice.audio?.stop();
+  state.voice.audio = null;
+  state.voice.active = false;
+  state.voice.vad = false;
+  state.voice.micDb = -100;
+  state.voice.currentSpeakerId = null;
+  state.voice.currentSpeakerName = null;
+  state.voice.currentVoiceConfidence = 0;
+  state.voice.currentBodyLock = false;
+  state.voice.currentGroupId = null;
+  state.voice.queue = [];
+  ui.startRoomAudio.disabled = false;
+  ui.stopRoomAudio.disabled = true;
+  renderDialogueTurns();
+  renderVoiceHud();
 }
 
 async function useTrackPhotoAsPrimary(track) {
