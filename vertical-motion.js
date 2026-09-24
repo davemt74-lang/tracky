@@ -46,6 +46,7 @@ const state = {
   paused: false,
   raf: 0,
   rawY: null,
+  displayX: 0.5,
   displayY: 0.5,
   stats: createMotionStats(),
   trace: [],
@@ -88,16 +89,19 @@ function setActiveZone(zone) {
   });
 }
 
-function setCursor(y, visible) {
+function setCursor(x, y, visible) {
   if (!visible) {
     ui.cursor.hidden = true;
     setActiveZone(-1);
     return;
   }
 
-  const edge = CURSOR_RADIUS_IN / LANE_HEIGHT_IN;
-  const constrained = edge + clamp01(y) * (1 - edge * 2);
-  ui.cursor.style.top = (constrained * 100) + '%';
+  const yEdge = CURSOR_RADIUS_IN / LANE_HEIGHT_IN;
+  const xEdge = CURSOR_RADIUS_IN / 1;
+  const constrainedX = xEdge + clamp01(x) * (1 - xEdge * 2);
+  const constrainedY = yEdge + clamp01(y) * (1 - yEdge * 2);
+  ui.cursor.style.left = (constrainedX * 100) + '%';
+  ui.cursor.style.top = (constrainedY * 100) + '%';
   ui.cursor.hidden = false;
   setActiveZone(zoneForY(y));
 }
@@ -130,7 +134,7 @@ function stopCamera() {
   ui.select.disabled = true;
   ui.cameraStatus.textContent = 'Camera stopped';
   ui.trackingStatus.textContent = 'No signal';
-  setCursor(0.5, false);
+  setCursor(0.5, 0.5, false);
 }
 
 async function startCamera(deviceId = '') {
@@ -232,6 +236,8 @@ function renderZoneStats(summary) {
     root.querySelector('[data-k="up"]').textContent = inches(zone.upTravel);
     root.querySelector('[data-k="down"]').textContent = inches(zone.downTravel);
     root.querySelector('[data-k="reversals"]').textContent = zone.reversals.toLocaleString();
+    root.querySelector('[data-k="microEvents"]').textContent = zone.microEvents.toLocaleString();
+    root.querySelector('[data-k="microReversals"]').textContent = zone.microReversals.toLocaleString();
     root.querySelector('[data-k="dwell"]').textContent = seconds(zone.dwellMs);
   });
 }
@@ -276,11 +282,13 @@ function loop(now) {
     ui.liveY.textContent = '—';
     ui.liveDelta.textContent = '—';
     ui.liveZone.textContent = '—';
-    setCursor(state.displayY, false);
+    setCursor(state.displayX, state.displayY, false);
   } else {
+    const rawX = clamp01(ui.mirror.checked ? 1 - detection.x : detection.x);
     const rawY = clamp01(detection.y);
+    state.displayX += (rawX - state.displayX) * 0.28;
     state.displayY += (rawY - state.displayY) * 0.28;
-    setCursor(state.displayY, true);
+    setCursor(state.displayX, state.displayY, true);
     ui.trackingStatus.textContent = 'Object tracked';
 
     let event = { delta: 0, zone: zoneForY(rawY), micro: false };
