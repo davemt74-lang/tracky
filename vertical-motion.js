@@ -559,7 +559,12 @@ function speakAcknowledgement(message) {
   utterance.pitch = 0.92;
   utterance.volume = 0.72;
 
+  let released = false;
+  let safetyTimer = 0;
   const releaseMic = () => {
+    if (released) return;
+    released = true;
+    clearTimeout(safetyTimer);
     state.voice.ttsPending = Math.max(0, state.voice.ttsPending - 1);
     if (state.voice.ttsPending !== 0) return;
 
@@ -570,9 +575,16 @@ function speakAcknowledgement(message) {
     }, 350);
   };
 
+  safetyTimer = setTimeout(releaseMic, 12000);
   utterance.addEventListener('end', releaseMic, { once: true });
   utterance.addEventListener('error', releaseMic, { once: true });
-  speechSynthesis.speak(utterance);
+
+  try {
+    speechSynthesis.speak(utterance);
+  } catch (error) {
+    console.error(error);
+    releaseMic();
+  }
 }
 
 function pushRoomEvent(message, type = 'info', speak = false) {
@@ -926,6 +938,7 @@ async function startRoomAudio() {
     });
 
     await state.voice.audio.start();
+    if (state.voice.ttsPending > 0) state.voice.audio.setSuppressed(true);
     state.voice.active = true;
     state.voice.lastDecision = 'listening';
     ui.startRoomAudio.disabled = true;
