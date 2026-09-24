@@ -1,5 +1,6 @@
 import { clamp01, detectColorBlob } from './src/tracker-core.js';
 import { createMotionStats, recordMotion, summarizeMotion, zoneForY } from './src/movement-core.js';
+import { createGameState, recordGameSample, startGame, stopGame } from './src/gameplay-core.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -18,6 +19,11 @@ const ui = {
   trackingStatus: $('#trackingStatus'),
   mirror: $('#mirrorCamera'),
   sensitivity: $('#motionSensitivity'),
+  pointGoal: $('#pointGoal'),
+  startGame: $('#startGame'),
+  endGame: $('#endGame'),
+  gameScore: $('#gameScore'),
+  gameReps: $('#gameReps'),
   liveY: $('#liveY'),
   liveDelta: $('#liveDelta'),
   liveZone: $('#liveZone'),
@@ -49,6 +55,7 @@ const state = {
   displayX: 0.5,
   displayY: 0.5,
   stats: createMotionStats(),
+  game: createGameState(5),
   trace: [],
   lastUiUpdate: 0
 };
@@ -83,27 +90,71 @@ function signed(value, digits = 4) {
   return value > 0 ? '+' + n : n;
 }
 
-function setActiveZone(zone) {
-  ui.lane.querySelectorAll('.lane-zone').forEach((el, index) => {
-    el.classList.toggle('active', index === zone);
-  });
+function pointGoalValue() {
+  const parsed = Math.round(Number(ui.pointGoal.value) || 5);
+  const goal = Math.max(1, Math.min(50, parsed));
+  ui.pointGoal.value = String(goal);
+  return goal;
 }
 
 function setCursor(x, y, visible) {
   if (!visible) {
     ui.cursor.hidden = true;
-    setActiveZone(-1);
     return;
   }
 
   const yEdge = CURSOR_RADIUS_IN / LANE_HEIGHT_IN;
-  const xEdge = CURSOR_RADIUS_IN / 1;
+  const xEdge = CURSOR_RADIUS_IN;
   const constrainedX = xEdge + clamp01(x) * (1 - xEdge * 2);
   const constrainedY = yEdge + clamp01(y) * (1 - yEdge * 2);
   ui.cursor.style.left = (constrainedX * 100) + '%';
   ui.cursor.style.top = (constrainedY * 100) + '%';
   ui.cursor.hidden = false;
-  setActiveZone(zoneForY(y));
+}
+
+function renderGame() {
+  const game = state.game;
+  const targetNodes = ui.lane.querySelectorAll('[data-target-zone]');
+  const zoneNodes = ui.lane.querySelectorAll('.lane-zone');
+
+  zoneNodes.forEach((node, index) => {
+    node.classList.toggle('target', game.active && index === game.activeZone);
+  });
+
+  targetNodes.forEach((node) => {
+    const zone = Number(node.dataset.targetZone);
+    const active = game.active && zone === game.activeZone;
+    node.hidden = !active;
+    if (active) node.textContent = String(game.repsRemaining);
+  });
+
+  ui.gameScore.textContent = game.score + ' / ' + game.pointGoal;
+  ui.gameReps.textContent = game.active ? String(game.repsRemaining) : '—';
+  ui.pointGoal.disabled = game.active;
+  ui.startGame.disabled = game.active;
+  ui.endGame.disabled = !game.active;
+  ui.startGame.textContent = game.over ? 'Play again' : 'Start game';
+
+  if (game.over) {
+    ui.instructions.innerHTML = '<strong>Game over — ' + game.score + ' points.</strong><span>You reached your selected point goal. Press Play again for a new game.</span>';
+    return;
+  }
+
+  if (!game.active) {
+    ui.instructions.innerHTML = '<strong>Choose your point goal and start the game.</strong><span>Each highlighted section cleared is worth one point.</span>';
+    return;
+  }
+
+  const zoneNumber = game.activeZone + 1;
+  if (game.lastEvent === 'outside-zone') {
+    ui.instructions.innerHTML = '<strong>Move into Zone ' + zoneNumber + '.</strong><span>Only complete up → down reps inside the highlighted section count.</span>';
+  } else if (game.lastEvent === 'rep') {
+    ui.instructions.innerHTML = '<strong>' + game.repsRemaining + ' reps left in Zone ' + zoneNumber + '.</strong><span>Keep the up → down rhythm inside the highlighted section.</span>';
+  } else if (game.lastEvent === 'round-start') {
+    ui.instructions.innerHTML = '<strong>Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps.</strong><span>Complete up → down cycles inside the highlighted section.</span>';
+  } else {
+    ui.instructions.innerHTML = '<strong>Zone ' + zoneNumber + ': ' + game.repsRemaining + ' reps left.</strong><span>Complete up → down cycles inside the highlighted section.</span>';
+  }
 }
 
 async function enumerateCameras() {
@@ -142,7 +193,7 @@ async function startCamera(deviceId = '') {
 
   if (!navigator.mediaDevices?.getUserMedia) {
     ui.cameraStatus.textContent = 'Camera API unavailable';
-    return;
+    return false;
   }
 
   try {
@@ -164,11 +215,13 @@ async function startCamera(deviceId = '') {
     ui.start.disabled = true;
     ui.stop.disabled = false;
     ui.cameraStatus.textContent = 'Camera live';
-    ui.instructions.innerHTML = '<strong>Tracking live.</strong><span>Move the green object up and down inside the camera view.</span>';
+    ui.trackingStatus.textContent = 'Searching for green…';
     state.raf = requestAnimationFrame(loop);
+    return true;
   } catch (error) {
     console.error(error);
     ui.cameraStatus.textContent = window.isSecureContext ? 'Could not start camera' : 'Use localhost or HTTPS';
+    return false;
   }
 }
 
@@ -179,6 +232,24 @@ function resetSession() {
   state.lastUiUpdate = 0;
   renderStats(performance.now());
   drawTrace();
+}
+
+async function beginGameplay() {
+  const goal = pointGoalValue();
+
+  if (!state.running) {
+    const started = await startCamera(ui.select.value);
+    if (!started) return;
+  }
+
+  resetSession();
+  startGame(state.game, goal);
+  renderGame();
+}
+
+function endGameplay() {
+  stopGame(state.game);
+  renderGame();
 }
 
 function pushTrace(delta, micro) {
@@ -291,23 +362,31 @@ function loop(now) {
     setCursor(state.displayX, state.displayY, true);
     ui.trackingStatus.textContent = 'Object tracked';
 
-    let event = { delta: 0, zone: zoneForY(rawY), micro: false };
+    let motionEvent = { delta: 0, zone: zoneForY(rawY), micro: false };
     if (!state.paused) {
-      event = recordMotion(state.stats, rawY, now, {
+      motionEvent = recordMotion(state.stats, rawY, now, {
         noiseFloor: Number(ui.sensitivity.value),
         microThreshold: MICRO_THRESHOLD
       });
-      pushTrace(event.delta, event.micro);
+      pushTrace(motionEvent.delta, motionEvent.micro);
+    }
+
+    if (state.game.active) {
+      const gameEvent = recordGameSample(state.game, rawY);
+      if (gameEvent.type === 'rep' || gameEvent.type === 'point' || gameEvent.type === 'game-over' || gameEvent.type === 'outside-zone') {
+        renderGame();
+      }
     }
 
     state.rawY = rawY;
     ui.liveY.textContent = rawY.toFixed(4);
-    ui.liveDelta.textContent = signed(event.delta);
-    ui.liveZone.textContent = String(event.zone + 1);
+    ui.liveDelta.textContent = signed(motionEvent.delta);
+    ui.liveZone.textContent = String(zoneForY(rawY) + 1);
   }
 
   if (now - state.lastUiUpdate >= 100) {
     renderStats(now);
+    if (state.game.active) renderGame();
     drawTrace();
     state.lastUiUpdate = now;
   }
@@ -316,8 +395,19 @@ function loop(now) {
 }
 
 ui.start.addEventListener('click', () => startCamera(ui.select.value));
-ui.stop.addEventListener('click', stopCamera);
+ui.stop.addEventListener('click', () => {
+  if (state.game.active) endGameplay();
+  stopCamera();
+});
 ui.reset.addEventListener('click', resetSession);
+ui.startGame.addEventListener('click', beginGameplay);
+ui.endGame.addEventListener('click', endGameplay);
+ui.pointGoal.addEventListener('change', () => {
+  if (!state.game.active) {
+    state.game.pointGoal = pointGoalValue();
+    renderGame();
+  }
+});
 ui.select.addEventListener('change', () => state.running && startCamera(ui.select.value));
 ui.pause.addEventListener('click', () => {
   state.paused = !state.paused;
@@ -326,4 +416,5 @@ ui.pause.addEventListener('click', () => {
 window.addEventListener('resize', drawTrace);
 
 renderStats(performance.now());
+renderGame();
 drawTrace();
