@@ -2,12 +2,49 @@
 
 Tracky turns real-world movement into browser-game input.
 
+## V0.4 — Futuristic UI + Participants & Identity
+
+V0.4 adds a local-first participant identity layer and redesigns Tracky as a futuristic room/game HUD.
+
+### Live room identity
+
+- Detect multiple faces in the same camera view
+- Maintain short-lived room Track IDs such as `T001`, `T002`, and `T003`
+- Upper-right participant cards on the game screen
+- Live face-quality and scan-progress states
+- Match only against participants explicitly enrolled on the current device
+- Unknown people remain unidentified until a participant is created
+- Save a fresh current face capture after a successful match
+- Display both the saved primary photo and the current capture
+- Promote the latest capture to the participant's primary photo
+- Reject an incorrect match with **Not this person**
+- Send an unknown live capture directly into participant onboarding
+
+### Participant roster and onboarding
+
+- Dedicated `participants.html` contact / participant list
+- Create, edit, and delete participant profiles
+- Name, nickname, notes, recognition-enabled setting
+- Camera-based **Capture / replace primary photo**
+- Separate current/latest photo
+- 3–5 local face-enrollment samples
+- Import a pending live-room capture as the first onboarding photo/sample
+- Face descriptors and profile photos stored in browser IndexedDB on the device
+
+### Face recognition engine
+
+Tracky uses the browser build of `@vladmandic/human@3.3.6` for multi-face detection and face descriptors.
+
+- Recognition inference runs in the browser
+- Pretrained model files are loaded from jsDelivr and may be cached by the browser
+- Initial face-model loading therefore requires network access
+- Tracky does not query an outside identity database
+- Recognition compares current face descriptors only with Tracky participants enrolled on this device
+- The movement/game tracker remains usable if the identity model cannot load
+
 ## V0.3 — Vertical Motion gameplay
 
-V0.3 turns the Vertical Motion tracker into a playable scoring game.
-
 - Choose a point goal from 1–50 before starting
-- Start Game can request the camera automatically
 - One of the three lane sections is highlighted as the active target
 - Every active section receives a random rep target from 4–10
 - One complete upward leg followed by one downward leg counts as one repetition
@@ -16,7 +53,6 @@ V0.3 turns the Vertical Motion tracker into a playable scoring game.
 - Clearing the section scores 1 point
 - The next round moves to a different section and receives a new 4–10 rep target
 - Reaching the selected point goal ends the game
-- Gameplay rep detection uses a larger excursion threshold than analytics so camera jitter cannot generate points
 - Raw high-volume micro-movement analytics continue independently of gameplay
 
 ## V0.2 — Games + Vertical Motion
@@ -42,14 +78,13 @@ The lane uses CSS physical units. Actual physical inches depend on browser/OS di
 
 - Browser webcam capture with camera switching
 - HSV-based green object detection
-- Largest connected-object selection to reject small green noise
-- Adjustable hue, saturation, brightness, and minimum-area thresholds
+- Largest connected-object selection
+- Adjustable color thresholds
 - Mirrored tracking mode
 - Smoothed X/Y cursor output
 - Velocity, speed, confidence, and FPS telemetry
-- Lost-object behavior
 - Four-point perspective calibration
-- No server-side image processing; frames stay in the browser
+- No server-side camera processing
 
 ## Run locally
 
@@ -59,7 +94,10 @@ Camera access requires a secure context. `localhost` qualifies.
 python -m http.server 8080
 ```
 
-Open `http://localhost:8080/games.html` and choose **Vertical Motion**.
+Open:
+
+- `http://localhost:8080/games.html` for games
+- `http://localhost:8080/participants.html` for participant onboarding
 
 ## Tests
 
@@ -67,4 +105,4 @@ Open `http://localhost:8080/games.html` and choose **Vertical Motion**.
 npm test
 ```
 
-No npm dependencies are required.
+No npm install is required for the Tracky application itself.
