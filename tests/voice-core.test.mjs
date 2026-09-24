@@ -150,3 +150,14 @@ test('spatial distance penalizes different apparent depth', () => {
   };
   assert.ok(trackDistance(near, beside) < trackDistance(near, farDepth));
 });
+
+
+test('conversation groups ignore occluded stale body positions', () => {
+  const tracks = [
+    { id:'T1', participantId:'a', cx:0.10, cy:0.5, status:'matched' },
+    { id:'T2', participantId:'b', cx:0.16, cy:0.5, status:'occluded' }
+  ];
+  const groups = buildConversationGroups(tracks, 0.2);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].map((track) => track.id), ['T1']);
+});
