@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b0f0c">
+  <title>Tracky V0.1 — Camera Tracking Core</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<main class="shell">
+  <header class="hero">
+    <div><p class="eyebrow">TRACKY · V0.1</p><h1>Camera Tracking Core</h1><p>Track a real green object and turn it into game input.</p></div>
+    <div class="badges" aria-live="polite"><span id="cameraStatus">Ready</span><span id="trackingStatus">No signal</span></div>
+  </header>
+
+  <section class="panel toolbar">
+    <button id="startCamera" class="primary">Start camera</button>
+    <button id="stopCamera" disabled>Stop</button>
+    <label>Camera<select id="cameraSelect" disabled><option>Default camera</option></select></label>
+    <label class="check"><input id="mirrorCamera" type="checkbox" checked> Mirror</label>
+    <label class="check"><input id="debugOverlay" type="checkbox" checked> Debug overlay</label>
+  </section>
+
+  <section class="stage-grid">
+    <article class="panel">
+      <div class="section-head"><div><small>INPUT</small><h2>Camera view</h2></div><strong><span id="fpsValue">0.0</span> FPS</strong></div>
+      <div class="stage"><video id="cameraVideo" playsinline muted hidden></video><canvas id="cameraCanvas" width="960" height="540"></canvas></div>
+    </article>
+    <article class="panel">
+      <div class="section-head"><div><small>OUTPUT</small><h2>Game surface</h2></div><i class="dot"></i></div>
+      <div class="stage game"><canvas id="gameCanvas"></canvas></div>
+    </article>
+  </section>
+
+  <section class="lower-grid">
+    <article class="panel">
+      <div class="section-head"><div><small>DETECTION</small><h2>Green filter</h2></div></div>
+      <div class="controls">
+        <label>Hue min <output id="hueMinValue"></output><input id="hueMin" type="range" min="0" max="360" value="70"></label>
+        <label>Hue max <output id="hueMaxValue"></output><input id="hueMax" type="range" min="0" max="360" value="170"></label>
+        <label>Saturation min <output id="satMinValue"></output><input id="satMin" type="range" min="0" max="100" value="35"></label>
+        <label>Brightness min <output id="valMinValue"></output><input id="valMin" type="range" min="0" max="100" value="20"></label>
+        <label>Minimum area <output id="minAreaValue"></output><input id="minArea" type="range" min="0.05" max="5" step="0.05" value="0.20"></label>
+        <label>Smoothing <output id="smoothingValue"></output><input id="smoothing" type="range" min="0.05" max="1" step="0.05" value="0.35"></label>
+        <label>When object is lost<select id="lostBehavior"><option value="hide">Hide cursor</option><option value="hold">Hold last position</option><option value="center">Ease toward center</option></select></label>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="section-head"><div><small>TRACKING API</small><h2>Live telemetry</h2></div></div>
+      <div class="metrics">
+        <div><span>Raw X</span><b id="rawX">—</b></div><div><span>Raw Y</span><b id="rawY">—</b></div>
+        <div><span>Smoothed X</span><b id="smoothX">—</b></div><div><span>Smoothed Y</span><b id="smoothY">—</b></div>
+        <div><span>Velocity X</span><b id="velocityX">—</b></div><div><span>Velocity Y</span><b id="velocityY">—</b></div>
+        <div><span>Speed</span><b id="speedValue">—</b></div><div><span>Confidence</span><b id="confidenceValue">—</b></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="panel calibrate">
+    <div><small>PLAY AREA</small><h2>Four-point calibration</h2><p id="calibrationText">Optional: map any four physical corners to the full game surface.</p><strong id="calibrationProgress">Not calibrated</strong></div>
+    <div class="actions"><button id="calibrationStart">Start calibration</button><button id="calibrationCapture" class="primary" disabled>Capture point</button><button id="calibrationReset">Reset</button></div>
+  </section>
+
+  <footer>Camera access requires <strong>localhost</strong> or <strong>HTTPS</strong>. Frames stay in your browser.</footer>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "tracky",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Camera-based real-world object tracking input for browser games.",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python -m http.server 8080"
+  }
+}
