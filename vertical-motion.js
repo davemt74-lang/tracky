@@ -61,6 +61,7 @@ const ui = {
   roomNoiseDb: $('#roomNoiseDb'),
   roomVadState: $('#roomVadState'),
   roomVoiceModel: $('#roomVoiceModel'),
+  roomAudioPath: $('#roomAudioPath'),
   roomSpeaker: $('#roomSpeaker'),
   roomVoiceConfidence: $('#roomVoiceConfidence'),
   roomBodyLock: $('#roomBodyLock'),
@@ -637,6 +638,11 @@ function renderVoiceHud() {
     : state.voice.speakerLoading
       ? 'Loading…'
       : 'Standby';
+  ui.roomAudioPath.textContent = state.voice.captureMode === 'audio-worklet'
+    ? 'AudioWorklet'
+    : state.voice.captureMode === 'script-processor-fallback'
+      ? 'Compatibility'
+      : 'Offline';
   ui.roomSpeaker.textContent = state.voice.currentSpeakerName || '—';
   ui.roomVoiceConfidence.textContent = state.voice.currentVoiceConfidence
     ? Math.round(state.voice.currentVoiceConfidence * 100) + '%'
@@ -983,6 +989,7 @@ async function startRoomAudio() {
     });
 
     await state.voice.audio.start();
+    state.voice.captureMode = state.voice.audio.captureMode;
     if (state.voice.ttsPending > 0) state.voice.audio.setSuppressed(true);
     state.voice.active = true;
     state.voice.lastDecision = 'listening';
@@ -1017,6 +1024,7 @@ function stopRoomAudio() {
   state.voice.currentVoiceConfidence = 0;
   state.voice.currentBodyLock = false;
   state.voice.currentGroupId = null;
+  state.voice.captureMode = 'offline';
   state.voice.queue = [];
   ui.startRoomAudio.disabled = false;
   ui.stopRoomAudio.disabled = true;
