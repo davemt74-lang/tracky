@@ -14,7 +14,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm test
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build deploy ZIP
+        shell: bash
+        run: |
+          rm -rf dist tracky-v0.2-deploy.zip
+          mkdir -p dist/tracky-v0.2/src
+          cp index.html games.html vertical-motion.html app.js vertical-motion.js styles.css README.md package.json dist/tracky-v0.2/
+          cp src/tracker-core.js src/movement-core.js dist/tracky-v0.2/src/
+          cd dist
+          zip -r ../tracky-v0.2-deploy.zip tracky-v0.2
+
+      - name: Upload deploy ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracky-v0.2-deploy
+          path: tracky-v0.2-deploy.zip
+          if-no-files-found: error
+          retention-days: 30
