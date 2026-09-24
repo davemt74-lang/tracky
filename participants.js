@@ -1,3 +1,4 @@
+import { voiceProfileReadiness } from './src/voice-core.js';
 import { IdentityEngine, cropFacePhoto, qualityMessage } from './src/identity-engine.js';
 import {
   deleteParticipant,
@@ -146,8 +147,14 @@ function renderParticipantList() {
     title.textContent = participant.name || 'Unnamed participant';
     const meta = document.createElement('span');
     const sampleText = (participant.embeddings?.length || 0) + ' face samples';
+    const voiceReady = voiceProfileReadiness(participant);
+    const voiceText = voiceReady.ready
+      ? ' · voice profile ready'
+      : voiceReady.embeddingCount
+        ? ' · voice ' + voiceReady.embeddingCount + '/3'
+        : ' · no voice profile';
     const seen = participant.lastSeenAt ? ' · seen ' + new Date(participant.lastSeenAt).toLocaleDateString() : '';
-    meta.textContent = sampleText + seen;
+    meta.textContent = sampleText + voiceText + seen;
     copy.append(title, meta);
 
     const status = document.createElement('i');
