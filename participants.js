@@ -1,3 +1,4 @@
+import { voiceProfileReadiness } from './src/voice-core.js';
 import { IdentityEngine, cropFacePhoto, qualityMessage } from './src/identity-engine.js';
 import {
   deleteParticipant,
@@ -93,6 +94,7 @@ function updatePhotos() {
 
 function clearForm() {
   state.editingId = null;
+  document.body.dataset.participantId = '';
   state.primaryPhoto = null;
   state.latestPhoto = null;
   state.embeddings = [];
@@ -145,8 +147,14 @@ function renderParticipantList() {
     title.textContent = participant.name || 'Unnamed participant';
     const meta = document.createElement('span');
     const sampleText = (participant.embeddings?.length || 0) + ' face samples';
+    const voiceReady = voiceProfileReadiness(participant);
+    const voiceText = voiceReady.ready
+      ? ' · voice profile ready'
+      : voiceReady.embeddingCount
+        ? ' · voice ' + voiceReady.embeddingCount + '/3'
+        : ' · no voice profile';
     const seen = participant.lastSeenAt ? ' · seen ' + new Date(participant.lastSeenAt).toLocaleDateString() : '';
-    meta.textContent = sampleText + seen;
+    meta.textContent = sampleText + voiceText + seen;
     copy.append(title, meta);
 
     const status = document.createElement('i');
@@ -174,6 +182,8 @@ async function loadParticipant(id) {
   if (!participant) return;
 
   state.editingId = participant.id;
+  document.body.dataset.participantId = participant.id;
+  window.dispatchEvent(new CustomEvent('tracky:participant-loaded', { detail: { participantId: participant.id } }));
   state.primaryPhoto = participant.primaryPhoto || null;
   state.latestPhoto = participant.latestPhoto || null;
   state.embeddings = (participant.embeddings || []).map((value) => Array.from(value));
@@ -382,6 +392,8 @@ async function saveForm() {
   });
 
   state.editingId = record.id;
+  document.body.dataset.participantId = record.id;
+  window.dispatchEvent(new CustomEvent('tracky:participant-saved', { detail: { participantId: record.id } }));
   ui.formModeLabel.textContent = 'PARTICIPANT PROFILE';
   ui.formTitle.textContent = record.name;
   ui.delete.hidden = false;
@@ -446,3 +458,8 @@ window.addEventListener('beforeunload', stopCamera);
 clearForm();
 await reloadParticipants();
 await loadPendingFromUrl();
+
+
+window.addEventListener('tracky:participant-voice-updated', async () => {
+  await reloadParticipants();
+});

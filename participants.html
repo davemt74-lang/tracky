@@ -29,6 +29,7 @@
     <div><span>STORAGE</span><b>Local device</b></div>
     <div><span>ENROLLED</span><b id="participantCount">0</b></div>
     <div><span>CAMERA</span><b id="participantCameraStatus">Offline</b></div>
+    <div><span>VOICE PROFILE</span><b>Local speaker identity</b></div>
   </section>
 
   <section class="participants-layout">
@@ -107,6 +108,61 @@
             <p>Capture several clean angles. Recognition uses face descriptors; the visible profile photo is stored separately and can be replaced at any time.</p>
           </div>
 
+          <div class="voice-enrollment-block" id="voiceEnrollmentBlock">
+            <div class="voice-enrollment-head">
+              <div>
+                <small>VOICE PROFILE</small>
+                <strong id="voiceEnrollmentStatus">Save participant to enable voice profiling</strong>
+              </div>
+              <span class="voice-orb" id="voiceOrb" aria-hidden="true"><i></i><i></i><i></i></span>
+            </div>
+
+            <div class="voice-data-grid">
+              <div><span>PROFILE SAMPLES</span><b id="voiceSampleCount">0 / 3</b></div>
+              <div><span>PROFILE AUDIO</span><b id="voiceTotalSeconds">0.0s</b></div>
+              <div><span>LIVE LEVEL</span><b id="voiceLiveDb">— dB</b></div>
+              <div><span>SPEAKER MODEL</span><b id="voiceModelState">Standby</b></div>
+            </div>
+
+            <div class="voice-meter-shell">
+              <div class="voice-wave-bars" id="voiceWaveBars" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <div class="voice-capture-progress"><i id="voiceCaptureProgress"></i></div>
+              <div class="voice-stage-text">
+                <span id="voiceStageLabel">VOICE CORE STANDBY</span>
+                <b id="voiceStageDetail">Enroll a participant profile first.</b>
+              </div>
+            </div>
+
+            <div class="voice-profile-pipeline" aria-label="Voice profile pipeline">
+              <span data-voice-stage="capture">CAPTURE</span><i></i>
+              <span data-voice-stage="clean">NOISE GATE</span><i></i>
+              <span data-voice-stage="embed">VOICE ID</span><i></i>
+              <span data-voice-stage="redundancy">REDUNDANCY</span><i></i>
+              <span data-voice-stage="ready">PROFILE READY</span>
+            </div>
+
+            <div class="voice-actions">
+              <button id="recordVoiceSample" class="hud-button primary" disabled>Capture voice profile sample</button>
+              <button id="stopVoiceSample" class="hud-button" disabled>Stop recording</button>
+              <label class="switch-row voice-switch"><input id="voiceRecognitionEnabled" type="checkbox" checked disabled> Use voice profile for speaker tracking + transcription attribution</label>
+            </div>
+
+            <div class="voice-profile-console">
+              <small>REDUNDANT IDENTITY SIGNALS</small>
+              <div class="redundancy-grid">
+                <span>VOICE ACTIVITY<b>Noise-gated</b></span>
+                <span>VOICE PROFILE<b>Speaker match</b></span>
+                <span>FACE ID<b>When visible</b></span>
+                <span>BODY LOCK<b>Persistent</b></span>
+                <span>PROXIMITY<b>Dialogue grouping</b></span>
+                <span>TRANSCRIPT<b>Confidence gated</b></span>
+              </div>
+              <p>Tracky combines these signals to reject background noise and attribute transcript turns conservatively. Raw enrollment audio is processed into speaker embeddings and discarded after the profile sample is created.</p>
+            </div>
+          </div>
+
           <div class="form-message" id="formMessage" aria-live="polite"></div>
 
           <div class="participant-form-actions">
@@ -120,5 +176,6 @@
   </section>
 </main>
 <script type="module" src="./participants.js"></script>
+<script type="module" src="./participant-voice.js"></script>
 </body>
 </html>

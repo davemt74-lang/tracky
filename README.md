@@ -2,6 +2,64 @@
 
 Tracky turns real-world movement into browser-game input.
 
+## V0.6 — Voice Profiles + Spatial Dialogue
+
+V0.6 adds participant-specific Voice Profiles and combines them with full-body room tracking for conservative speaker attribution and transcription.
+
+### Voice Profiles
+
+- Each saved participant can capture multiple clean speech samples
+- Tracky converts those samples into local WavLM speaker embeddings
+- A Voice Profile becomes ready after at least 3 redundant samples and 15 seconds of captured speech
+- Enrollment recordings are discarded after processing; Tracky keeps speaker embeddings and sample-quality metadata
+- Voice Profile matching is independent from face matching
+- Ambiguous matches are rejected when the two best enrolled speakers are too close in confidence
+- Voice Profile recognition can be disabled per participant
+
+### Multi-signal room audio
+
+Room audio uses several independent filters and identity signals instead of trusting one detector:
+
+1. browser echo cancellation and microphone noise suppression
+2. speech-band high-pass / low-pass filtering
+3. adaptive room noise-floor estimation
+4. voice activity detection
+5. minimum speech-turn duration
+6. Voice Profile match confidence
+7. face identity when visible
+8. persistent body identity when the face is not visible
+9. body proximity for conversation grouping
+10. transcript confidence gating
+
+Background/noise-only and ambiguous-speaker segments are rejected instead of being assigned to a participant.
+
+### Spatial dialogue + transcription
+
+- Enable room audio from the Vertical Motion game
+- Live JARVIS HUD shows mic dB, adaptive noise floor, VAD state, Voice Profile model state, current speaker, match confidence, body lock, and dialogue group
+- Participant cards show Voice Profile readiness, recent speaker confirmation, body lock, and conversation group
+- Nearby tracked bodies are grouped into dialogue groups such as `G01`
+- Unknown tracked bodies can still appear in proximity context using their Track ID
+- Accepted speech turns can be transcribed locally with browser Whisper
+- Transcript turns record speaker, body track, dialogue group, nearby participants, Voice Profile confidence, signal confidence, and transcript
+- Dialogue turns are persisted locally in IndexedDB
+
+### Participant acknowledgement
+
+Tracky now explicitly acknowledges room arrivals:
+
+- a stable unknown body track produces a **New participant tracked** event
+- a later face match produces a **Participant recognized** event
+- JARVIS room events appear in the transcript HUD
+- optional browser speech synthesis can speak these acknowledgements
+
+### Local models
+
+- Speaker identity: `Xenova/wavlm-base-plus-sv`
+- English transcription: `Xenova/whisper-tiny.en`
+- Both execute in the browser through Transformers.js and are loaded lazily
+- Initial model download requires network access; browser caching is enabled
+
 ## V0.5 — Full-Body Room Persistence
 
 V0.5 upgrades participant identity from face-only tracking to persistent person/body tracking.

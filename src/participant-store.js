@@ -1,9 +1,10 @@
 import { participantRecord, cryptoRandomId } from './participant-core.js';
 
 const DB_NAME = 'tracky-participants-v1';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const PARTICIPANTS = 'participants';
 const PENDING = 'pending-captures';
+const DIALOGUE = 'dialogue-turns';
 
 function requestToPromise(request) {
   return new Promise((resolve, reject) => {
@@ -28,6 +29,13 @@ export async function openParticipantDb() {
 
       if (!db.objectStoreNames.contains(PENDING)) {
         db.createObjectStore(PENDING, { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains(DIALOGUE)) {
+        const dialogue = db.createObjectStore(DIALOGUE, { keyPath: 'id' });
+        dialogue.createIndex('sessionId', 'sessionId', { unique: false });
+        dialogue.createIndex('participantId', 'participantId', { unique: false });
+        dialogue.createIndex('createdAt', 'createdAt', { unique: false });
       }
     };
 
@@ -111,5 +119,29 @@ export function deletePendingCapture(id) {
   return storeAction(PENDING, 'readwrite', async (store) => {
     await requestToPromise(store.delete(id));
     return true;
+  });
+}
+
+
+export function saveDialogueTurn(input) {
+  const record = {
+    ...input,
+    id: input.id || cryptoRandomId(),
+    sessionId: input.sessionId || 'room-session',
+    createdAt: input.createdAt || new Date().toISOString()
+  };
+
+  return storeAction(DIALOGUE, 'readwrite', async (store) => {
+    await requestToPromise(store.put(record));
+    return record;
+  });
+}
+
+export function listDialogueTurns(sessionId = null) {
+  return storeAction(DIALOGUE, 'readonly', async (store) => {
+    const rows = await requestToPromise(store.getAll());
+    return rows
+      .filter((row) => !sessionId || row.sessionId === sessionId)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   });
 }

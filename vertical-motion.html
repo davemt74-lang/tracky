@@ -18,6 +18,7 @@
       <a class="button-link" href="./participants.html">Participants</a>
       <div class="badges" aria-live="polite">
         <span id="identityStatus">Identity standby</span>
+        <span id="voiceStatus">Voice standby</span>
         <span id="cameraStatus">Camera ready</span>
         <span id="trackingStatus">No signal</span>
       </div>
@@ -38,10 +39,31 @@
         <div id="roomRadarTracks" class="room-radar-tracks"></div>
         <span class="radar-label">ROOM MAP</span>
       </div>
+      <div class="room-voice-fusion" aria-label="Live room voice fusion">
+        <div><span>MIC</span><b id="roomMicDb">— dB</b></div>
+        <div><span>NOISE FLOOR</span><b id="roomNoiseDb">— dB</b></div>
+        <div><span>VAD</span><b id="roomVadState">QUIET</b></div>
+        <div><span>VOICE MODEL</span><b id="roomVoiceModel">Standby</b></div>
+        <div><span>SPEAKER</span><b id="roomSpeaker">—</b></div>
+        <div><span>VOICE MATCH</span><b id="roomVoiceConfidence">—</b></div>
+        <div><span>BODY LOCK</span><b id="roomBodyLock">—</b></div>
+        <div><span>DIALOGUE GROUP</span><b id="roomDialogueGroup">—</b></div>
+      </div>
       <div id="participantCards" class="room-participant-cards" aria-live="polite"></div>
       <div id="participantHudEmpty" class="participant-hud-empty">
         <span class="scan-icon mini" aria-hidden="true"></span>
         <div><strong>Scanning room</strong><span>Known participants will match automatically.</span></div>
+      </div>
+    </aside>
+
+    <aside class="dialogue-hud" aria-label="Room transcript and acknowledgements">
+      <div class="dialogue-hud-head">
+        <div><small>ROOM DIALOGUE</small><strong>Speaker-attributed transcription</strong></div>
+        <span id="transcriptModelState">Transcription standby</span>
+      </div>
+      <div id="roomEvents" class="room-events" aria-live="polite"></div>
+      <div id="dialogueTurns" class="dialogue-turns" aria-live="polite">
+        <div class="dialogue-empty">Enable room audio to begin speaker tracking.</div>
       </div>
     </aside>
 
@@ -71,6 +93,8 @@
     <button id="startCamera" class="primary">Start camera</button>
     <button id="stopCamera" disabled>Stop</button>
     <button id="resetSession">Reset session</button>
+    <button id="startRoomAudio">Enable room audio</button>
+    <button id="stopRoomAudio" disabled>Disable room audio</button>
     <label class="points-goal">Points to win
       <input id="pointGoal" type="number" min="1" max="50" step="1" value="5" inputmode="numeric">
     </label>
@@ -78,6 +102,8 @@
     <button id="endGame" disabled>End game</button>
     <label>Camera<select id="cameraSelect" disabled><option>Default camera</option></select></label>
     <label class="check"><input id="mirrorCamera" type="checkbox" checked> Mirror</label>
+    <label class="check"><input id="liveTranscription" type="checkbox" checked> Live transcription</label>
+    <label class="check"><input id="voiceAcknowledgements" type="checkbox" checked> Voice acknowledgements</label>
     <label>Micro sensitivity
       <select id="motionSensitivity">
         <option value="0" selected>Maximum — every delta</option>
