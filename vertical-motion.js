@@ -727,7 +727,7 @@ async function processRoomSegment(segment) {
       group = conversationGroupForTrack(state.voice.groups, track.id);
       nearbyNames = (group?.tracks || [])
         .filter((candidate) => candidate.id !== track.id)
-        .map((candidate) => candidate.participantName)
+        .map((candidate) => candidate.participantName || candidate.id)
         .filter(Boolean);
       nearbyIds = (group?.tracks || [])
         .filter((candidate) => candidate.id !== track.id)
