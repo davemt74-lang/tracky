@@ -93,3 +93,14 @@ test('transcript gate rejects noisy weak attribution', () => {
   assert.equal(strong.accept, true);
   assert.ok(strong.confidence > 0.7);
 });
+
+
+test('bestVoiceMatch rejects two nearly equal speaker candidates', () => {
+  const participants = [
+    { id:'a', voiceRecognitionEnabled:true, voiceEmbeddings:[[1,0]] },
+    { id:'b', voiceRecognitionEnabled:true, voiceEmbeddings:[[0.999,0.045]] }
+  ];
+  const match = bestVoiceMatch([1,0.02], participants, 0.8, 0.05);
+  assert.equal(match.matched, false);
+  assert.equal(match.ambiguous, true);
+});
