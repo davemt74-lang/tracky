@@ -1033,6 +1033,8 @@ async function scanRoom(now) {
     }
 
     state.identity.tracks = [...resolved, ...carried];
+    updateConversationGroups();
+    acknowledgeRoomTracks(now);
 
     const identified = state.identity.tracks.filter((track) => track.participantId).length;
     const bodyLocked = state.identity.tracks.filter((track) => track.status === 'body-lock').length;
@@ -1062,6 +1064,7 @@ function maybeScanRoom(now) {
 }
 
 function stopCamera() {
+  if (state.voice.active) stopRoomAudio();
   state.running = false;
   cancelAnimationFrame(state.raf);
   state.stream?.getTracks().forEach((track) => track.stop());
@@ -1289,6 +1292,8 @@ function loop(now) {
 }
 
 ui.start.addEventListener('click', () => startCamera(ui.select.value));
+ui.startRoomAudio.addEventListener('click', startRoomAudio);
+ui.stopRoomAudio.addEventListener('click', stopRoomAudio);
 ui.stop.addEventListener('click', () => {
   if (state.game.active) endGameplay();
   stopCamera();
@@ -1307,10 +1312,25 @@ ui.pause.addEventListener('click', () => {
   state.paused = !state.paused;
   ui.pause.textContent = state.paused ? 'Resume stats' : 'Pause stats';
 });
+ui.liveTranscription.addEventListener('change', renderVoiceHud);
+ui.voiceAcknowledgements.addEventListener('change', () => {
+  pushRoomEvent(
+    ui.voiceAcknowledgements.checked ? 'Spoken room acknowledgements enabled.' : 'Spoken room acknowledgements disabled.',
+    'system'
+  );
+});
 window.addEventListener('resize', drawTrace);
+window.addEventListener('beforeunload', () => {
+  stopRoomAudio();
+  stopCamera();
+});
 
 await reloadIdentityParticipants();
+updateConversationGroups();
 renderParticipantCards();
+renderRoomEvents();
+renderDialogueTurns();
+renderVoiceHud();
 renderStats(performance.now());
 renderGame();
 drawTrace();
