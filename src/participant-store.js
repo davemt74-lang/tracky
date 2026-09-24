@@ -259,3 +259,11 @@ export async function clearDialogueTurns(sessionId = null) {
     return true;
   });
 }
+
+
+export function deleteDialogueTurn(id) {
+  return storeAction(DIALOGUE, 'readwrite', async (store) => {
+    await requestToPromise(store.delete(id));
+    return true;
+  });
+}
