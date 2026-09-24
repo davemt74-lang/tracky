@@ -1,5 +1,9 @@
 import { getParticipant, patchParticipant } from './src/participant-store.js';
-import { voiceProfileReadiness } from './src/voice-core.js';
+import {
+  assessVoiceSampleLevels,
+  voiceEnrollmentConsistency,
+  voiceProfileReadiness
+} from './src/voice-core.js';
 import {
   MicrophoneCapture,
   VoiceIdentityEngine,
@@ -38,7 +42,6 @@ const state = {
 
 const AUTO_STOP_SECONDS = 8;
 const MIN_SAMPLE_SECONDS = 4;
-const MIN_PEAK_DB = -48;
 
 function setStage(stage, detail) {
   state.stage = stage;
@@ -203,12 +206,14 @@ async function stopRecording() {
       return;
     }
 
-    const levels = state.levels.filter(Number.isFinite);
-    const peakDb = levels.length ? Math.max(...levels) : -100;
-    const avgDb = levels.length ? levels.reduce((sum, value) => sum + value, 0) / levels.length : -100;
-
-    if (peakDb < MIN_PEAK_DB) {
-      setStage('sample rejected', 'Speech was too quiet relative to the microphone floor. Try again closer to the microphone.');
+    const quality = assessVoiceSampleLevels(state.levels);
+    if (!quality.accept) {
+      setStage(
+        'sample rejected',
+        quality.signalDb < 9
+          ? 'Speech did not separate enough from the room noise floor. Move closer or reduce background noise.'
+          : 'Not enough sustained speech was captured. Speak naturally for most of the sample.'
+      );
       return;
     }
 
@@ -220,11 +225,29 @@ async function stopRecording() {
     const embedding = await extractVoiceEmbedding(state.engine, sample.blob);
 
     const current = await getParticipant(state.participant.id);
+    const consistency = voiceEnrollmentConsistency(
+      embedding,
+      current.voiceEmbeddings || []
+    );
+
+    if (!consistency.accept) {
+      setPipeline('clean');
+      setStage(
+        'speaker mismatch',
+        'This sample does not match the existing Voice Profile closely enough. It was not added.'
+      );
+      return;
+    }
+
     const embeddings = [...(current.voiceEmbeddings || []), embedding].slice(-5);
     const profileSamples = [...(current.voiceProfileSamples || []), {
       durationSeconds: sample.durationSeconds,
-      peakDb,
-      avgDb,
+      peakDb: quality.peakDb,
+      avgDb: quality.averageDb,
+      noiseFloorDb: quality.noiseFloorDb,
+      signalDb: quality.signalDb,
+      speechFraction: quality.speechFraction,
+      consistency: consistency.similarity,
       createdAt: new Date().toISOString()
     }].slice(-5);
 
