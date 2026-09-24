@@ -28,6 +28,8 @@ import {
 import { VoiceIdentityEngine } from './src/voice-engine.js';
 import { LocalTranscriptionEngine, RoomAudioCapture } from './src/room-audio-engine.js';
 import {
+  clearDialogueTurns,
+  listDialogueTurns,
   listParticipants,
   patchParticipant,
   saveDialogueTurn,
@@ -67,6 +69,7 @@ const ui = {
   dialogueTurns: $('#dialogueTurns'),
   startRoomAudio: $('#startRoomAudio'),
   stopRoomAudio: $('#stopRoomAudio'),
+  clearDialogue: $('#clearDialogue'),
   liveTranscription: $('#liveTranscription'),
   voiceAcknowledgements: $('#voiceAcknowledgements'),
   mirror: $('#mirrorCamera'),
@@ -860,6 +863,30 @@ function onRoomAudioSegment(segment) {
   void drainRoomAudioQueue();
 }
 
+async function loadSavedDialogue() {
+  try {
+    const rows = await listDialogueTurns();
+    state.voice.turns = rows.slice(-50);
+  } catch (error) {
+    console.error('Could not load saved dialogue', error);
+  }
+  renderDialogueTurns();
+}
+
+async function clearSavedDialogue() {
+  if (!window.confirm('Clear all locally saved dialogue and transcript turns on this device?')) return;
+
+  try {
+    await clearDialogueTurns();
+    state.voice.turns = [];
+    renderDialogueTurns();
+    pushRoomEvent('Saved dialogue history cleared from this device.', 'system');
+  } catch (error) {
+    console.error(error);
+    pushRoomEvent('Saved dialogue history could not be cleared.', 'error');
+  }
+}
+
 async function startRoomAudio() {
   if (state.voice.active) return;
 
@@ -1381,6 +1408,7 @@ function loop(now) {
 ui.start.addEventListener('click', () => startCamera(ui.select.value));
 ui.startRoomAudio.addEventListener('click', startRoomAudio);
 ui.stopRoomAudio.addEventListener('click', stopRoomAudio);
+ui.clearDialogue.addEventListener('click', clearSavedDialogue);
 ui.stop.addEventListener('click', () => {
   if (state.game.active) endGameplay();
   stopCamera();
@@ -1413,6 +1441,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 await reloadIdentityParticipants();
+await loadSavedDialogue();
 updateConversationGroups();
 renderParticipantCards();
 renderRoomEvents();
