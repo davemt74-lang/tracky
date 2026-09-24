@@ -7,22 +7,38 @@
   <title>Tracky — Vertical Motion</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
-<body class="game-page">
+<body class="game-page jarvis-page">
 <main class="game-shell">
   <header class="game-topbar">
     <div class="game-title-row">
       <a class="back-link" href="./games.html">← Games</a>
-      <div><small>GAME 01</small><strong>Vertical Motion</strong></div>
+      <div><small>GAME 01 · LIVE ROOM</small><strong>Vertical Motion</strong></div>
     </div>
-    <div class="badges" aria-live="polite">
-      <span id="cameraStatus">Camera ready</span>
-      <span id="trackingStatus">No signal</span>
+    <div class="game-top-actions">
+      <a class="button-link" href="./participants.html">Participants</a>
+      <div class="badges" aria-live="polite">
+        <span id="identityStatus">Identity standby</span>
+        <span id="cameraStatus">Camera ready</span>
+        <span id="trackingStatus">No signal</span>
+      </div>
     </div>
   </header>
 
   <section class="game-playfield" id="playfield">
     <video id="cameraVideo" playsinline muted hidden></video>
     <canvas id="trackingCanvas" width="320" height="180" hidden></canvas>
+
+    <aside class="room-identity-hud" aria-label="Detected participants">
+      <div class="room-identity-head">
+        <div><small>ROOM IDENTITY</small><strong>Participant scan</strong></div>
+        <span class="hud-pulse" aria-hidden="true"></span>
+      </div>
+      <div id="participantCards" class="room-participant-cards" aria-live="polite"></div>
+      <div id="participantHudEmpty" class="participant-hud-empty">
+        <span class="scan-icon mini" aria-hidden="true"></span>
+        <div><strong>Scanning room</strong><span>Known participants will match automatically.</span></div>
+      </div>
+    </aside>
 
     <div class="movement-lane" id="movementLane" aria-label="Three-zone vertical movement lane">
       <div class="lane-zone zone-top"><span>1</span><b class="zone-rep-target" data-target-zone="0" hidden></b></div>
