@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   associateFacesToBodies,
   assignBodyTracks,
+  augmentBodiesWithFaceFallbacks,
   attachFacesToTracks,
   bodyDetection,
   carryOccludedTracks,
@@ -88,4 +89,41 @@ test('presence state reports body lock after face turns away', () => {
     lastBodySeenAt: 3000
   }, 3100);
   assert.equal(state, 'body-lock');
+});
+
+
+test('face-only fallback creates a synthetic body so face recognition still works', () => {
+  const faces = [{ box: { x: 0.4, y: 0.1, width: 0.12, height: 0.14, cx: 0.46, cy: 0.17 }, score: 0.9 }];
+  const bodies = augmentBodiesWithFaceFallbacks(faces, []);
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].synthetic, true);
+  const assignments = associateFacesToBodies(faces, bodies);
+  assert.equal(assignments.get(0), 0);
+});
+
+test('motion prediction helps preserve IDs when two people cross paths', () => {
+  const previous = [
+    {
+      id: 'T001',
+      box: { x: 0.2, y: 0.1, width: 0.2, height: 0.8, cx: 0.3, cy: 0.5 },
+      cx: 0.3, cy: 0.5, vx: 0.25, vy: 0,
+      lastSeenAt: 1000, lastBodySeenAt: 1000,
+      participantId: 'p1'
+    },
+    {
+      id: 'T002',
+      box: { x: 0.6, y: 0.1, width: 0.2, height: 0.8, cx: 0.7, cy: 0.5 },
+      cx: 0.7, cy: 0.5, vx: -0.25, vy: 0,
+      lastSeenAt: 1000, lastBodySeenAt: 1000,
+      participantId: 'p2'
+    }
+  ];
+  const detections = [
+    { box: { x: 0.43, y: 0.1, width: 0.2, height: 0.8, cx: 0.53, cy: 0.5 }, score: 0.9 },
+    { box: { x: 0.37, y: 0.1, width: 0.2, height: 0.8, cx: 0.47, cy: 0.5 }, score: 0.9 }
+  ];
+  const next = assignBodyTracks(previous, detections, 1800);
+  const p1 = next.find((track) => track.participantId === 'p1');
+  const p2 = next.find((track) => track.participantId === 'p2');
+  assert.ok(p1.cx > p2.cx);
 });
