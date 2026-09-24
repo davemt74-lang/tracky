@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Camera-based real-world object tracking input for browser games.",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test && node --check app.js && node --check vertical-motion.js",
     "serve": "python -m http.server 8080"
   }
 }
