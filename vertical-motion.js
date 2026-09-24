@@ -12,6 +12,7 @@ import {
   augmentBodiesWithFaceFallbacks,
   attachFacesToTracks,
   carryOccludedTracks,
+  dedupeParticipantAssignments,
   roomPresenceState
 } from './src/room-tracking-core.js';
 import { IdentityEngine, cropFacePhoto } from './src/identity-engine.js';
@@ -147,7 +148,9 @@ const state = {
       : 'room-' + Date.now().toString(36),
     queue: [],
     lastDecision: 'standby',
-    rejectedSegments: 0
+    rejectedSegments: 0,
+    ttsPending: 0,
+    captureMode: 'offline'
   }
 };
 
@@ -157,6 +160,7 @@ const MAX_TRACE_SAMPLES = 600;
 const MICRO_THRESHOLD = 0.015;
 const IDENTITY_SCAN_INTERVAL = 650;
 const TRACK_GRACE_MS = BODY_OCCLUSION_GRACE_MS;
+const PHOTO_REFRESH_INTERVAL_MS = 5000;
 
 function detectOptions() {
   return {
@@ -517,10 +521,28 @@ function renderRoomEvents() {
 
 function speakAcknowledgement(message) {
   if (!ui.voiceAcknowledgements.checked || !('speechSynthesis' in window)) return;
+
+  state.voice.ttsPending += 1;
+  state.voice.audio?.setSuppressed(true);
+
   const utterance = new SpeechSynthesisUtterance(message);
   utterance.rate = 1.02;
   utterance.pitch = 0.92;
   utterance.volume = 0.72;
+
+  const releaseMic = () => {
+    state.voice.ttsPending = Math.max(0, state.voice.ttsPending - 1);
+    if (state.voice.ttsPending !== 0) return;
+
+    setTimeout(() => {
+      if (state.voice.ttsPending === 0) {
+        state.voice.audio?.setSuppressed(false);
+      }
+    }, 350);
+  };
+
+  utterance.addEventListener('end', releaseMic, { once: true });
+  utterance.addEventListener('error', releaseMic, { once: true });
   speechSynthesis.speak(utterance);
 }
 
@@ -702,6 +724,7 @@ function onRoomAudioLevel(level) {
   state.voice.micDb = level.db;
   state.voice.noiseFloorDb = level.noiseFloorDb;
   state.voice.vad = level.speaking;
+  state.voice.captureMode = level.captureMode || state.voice.captureMode;
   renderVoiceHud();
 }
 
@@ -932,10 +955,13 @@ async function createParticipantFromTrack(track) {
   }
 }
 
-async function resolveTrackIdentity(track) {
+async function resolveTrackIdentity(track, excludedParticipantIds = new Set()) {
   if (!track.embedding || track.status === 'matched') return track;
 
-  const blocked = new Set(track.blockedParticipantIds || []);
+  const blocked = new Set([
+    ...(track.blockedParticipantIds || []),
+    ...excludedParticipantIds
+  ]);
   const candidates = state.identity.participants.filter((participant) => !blocked.has(participant.id));
   const match = bestParticipantMatch(track.embedding, candidates);
 
@@ -1008,7 +1034,14 @@ async function scanRoom(now) {
       }
 
       if (track.participantId) {
-        const photo = track.quality >= 0.52
+        const shouldRefreshPhoto = (
+          track.quality >= 0.52 &&
+          (
+            !track.latestPhoto ||
+            now - Number(track.lastPhotoCaptureAt || 0) >= PHOTO_REFRESH_INTERVAL_MS
+          )
+        );
+        const photo = shouldRefreshPhoto
           ? cropFacePhoto(ui.video, track.face.box, {
               mirror: ui.mirror.checked,
               size: 260,
@@ -1020,19 +1053,31 @@ async function scanRoom(now) {
           ...track,
           status: 'matched',
           scanProgress: 100,
-          latestPhoto: photo || track.latestPhoto
+          latestPhoto: photo || track.latestPhoto,
+          lastPhotoCaptureAt: photo ? now : track.lastPhotoCaptureAt
         };
       }
 
       const advanced = advanceScan(track, { minQuality: 0.48, increment: 24, decay: 7 });
       if (track.status === 'new' && advanced.scanProgress >= 100) advanced.status = 'new';
 
-      if (advanced.quality >= 0.52 && advanced.face?.box) {
-        advanced.latestPhoto = cropFacePhoto(ui.video, advanced.face.box, {
+      if (
+        advanced.quality >= 0.52 &&
+        advanced.face?.box &&
+        (
+          !advanced.latestPhoto ||
+          now - Number(advanced.lastPhotoCaptureAt || 0) >= PHOTO_REFRESH_INTERVAL_MS
+        )
+      ) {
+        const photo = cropFacePhoto(ui.video, advanced.face.box, {
           mirror: ui.mirror.checked,
           size: 260,
           quality: 0.82
-        }) || track.latestPhoto;
+        });
+        if (photo) {
+          advanced.latestPhoto = photo;
+          advanced.lastPhotoCaptureAt = now;
+        }
       }
 
       return advanced;
@@ -1041,6 +1086,12 @@ async function scanRoom(now) {
     const carried = carryOccludedTracks(previous, liveTracks, now, TRACK_GRACE_MS);
 
     const resolved = [];
+    const claimedParticipantIds = new Set(
+      liveTracks
+        .filter((track) => track.participantId)
+        .map((track) => track.participantId)
+    );
+
     for (const track of liveTracks) {
       if (
         track.scanProgress >= 100 &&
@@ -1048,13 +1099,27 @@ async function scanRoom(now) {
         !track.participantId &&
         track.status !== 'new'
       ) {
-        resolved.push(await resolveTrackIdentity(track));
+        const matchedTrack = await resolveTrackIdentity(track, claimedParticipantIds);
+        if (matchedTrack.participantId) claimedParticipantIds.add(matchedTrack.participantId);
+        resolved.push(matchedTrack);
       } else {
         resolved.push(track);
       }
     }
 
-    state.identity.tracks = [...resolved, ...carried];
+    const liveParticipantIds = new Set(
+      resolved
+        .filter((track) => track.participantId)
+        .map((track) => track.participantId)
+    );
+    const nonConflictingCarried = carried.filter(
+      (track) => !track.participantId || !liveParticipantIds.has(track.participantId)
+    );
+
+    state.identity.tracks = dedupeParticipantAssignments([
+      ...resolved,
+      ...nonConflictingCarried
+    ]);
     updateConversationGroups();
     acknowledgeRoomTracks(now);
 
