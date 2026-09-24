@@ -27,3 +27,10 @@ a{color:inherit}button,input,select{font:inherit}button,select,.button-link{min-
 @media(max-width:900px){.hero{align-items:flex-start;flex-direction:column}.stage-grid,.lower-grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(4,1fr)}.game-playfield{min-height:650px}}
 @media(max-width:680px){.game-topbar{align-items:flex-start;flex-direction:column;padding-bottom:10px}.game-playfield{min-height:620px}.motion-metrics{grid-template-columns:repeat(2,1fr)}.live-strip{right:18px}.live-strip div{flex:1;min-width:60px}.game-instructions{right:22px}.movement-lane{top:55%}}
 @media(max-width:600px){.controls{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}.calibrate{align-items:stretch;flex-direction:column}.actions{justify-content:stretch}.actions button{flex:1}.game-card{padding:12px}}
+
+/* V0.3 gameplay */
+.lane-zone.target{background:rgba(86,227,111,.18);box-shadow:inset 0 0 0 2px var(--green)}
+.lane-zone.target>span{color:var(--green)}
+.zone-rep-target{position:absolute;inset:0;display:grid;place-items:center;font-size:.5in;line-height:1;font-weight:900;color:var(--text);font-variant-numeric:tabular-nums;text-shadow:0 2px 18px rgba(0,0,0,.5);pointer-events:none}
+.points-goal input{width:92px;min-height:44px;border:1px solid var(--line);border-radius:10px;background:#0e130f;color:var(--text);padding:0 10px;font:inherit}
+.game-rules{margin-top:14px}.game-rules p{margin:0;color:var(--muted);line-height:1.55}.game-rules strong{color:var(--text)}

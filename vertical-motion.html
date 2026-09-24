@@ -25,9 +25,9 @@
     <canvas id="trackingCanvas" width="320" height="180" hidden></canvas>
 
     <div class="movement-lane" id="movementLane" aria-label="Three-zone vertical movement lane">
-      <div class="lane-zone zone-top"><span>1</span></div>
-      <div class="lane-zone zone-middle"><span>2</span></div>
-      <div class="lane-zone zone-bottom"><span>3</span></div>
+      <div class="lane-zone zone-top"><span>1</span><b class="zone-rep-target" data-target-zone="0" hidden></b></div>
+      <div class="lane-zone zone-middle"><span>2</span><b class="zone-rep-target" data-target-zone="1" hidden></b></div>
+      <div class="lane-zone zone-bottom"><span>3</span><b class="zone-rep-target" data-target-zone="2" hidden></b></div>
       <div class="lane-cursor" id="laneCursor" hidden></div>
     </div>
 
@@ -41,6 +41,8 @@
       <div><span>ΔY</span><b id="liveDelta">—</b></div>
       <div><span>Zone</span><b id="liveZone">—</b></div>
       <div><span>Samples/s</span><b id="liveHz">0.0</b></div>
+      <div><span>Score</span><b id="gameScore">0 / 5</b></div>
+      <div><span>Reps left</span><b id="gameReps">—</b></div>
     </aside>
   </section>
 
@@ -48,6 +50,11 @@
     <button id="startCamera" class="primary">Start camera</button>
     <button id="stopCamera" disabled>Stop</button>
     <button id="resetSession">Reset session</button>
+    <label class="points-goal">Points to win
+      <input id="pointGoal" type="number" min="1" max="50" step="1" value="5" inputmode="numeric">
+    </label>
+    <button id="startGame" class="primary">Start game</button>
+    <button id="endGame" disabled>End game</button>
     <label>Camera<select id="cameraSelect" disabled><option>Default camera</option></select></label>
     <label class="check"><input id="mirrorCamera" type="checkbox" checked> Mirror</label>
     <label>Micro sensitivity
@@ -94,6 +101,11 @@
         <section data-zone="2"><h3>Zone 3 <span>Bottom</span></h3><div class="zone-grid"><b data-k="travel">0.000 in</b><small>Total travel</small><b data-k="micro">0.000 in</b><small>Micro travel</small><b data-k="up">0.000 in</b><small>Up</small><b data-k="down">0.000 in</b><small>Down</small><b data-k="reversals">0</b><small>Reversals</small><b data-k="microEvents">0</b><small>Micro events</small><b data-k="microReversals">0</b><small>Micro reversals</small><b data-k="dwell">0.0s</b><small>Dwell</small></div></section>
       </div>
     </article>
+  </section>
+
+  <section class="panel game-rules">
+    <small>HOW TO PLAY</small>
+    <p>Choose a point goal and press <strong>Start game</strong>. Tracky highlights one section and shows a rep target from 4–10. Complete an up → down cycle inside that section to subtract one. Clear the target to score a point and receive a new section. First to your selected point goal ends the game.</p>
   </section>
 
   <footer>The 1″ × 5″ lane uses CSS physical units. Exact physical size depends on display scaling and monitor calibration.</footer>

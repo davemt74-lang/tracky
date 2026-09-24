@@ -2,12 +2,26 @@
 
 Tracky turns real-world movement into browser-game input.
 
+## V0.3 — Vertical Motion gameplay
+
+V0.3 turns the Vertical Motion tracker into a playable scoring game.
+
+- Choose a point goal from 1–50 before starting
+- Start Game can request the camera automatically
+- One of the three lane sections is highlighted as the active target
+- Every active section receives a random rep target from 4–10
+- One complete upward leg followed by one downward leg counts as one repetition
+- Gameplay reps only count while the tracked object remains inside the highlighted section
+- Completed reps count the displayed number down toward zero
+- Clearing the section scores 1 point
+- The next round moves to a different section and receives a new 4–10 rep target
+- Reaching the selected point goal ends the game
+- Gameplay rep detection uses a larger excursion threshold than analytics so camera jitter cannot generate points
+- Raw high-volume micro-movement analytics continue independently of gameplay
+
 ## V0.2 — Games + Vertical Motion
 
-V0.2 adds the games layer and the first camera-tracked game: **Vertical Motion**.
-
 - Games library at `games.html`
-- Dedicated game loading page
 - 1 inch × 5 inch vertical movement lane
 - Lane centered horizontally and positioned slightly below vertical center
 - Cursor constrained inside the lane
