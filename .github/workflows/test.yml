@@ -18,3 +18,11 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - name: Build deploy ZIP
+        run: zip -r tracky-v0.2-deploy.zip . -x ".git/*" "tracky-v0.2-deploy.zip"
+      - name: Upload deploy ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracky-v0.2-deploy
+          path: tracky-v0.2-deploy.zip
+          if-no-files-found: error
