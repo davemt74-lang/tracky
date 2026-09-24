@@ -9,6 +9,7 @@ import {
   BODY_OCCLUSION_GRACE_MS,
   associateFacesToBodies,
   assignBodyTracks,
+  augmentBodiesWithFaceFallbacks,
   attachFacesToTracks,
   carryOccludedTracks,
   roomPresenceState
@@ -38,6 +39,7 @@ const ui = {
   identityStatus: $('#identityStatus'),
   participantCards: $('#participantCards'),
   participantHudEmpty: $('#participantHudEmpty'),
+  roomRadarTracks: $('#roomRadarTracks'),
   mirror: $('#mirrorCamera'),
   sensitivity: $('#motionSensitivity'),
   pointGoal: $('#pointGoal'),
@@ -362,13 +364,33 @@ function createParticipantCard(track) {
   return card;
 }
 
+function renderRoomRadar(visibleTracks) {
+  ui.roomRadarTracks.replaceChildren();
+
+  for (const track of visibleTracks) {
+    const dot = document.createElement('div');
+    dot.className = 'radar-track ' + (track.participantId ? 'identified' : 'unknown');
+    if (track.status === 'occluded') dot.classList.add('occluded');
+
+    dot.style.left = ((track.cx || 0.5) * 100) + '%';
+    dot.style.top = ((track.cy || 0.5) * 100) + '%';
+    dot.title = (track.participantName || 'Unknown') + ' · ' + track.id;
+
+    const label = document.createElement('span');
+    label.textContent = track.participantName || track.id;
+    dot.append(label);
+    ui.roomRadarTracks.append(dot);
+  }
+}
+
 function renderParticipantCards() {
   ui.participantCards.replaceChildren();
   const visible = state.identity.tracks
-    .filter((track) => performance.now() - track.lastSeenAt < TRACK_GRACE_MS)
-    .slice(0, 6);
+    .filter((track) => performance.now() - (track.lastBodySeenAt || track.lastSeenAt) < TRACK_GRACE_MS)
+    .slice(0, 8);
 
   ui.participantHudEmpty.hidden = visible.length > 0;
+  renderRoomRadar(visible);
 
   for (const track of visible) {
     ui.participantCards.append(createParticipantCard(track));
@@ -472,7 +494,7 @@ async function scanRoom(now) {
   try {
     const room = await state.identity.engine.detectRoom(ui.video);
     const faces = room.faces || [];
-    const bodies = room.bodies || [];
+    const bodies = augmentBodiesWithFaceFallbacks(faces, room.bodies || []);
     const previous = state.identity.tracks;
 
     let liveTracks = assignBodyTracks(previous, bodies, now, {
