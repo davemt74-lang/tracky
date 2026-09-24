@@ -29,23 +29,41 @@ export function normalizeAudio(samples) {
   return Float32Array.from(samples, (sample) => sample * scale);
 }
 
-export function bestVoiceMatch(embedding, participants, threshold = VOICE_MATCH_THRESHOLD) {
-  let best = null;
+export function bestVoiceMatch(
+  embedding,
+  participants,
+  threshold = VOICE_MATCH_THRESHOLD,
+  minMargin = 0.05
+) {
+  const candidates = [];
 
   for (const participant of participants || []) {
     if (participant.voiceRecognitionEnabled === false) continue;
 
+    let participantBest = 0;
     for (const reference of participant.voiceEmbeddings || []) {
-      const similarity = cosineSimilarity(embedding, reference);
-      if (!best || similarity > best.similarity) {
-        best = { participant, similarity };
-      }
+      participantBest = Math.max(participantBest, cosineSimilarity(embedding, reference));
+    }
+
+    if (participantBest > 0) {
+      candidates.push({ participant, similarity: participantBest });
     }
   }
 
-  return !best || best.similarity < threshold
-    ? { matched: false, participant: null, similarity: best?.similarity || 0 }
-    : { matched: true, participant: best.participant, similarity: best.similarity };
+  candidates.sort((a, b) => b.similarity - a.similarity);
+  const best = candidates[0] || null;
+  const second = candidates[1] || null;
+  const margin = best ? best.similarity - (second?.similarity || 0) : 0;
+  const matched = Boolean(best && best.similarity >= threshold && margin >= minMargin);
+
+  return {
+    matched,
+    participant: matched ? best.participant : null,
+    similarity: best?.similarity || 0,
+    secondSimilarity: second?.similarity || 0,
+    margin,
+    ambiguous: Boolean(best && best.similarity >= threshold && margin < minMargin)
+  };
 }
 
 export function voiceProfileReadiness(participant) {
