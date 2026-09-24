@@ -118,11 +118,13 @@ test('motion prediction helps preserve IDs when two people cross paths', () => {
       participantId: 'p2'
     }
   ];
+  // Test after the exact overlap moment, once the two bodies begin separating.
+  // At a perfectly symmetric overlap, geometry alone cannot determine identity.
   const detections = [
-    { box: { x: 0.43, y: 0.1, width: 0.2, height: 0.8, cx: 0.53, cy: 0.5 }, score: 0.9 },
-    { box: { x: 0.37, y: 0.1, width: 0.2, height: 0.8, cx: 0.47, cy: 0.5 }, score: 0.9 }
+    { box: { x: 0.48, y: 0.1, width: 0.2, height: 0.8, cx: 0.58, cy: 0.5 }, score: 0.9 },
+    { box: { x: 0.32, y: 0.1, width: 0.2, height: 0.8, cx: 0.42, cy: 0.5 }, score: 0.9 }
   ];
-  const next = assignBodyTracks(previous, detections, 1800);
+  const next = assignBodyTracks(previous, detections, 2000);
   const p1 = next.find((track) => track.participantId === 'p1');
   const p2 = next.find((track) => track.participantId === 'p2');
   assert.ok(p1.cx > p2.cx);
