@@ -52,8 +52,8 @@
     <label class="check"><input id="mirrorCamera" type="checkbox" checked> Mirror</label>
     <label>Micro sensitivity
       <select id="motionSensitivity">
-        <option value="0">Maximum — every delta</option>
-        <option value="0.0002" selected>High</option>
+        <option value="0" selected>Maximum — every delta</option>
+        <option value="0.0002">High</option>
         <option value="0.0005">Normal</option>
         <option value="0.001">Filtered</option>
       </select>
@@ -81,7 +81,7 @@
         <div><span>Session</span><b id="statTime">0.0s</b></div>
       </div>
       <div class="trace-wrap">
-        <div class="trace-label"><span>Recent raw vertical micro-movement</span><span>last ~10 seconds</span></div>
+        <div class="trace-label"><span>Recent raw vertical micro-movement</span><span>raw analytics · display cursor smoothed · ~10 seconds</span></div>
         <canvas id="motionTrace" width="1000" height="180"></canvas>
       </div>
     </article>
@@ -89,9 +89,9 @@
     <article class="panel">
       <div class="section-head"><div><small>3 EQUAL SECTIONS</small><h2>Movement by zone</h2></div></div>
       <div class="zone-stats">
-        <section data-zone="0"><h3>Zone 1 <span>Top</span></h3><div class="zone-grid"><b data-k="travel">0.000 in</b><small>Total travel</small><b data-k="micro">0.000 in</b><small>Micro travel</small><b data-k="up">0.000 in</b><small>Up</small><b data-k="down">0.000 in</b><small>Down</small><b data-k="reversals">0</b><small>Reversals</small><b data-k="dwell">0.0s</b><small>Dwell</small></div></section>
-        <section data-zone="1"><h3>Zone 2 <span>Middle</span></h3><div class="zone-grid"><b data-k="travel">0.000 in</b><small>Total travel</small><b data-k="micro">0.000 in</b><small>Micro travel</small><b data-k="up">0.000 in</b><small>Up</small><b data-k="down">0.000 in</b><small>Down</small><b data-k="reversals">0</b><small>Reversals</small><b data-k="dwell">0.0s</b><small>Dwell</small></div></section>
-        <section data-zone="2"><h3>Zone 3 <span>Bottom</span></h3><div class="zone-grid"><b data-k="travel">0.000 in</b><small>Total travel</small><b data-k="micro">0.000 in</b><small>Micro travel</small><b data-k="up">0.000 in</b><small>Up</small><b data-k="down">0.000 in</b><small>Down</small><b data-k="reversals">0</b><small>Reversals</small><b data-k="dwell">0.0s</b><small>Dwell</small></div></section>
+        <section data-zone="0"><h3>Zone 1 <span>Top</span></h3><div class="zone-grid"><b data-k="travel">0.000 in</b><small>Total travel</small><b data-k="micro">0.000 in</b><small>Micro travel</small><b data-k="up">0.000 in</b><small>Up</small><b data-k="down">0.000 in</b><small>Down</small><b data-k="reversals">0</b><small>Reversals</small><b data-k="microEvents">0</b><small>Micro events</small><b data-k="microReversals">0</b><small>Micro reversals</small><b data-k="dwell">0.0s</b><small>Dwell</small></div></section>
+        <section data-zone="1"><h3>Zone 2 <span>Middle</span></h3><div class="zone-grid"><b data-k="travel">0.000 in</b><small>Total travel</small><b data-k="micro">0.000 in</b><small>Micro travel</small><b data-k="up">0.000 in</b><small>Up</small><b data-k="down">0.000 in</b><small>Down</small><b data-k="reversals">0</b><small>Reversals</small><b data-k="microEvents">0</b><small>Micro events</small><b data-k="microReversals">0</b><small>Micro reversals</small><b data-k="dwell">0.0s</b><small>Dwell</small></div></section>
+        <section data-zone="2"><h3>Zone 3 <span>Bottom</span></h3><div class="zone-grid"><b data-k="travel">0.000 in</b><small>Total travel</small><b data-k="micro">0.000 in</b><small>Micro travel</small><b data-k="up">0.000 in</b><small>Up</small><b data-k="down">0.000 in</b><small>Down</small><b data-k="reversals">0</b><small>Reversals</small><b data-k="microEvents">0</b><small>Micro events</small><b data-k="microReversals">0</b><small>Micro reversals</small><b data-k="dwell">0.0s</b><small>Dwell</small></div></section>
       </div>
     </article>
   </section>
