@@ -6,6 +6,7 @@ import {
   getParticipant,
   getPendingCapture,
   listParticipants,
+  prunePendingCaptures,
   saveParticipant
 } from './src/participant-store.js';
 
@@ -417,11 +418,13 @@ async function removeCurrentParticipant() {
   const participant = await getParticipant(state.editingId);
   if (!participant) return;
 
-  if (!window.confirm('Delete ' + participant.name + ' and their local face enrollment?')) return;
+  if (!window.confirm(
+    'Delete ' + participant.name + ' and their local face profile, Voice Profile, and attributed dialogue data?'
+  )) return;
   await deleteParticipant(participant.id);
   clearForm();
   await reloadParticipants();
-  setMessage('Participant deleted from this device.', 'ok');
+  setMessage('Participant identity data and attributed dialogue were deleted from this device.', 'ok');
 }
 
 async function loadPendingFromUrl() {
@@ -460,6 +463,7 @@ ui.delete.addEventListener('click', removeCurrentParticipant);
 window.addEventListener('beforeunload', stopCamera);
 
 clearForm();
+await prunePendingCaptures().catch(() => {});
 await reloadParticipants();
 await loadPendingFromUrl();
 
