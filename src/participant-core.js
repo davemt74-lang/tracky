@@ -69,34 +69,50 @@ export function cosineSimilarity(a, b) {
   return clamp(dot / (Math.sqrt(aa) * Math.sqrt(bb)), -1, 1);
 }
 
-export function bestParticipantMatch(embedding, participants, threshold = MATCH_THRESHOLD) {
-  let best = null;
+export function robustProfileSimilarity(embedding, references, topK = 2) {
+  const scores = (references || [])
+    .map((reference) => cosineSimilarity(embedding, reference))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a);
+
+  if (!scores.length) return 0;
+  const count = Math.max(1, Math.min(topK, scores.length));
+  return scores.slice(0, count).reduce((sum, score) => sum + score, 0) / count;
+}
+
+export function bestParticipantMatch(
+  embedding,
+  participants,
+  threshold = MATCH_THRESHOLD,
+  minMargin = 0.04,
+  minSamples = 3
+) {
+  const candidates = [];
 
   for (const participant of participants || []) {
     if (participant.recognitionEnabled === false) continue;
-    for (const reference of participant.embeddings || []) {
-      const similarity = cosineSimilarity(embedding, reference);
-      if (!best || similarity > best.similarity) {
-        best = {
-          participant,
-          similarity
-        };
-      }
-    }
+    const references = participant.embeddings || [];
+    if (references.length < minSamples) continue;
+
+    candidates.push({
+      participant,
+      similarity: robustProfileSimilarity(embedding, references)
+    });
   }
 
-  if (!best || best.similarity < threshold) {
-    return {
-      matched: false,
-      participant: null,
-      similarity: best?.similarity || 0
-    };
-  }
+  candidates.sort((a, b) => b.similarity - a.similarity);
+  const best = candidates[0] || null;
+  const second = candidates[1] || null;
+  const margin = best ? best.similarity - (second?.similarity || 0) : 0;
+  const matched = Boolean(best && best.similarity >= threshold && margin >= minMargin);
 
   return {
-    matched: true,
-    participant: best.participant,
-    similarity: best.similarity
+    matched,
+    participant: matched ? best.participant : null,
+    similarity: best?.similarity || 0,
+    secondSimilarity: second?.similarity || 0,
+    margin,
+    ambiguous: Boolean(best && best.similarity >= threshold && margin < minMargin)
   };
 }
 
