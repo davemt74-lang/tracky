@@ -16,6 +16,17 @@ import {
 } from './src/room-tracking-core.js';
 import { IdentityEngine, cropFacePhoto } from './src/identity-engine.js';
 import {
+  acknowledgeNewTrack,
+  bestVoiceMatch,
+  buildConversationGroups,
+  conversationGroupForTrack,
+  createSpeakerTurn,
+  transcriptSignalGate,
+  voiceProfileReadiness
+} from './src/voice-core.js';
+import { VoiceIdentityEngine } from './src/voice-engine.js';
+import { LocalTranscriptionEngine, RoomAudioCapture } from './src/room-audio-engine.js';
+import {
   listParticipants,
   patchParticipant,
   savePendingCapture
@@ -37,9 +48,25 @@ const ui = {
   cameraStatus: $('#cameraStatus'),
   trackingStatus: $('#trackingStatus'),
   identityStatus: $('#identityStatus'),
+  voiceStatus: $('#voiceStatus'),
   participantCards: $('#participantCards'),
   participantHudEmpty: $('#participantHudEmpty'),
   roomRadarTracks: $('#roomRadarTracks'),
+  roomMicDb: $('#roomMicDb'),
+  roomNoiseDb: $('#roomNoiseDb'),
+  roomVadState: $('#roomVadState'),
+  roomVoiceModel: $('#roomVoiceModel'),
+  roomSpeaker: $('#roomSpeaker'),
+  roomVoiceConfidence: $('#roomVoiceConfidence'),
+  roomBodyLock: $('#roomBodyLock'),
+  roomDialogueGroup: $('#roomDialogueGroup'),
+  transcriptModelState: $('#transcriptModelState'),
+  roomEvents: $('#roomEvents'),
+  dialogueTurns: $('#dialogueTurns'),
+  startRoomAudio: $('#startRoomAudio'),
+  stopRoomAudio: $('#stopRoomAudio'),
+  liveTranscription: $('#liveTranscription'),
+  voiceAcknowledgements: $('#voiceAcknowledgements'),
   mirror: $('#mirrorCamera'),
   sensitivity: $('#motionSensitivity'),
   pointGoal: $('#pointGoal'),
@@ -90,6 +117,30 @@ const state = {
     tracks: [],
     participants: [],
     counter: 0
+  },
+  voice: {
+    engine: new VoiceIdentityEngine(),
+    transcriber: new LocalTranscriptionEngine(),
+    audio: null,
+    active: false,
+    speakerReady: false,
+    speakerLoading: false,
+    transcriptReady: false,
+    transcriptLoading: false,
+    processing: false,
+    micDb: -100,
+    noiseFloorDb: -60,
+    vad: false,
+    turns: [],
+    events: [],
+    announcedTracks: new Set(),
+    announcedParticipants: new Set(),
+    groups: [],
+    currentSpeakerId: null,
+    currentSpeakerName: null,
+    currentVoiceConfidence: 0,
+    currentBodyLock: false,
+    currentGroupId: null
   }
 };
 
