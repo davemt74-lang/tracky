@@ -29,6 +29,7 @@ import { VoiceIdentityEngine } from './src/voice-engine.js';
 import { LocalTranscriptionEngine, RoomAudioCapture } from './src/room-audio-engine.js';
 import {
   clearDialogueTurns,
+  deleteDialogueTurn,
   listDialogueTurns,
   listParticipants,
   patchParticipant,
@@ -886,11 +887,16 @@ async function processRoomSegment(segment) {
     if (!voiceSegmentIsCurrent(segment)) return;
 
     try {
-      await saveDialogueTurn({
+      const savedTurn = await saveDialogueTurn({
         ...turn,
         sessionId: state.voice.sessionId,
         createdAt: new Date().toISOString()
       });
+
+      if (!voiceSegmentIsCurrent(segment)) {
+        await deleteDialogueTurn(savedTurn.id).catch(() => {});
+        return;
+      }
     } catch (error) {
       console.error('Could not persist dialogue turn', error);
     }
