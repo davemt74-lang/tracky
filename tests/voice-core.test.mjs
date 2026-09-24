@@ -4,11 +4,14 @@ import {
   acknowledgeNewTrack,
   bestVoiceMatch,
   buildConversationGroups,
-  cloneReadiness,
+  conversationGroupForTrack,
   dbFromRms,
   normalizeAudio,
   rmsLevel,
-  speakingState
+  speakingThreshold,
+  transcriptSignalGate,
+  updateNoiseFloor,
+  voiceProfileReadiness
 } from '../src/voice-core.js';
 
 test('rms and db measure signal energy', () => {
@@ -22,7 +25,7 @@ test('normalizeAudio scales peak to target', () => {
   assert.ok(Math.abs(normalized[1] + 0.95) < 1e-6);
 });
 
-test('bestVoiceMatch selects enrolled speaker embedding', () => {
+test('bestVoiceMatch selects enrolled voice profile', () => {
   const participants = [
     { id:'a', voiceRecognitionEnabled:true, voiceEmbeddings:[[1,0,0]] },
     { id:'b', voiceRecognitionEnabled:true, voiceEmbeddings:[[0,1,0]] }
@@ -32,7 +35,7 @@ test('bestVoiceMatch selects enrolled speaker embedding', () => {
   assert.equal(match.participant.id, 'a');
 });
 
-test('conversation groups follow participant proximity', () => {
+test('conversation groups follow body proximity', () => {
   const tracks = [
     { id:'T1', participantId:'a', cx:0.1, cy:0.5 },
     { id:'T2', participantId:'b', cx:0.2, cy:0.5 },
@@ -40,7 +43,8 @@ test('conversation groups follow participant proximity', () => {
   ];
   const groups = buildConversationGroups(tracks, 0.2);
   assert.equal(groups.length, 2);
-  assert.equal(groups.find((g)=>g.length===2).length, 2);
+  const group = conversationGroupForTrack(groups, 'T1');
+  assert.equal(group.tracks.length, 2);
 });
 
 test('new unknown tracks are explicitly acknowledged', () => {
@@ -49,16 +53,43 @@ test('new unknown tracks are explicitly acknowledged', () => {
   assert.match(event.message, /T009/);
 });
 
-test('voice clone readiness requires consent and enough audio', () => {
-  const ready = cloneReadiness({
-    voiceCloneConsent:true,
-    voiceSamples:[{durationSeconds:12}]
+test('voice profile readiness requires redundant samples', () => {
+  const ready = voiceProfileReadiness({
+    voiceEmbeddings:[[1],[2],[3]],
+    voiceProfileSamples:[
+      {durationSeconds:5},
+      {durationSeconds:5},
+      {durationSeconds:6}
+    ]
   });
   assert.equal(ready.ready, true);
-  assert.equal(ready.cloned, false);
+  assert.equal(ready.sampleCount, 3);
 });
 
-test('speakingState applies threshold', () => {
-  assert.equal(speakingState(-30, -42), 'speaking');
-  assert.equal(speakingState(-60, -42), 'quiet');
+test('adaptive speaking threshold follows noise floor', () => {
+  assert.equal(speakingThreshold(-60, 12), -48);
+  assert.equal(speakingThreshold(-40, 12), -28);
+  const floor = updateNoiseFloor(-60, -50, false, 0.1);
+  assert.ok(floor > -60 && floor < -50);
+});
+
+test('transcript gate rejects noisy weak attribution', () => {
+  const weak = transcriptSignalGate({
+    levelDb:-38,
+    noiseFloorDb:-42,
+    voiceConfidence:0.4,
+    bodyConfirmed:false,
+    vadConfirmed:true
+  });
+  assert.equal(weak.accept, false);
+
+  const strong = transcriptSignalGate({
+    levelDb:-22,
+    noiseFloorDb:-50,
+    voiceConfidence:0.91,
+    bodyConfirmed:true,
+    vadConfirmed:true
+  });
+  assert.equal(strong.accept, true);
+  assert.ok(strong.confidence > 0.7);
 });
