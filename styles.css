@@ -149,3 +149,75 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
 @media(max-width:1050px){.participants-layout{grid-template-columns:1fr}.participants-roster{order:2}.onboarding-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:780px){.jarvis-topbar{align-items:flex-start;flex-direction:column}.system-strip{grid-template-columns:1fr 1fr}.onboarding-grid{grid-template-columns:1fr}.room-identity-hud{top:auto;bottom:78px;max-height:42%;width:min(330px,calc(100% - 36px))}.game-top-actions{justify-content:flex-start}}
 @media(max-width:520px){.participant-fields{grid-template-columns:1fr}.photo-pair{grid-template-columns:1fr 1fr}.system-strip{grid-template-columns:1fr}.room-identity-hud{left:12px;right:12px;width:auto}.participant-card-actions{display:none}}
+
+/* V0.5 — full-body room persistence */
+.room-radar{
+  position:relative;
+  height:112px;
+  margin-top:9px;
+  overflow:hidden;
+  border:1px solid rgba(78,232,255,.14);
+  border-radius:9px;
+  background:
+    radial-gradient(circle at center,rgba(78,232,255,.06),transparent 45%),
+    linear-gradient(rgba(78,232,255,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(78,232,255,.04) 1px,transparent 1px),
+    rgba(0,6,9,.78);
+  background-size:auto,25% 25%,25% 25%,auto;
+}
+.radar-crosshair:before,.radar-crosshair:after{
+  content:"";
+  position:absolute;
+  background:rgba(78,232,255,.09);
+}
+.radar-crosshair:before{left:50%;top:0;bottom:0;width:1px}
+.radar-crosshair:after{top:50%;left:0;right:0;height:1px}
+.radar-label{
+  position:absolute;
+  left:7px;bottom:5px;
+  font-size:.5rem;
+  letter-spacing:.12em;
+  color:rgba(78,232,255,.38);
+  font-weight:900;
+}
+.room-radar-tracks{position:absolute;inset:0}
+.radar-track{
+  position:absolute;
+  width:10px;height:10px;
+  border-radius:50%;
+  transform:translate(-50%,-50%);
+  background:var(--cyan);
+  box-shadow:0 0 13px rgba(78,232,255,.72);
+  transition:left .45s linear,top .45s linear,opacity .2s ease;
+}
+.radar-track.identified{
+  background:var(--green);
+  box-shadow:0 0 14px rgba(92,255,157,.78);
+}
+.radar-track.occluded{
+  opacity:.38;
+  border:1px dashed var(--green);
+  background:transparent;
+}
+.radar-track span{
+  position:absolute;
+  left:13px;top:-4px;
+  white-space:nowrap;
+  font-size:.5rem;
+  color:var(--text);
+  font-weight:800;
+  text-shadow:0 1px 5px #000;
+}
+.participant-scan-card.body-lock{
+  border-color:rgba(92,255,157,.3);
+  box-shadow:inset 2px 0 0 rgba(92,255,157,.7);
+}
+.participant-scan-card.occluded{
+  border-style:dashed;
+  opacity:.75;
+}
+.participant-scan-card.body-detected{
+  border-color:rgba(78,232,255,.26);
+}
+.participant-scan-card.body-lock .participant-card-top b{color:var(--green)}
+.participant-scan-card.occluded .participant-card-top b{color:var(--amber)}
