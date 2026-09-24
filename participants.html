@@ -110,15 +110,15 @@
           <div class="voice-enrollment-block" id="voiceEnrollmentBlock">
             <div class="voice-enrollment-head">
               <div>
-                <small>VOICE IDENTITY + CLONE</small>
-                <strong id="voiceEnrollmentStatus">Save participant to enable voice enrollment</strong>
+                <small>VOICE PROFILE</small>
+                <strong id="voiceEnrollmentStatus">Save participant to enable voice profiling</strong>
               </div>
               <span class="voice-orb" id="voiceOrb" aria-hidden="true"><i></i><i></i><i></i></span>
             </div>
 
             <div class="voice-data-grid">
-              <div><span>VOICE SAMPLES</span><b id="voiceSampleCount">0</b></div>
-              <div><span>CAPTURED AUDIO</span><b id="voiceTotalSeconds">0.0s</b></div>
+              <div><span>PROFILE SAMPLES</span><b id="voiceSampleCount">0 / 3</b></div>
+              <div><span>PROFILE AUDIO</span><b id="voiceTotalSeconds">0.0s</b></div>
               <div><span>LIVE LEVEL</span><b id="voiceLiveDb">— dB</b></div>
               <div><span>SPEAKER MODEL</span><b id="voiceModelState">Standby</b></div>
             </div>
@@ -134,33 +134,31 @@
               </div>
             </div>
 
-            <div class="voice-actions">
-              <button id="recordVoiceSample" class="hud-button" disabled>Record voice sample</button>
-              <button id="stopVoiceSample" class="hud-button" disabled>Stop recording</button>
-              <label class="switch-row voice-switch"><input id="voiceRecognitionEnabled" type="checkbox" checked disabled> Enable participant voice recognition</label>
+            <div class="voice-profile-pipeline" aria-label="Voice profile pipeline">
+              <span data-voice-stage="capture">CAPTURE</span><i></i>
+              <span data-voice-stage="clean">NOISE GATE</span><i></i>
+              <span data-voice-stage="embed">VOICE ID</span><i></i>
+              <span data-voice-stage="redundancy">REDUNDANCY</span><i></i>
+              <span data-voice-stage="ready">PROFILE READY</span>
             </div>
 
-            <div class="clone-console" id="cloneConsole">
-              <div class="clone-console-head">
-                <div><small>VOICE CLONING</small><strong id="cloneStatus">Not configured</strong></div>
-                <span class="clone-spinner" id="cloneSpinner" hidden aria-hidden="true"></span>
+            <div class="voice-actions">
+              <button id="recordVoiceSample" class="hud-button primary" disabled>Capture voice profile sample</button>
+              <button id="stopVoiceSample" class="hud-button" disabled>Stop recording</button>
+              <label class="switch-row voice-switch"><input id="voiceRecognitionEnabled" type="checkbox" checked disabled> Use voice profile for speaker tracking + transcription attribution</label>
+            </div>
+
+            <div class="voice-profile-console">
+              <small>REDUNDANT IDENTITY SIGNALS</small>
+              <div class="redundancy-grid">
+                <span>VOICE ACTIVITY<b>Noise-gated</b></span>
+                <span>VOICE PROFILE<b>Speaker match</b></span>
+                <span>FACE ID<b>When visible</b></span>
+                <span>BODY LOCK<b>Persistent</b></span>
+                <span>PROXIMITY<b>Dialogue grouping</b></span>
+                <span>TRANSCRIPT<b>Confidence gated</b></span>
               </div>
-              <label class="clone-consent">
-                <input id="voiceCloneConsent" type="checkbox" disabled>
-                <span>I confirm this participant has explicitly consented to creation and use of a cloned version of their voice.</span>
-              </label>
-              <div class="clone-pipeline" aria-label="Voice cloning pipeline">
-                <span data-clone-stage="sample">SAMPLE</span><i></i>
-                <span data-clone-stage="consent">CONSENT</span><i></i>
-                <span data-clone-stage="upload">UPLOAD</span><i></i>
-                <span data-clone-stage="provider">PROCESS</span><i></i>
-                <span data-clone-stage="ready">VOICE READY</span>
-              </div>
-              <div class="voice-actions">
-                <button id="cloneParticipantVoice" class="hud-button primary" disabled>Create voice clone</button>
-                <span id="clonedVoiceId" class="clone-id"></span>
-              </div>
-              <p>Speaker recognition stays local. Voice cloning is optional and only runs after explicit consent; the provider API key remains server-side.</p>
+              <p>Tracky combines these signals to reject background noise and attribute transcript turns conservatively. Raw enrollment audio is processed into speaker embeddings and discarded after the profile sample is created.</p>
             </div>
           </div>
 
