@@ -2146,6 +2146,7 @@ function stopCamera() {
     participants: [],
     objects: []
   };
+  updateCameraFusion(Date.now(), false);
   drawOverlay();
   renderAll();
 }
@@ -5225,6 +5226,32 @@ function eventLabel(event) {
     case 'camera.overlap_fused':
       return (event.participantName || event.participantId || 'Participant') +
         ' fused across ' + String(event.data?.cameraIds?.join(' + ') || 'cameras');
+    case 'participant.room_exit':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' exited ' + String(event.data?.roomId || event.data?.fromRoomId || 'room');
+    case 'participant.room_enter':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' entered ' + String(event.data?.roomId || event.data?.toRoomId || 'room');
+    case 'participant.room_transition':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' moved ' + String(event.data?.fromRoomId || '—') +
+        ' → ' + String(event.data?.toRoomId || '—');
+    case 'participant.location_uncertain':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' location uncertain · ' +
+        String(event.data?.candidateRoomIds?.join(' / ') || 'unknown room');
+    case 'object.room_transition':
+      return String(event.data?.objectLabel || event.data?.objectId || 'Object') +
+        ' moved ' + String(event.data?.fromRoomId || '—') +
+        ' → ' + String(event.data?.toRoomId || '—');
+    case 'portal.crossing':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' crossed ' + String(event.data?.portalId || 'portal');
+    case 'world.topology_changed':
+      return 'Room topology updated';
+    case 'visibility.changed':
+      return String(event.data?.entityLabel || event.data?.entityId || 'Entity') +
+        ' visibility → ' + String(event.data?.state || 'unknown');
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -5329,7 +5356,10 @@ function renderRoomState() {
     cameraFusion: runtime.fusionState,
     environment: runtime.environmentAnalysis,
     sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
-    physicalWorld: worldStateSnapshot(runtime.physicalWorld)
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    topology: runtime.worldTopology,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    roomVisibility: runtime.roomVisibility
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -5378,6 +5408,7 @@ function renderSignals() {
 
 function renderAll() {
   renderEnvironmentPanel();
+  renderMultiRoomWorld();
   renderEnvironmentMapping();
   renderPhysicalWorld();
   renderCameraNetwork();
@@ -5671,7 +5702,10 @@ async function copySnapshot() {
     cameraFusion: runtime.fusionState,
     environment: runtime.environmentAnalysis,
     sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
-    physicalWorld: worldStateSnapshot(runtime.physicalWorld)
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    topology: runtime.worldTopology,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    roomVisibility: runtime.roomVisibility
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
@@ -5716,6 +5750,7 @@ ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
 ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
 ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
 ui.cameraRegistryForm.addEventListener('submit', (event) => void addCameraConfig(event));
+ui.topologyConnectForm.addEventListener('submit', (event) => void confirmTopologyConnection(event));
 ui.cameraCalibrationForm.addEventListener('submit', (event) => void saveCameraCalibrationForm(event));
 ui.closeCameraCalibration.addEventListener('click', closeCameraCalibration);
 ui.capturePrimaryEnvironment.addEventListener('click', () => void (async () => {
