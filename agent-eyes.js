@@ -461,6 +461,13 @@ function stopCamera() {
   runtime.faces = [];
   runtime.bodies = [];
   runtime.tracks = [];
+  runtime.objects = [];
+  runtime.rawObjects = [];
+  runtime.hands = [];
+  runtime.gestures = [];
+  runtime.activeInteractions.clear();
+  runtime.relationDistances.clear();
+  runtime.selectedObjectId = null;
   runtime.previousTrackIds.clear();
   runtime.previousKnownByTrack.clear();
   runtime.previousStatuses.clear();
@@ -890,6 +897,213 @@ function analyzeBehaviors(now) {
 }
 
 
+
+function objectRoomPosition(objectTrack) {
+  return {
+    x: Number(objectTrack.cx || 0.5),
+    y: Number(objectTrack.cy || 0.5),
+    box: objectTrack.box ? {
+      x: objectTrack.box.x,
+      y: objectTrack.box.y,
+      width: objectTrack.box.width,
+      height: objectTrack.box.height
+    } : null
+  };
+}
+
+function emitObjectTransitions(previousObjects, currentObjects) {
+  const previousById = new Map(previousObjects.map((object) => [object.id, object]));
+  const currentById = new Map(currentObjects.map((object) => [object.id, object]));
+
+  for (const object of currentObjects) {
+    const previous = previousById.get(object.id);
+
+    if (object.stable && !previous?.stable) {
+      emit('object.detected', {
+        confidence: object.score,
+        source: 'object-detector',
+        roomPosition: objectRoomPosition(object),
+        evidence: {
+          detectorId: object.detectorId,
+          classId: object.classId,
+          observations: object.observations
+        },
+        data: {
+          objectId: object.id,
+          label: object.label,
+          status: object.status
+        }
+      });
+    } else if (
+      object.stable &&
+      previous?.status === 'reacquiring' &&
+      object.status !== 'reacquiring'
+    ) {
+      emit('object.reacquired', {
+        confidence: object.score,
+        source: 'object-continuity',
+        roomPosition: objectRoomPosition(object),
+        data: {
+          objectId: object.id,
+          label: object.label,
+          status: object.status
+        }
+      });
+    }
+
+    if (object.stable && object.status !== 'reacquiring') {
+      emit('object.updated', {
+        confidence: object.score,
+        source: 'object-detector',
+        roomPosition: objectRoomPosition(object),
+        data: {
+          objectId: object.id,
+          label: object.label,
+          status: object.status
+        }
+      });
+    }
+  }
+
+  for (const previous of previousObjects) {
+    if (!previous.stable || currentById.has(previous.id)) continue;
+    emit('object.lost', {
+      confidence: previous.score,
+      source: 'object-continuity',
+      roomPosition: objectRoomPosition(previous),
+      data: {
+        objectId: previous.id,
+        label: previous.label,
+        status: 'lost'
+      }
+    });
+  }
+}
+
+function interactionPayload(interaction, interactionId) {
+  const object = runtime.objects.find(
+    (candidate) => candidate.id === interaction.objectTrackId
+  );
+
+  return {
+    participantId: interaction.participantId || null,
+    participantName: interaction.participantName || null,
+    trackId: interaction.participantTrackId || null,
+    confidence: interaction.confidence,
+    source: 'person-object-fusion',
+    roomPosition: object ? objectRoomPosition(object) : null,
+    evidence: interaction.evidence || null,
+    data: {
+      interactionId,
+      type: interaction.type,
+      objectId: interaction.objectTrackId,
+      objectLabel: interaction.objectLabel
+    }
+  };
+}
+
+function synchronizeObjectInteractions(now) {
+  const observations = bestObjectInteractions(
+    runtime.tracks.filter((track) => track.presenceAnnounced),
+    runtime.objects.filter(
+      (object) => object.stable && object.status !== 'reacquiring'
+    ),
+    runtime.hands,
+    runtime.relationDistances
+  );
+
+  const seen = new Set();
+
+  for (const interaction of observations) {
+    const key = interactionKey(interaction);
+    seen.add(key);
+
+    const existing = runtime.activeInteractions.get(key);
+    if (existing) {
+      runtime.activeInteractions.set(key, {
+        ...existing,
+        ...interaction,
+        lastSeenAt: now
+      });
+      continue;
+    }
+
+    const entry = {
+      ...interaction,
+      startedAt: now,
+      lastSeenAt: now
+    };
+    runtime.activeInteractions.set(key, entry);
+
+    emit('interaction.started', interactionPayload(interaction, key));
+
+    if (interaction.type === 'holding') {
+      const object = runtime.objects.find(
+        (candidate) => candidate.id === interaction.objectTrackId
+      );
+      if (object) {
+        object.holderTrackId = interaction.participantTrackId || null;
+        object.holderParticipantId = interaction.participantId || null;
+        object.interaction = 'holding';
+      }
+
+      emit('object.picked_up', {
+        ...interactionPayload(interaction, key),
+        data: {
+          ...interactionPayload(interaction, key).data,
+          objectId: interaction.objectTrackId,
+          label: interaction.objectLabel
+        }
+      });
+    }
+  }
+
+  for (const [key, interaction] of [...runtime.activeInteractions.entries()]) {
+    if (seen.has(key)) continue;
+    if (now - Number(interaction.lastSeenAt || now) < INTERACTION_COOLDOWN_MS) continue;
+
+    runtime.activeInteractions.delete(key);
+    emit('interaction.ended', interactionPayload(interaction, key));
+
+    if (interaction.type === 'holding') {
+      const object = runtime.objects.find(
+        (candidate) => candidate.id === interaction.objectTrackId
+      );
+      if (object) {
+        object.holderTrackId = null;
+        object.holderParticipantId = null;
+        object.interaction = null;
+      }
+
+      emit('object.put_down', {
+        ...interactionPayload(interaction, key),
+        data: {
+          ...interactionPayload(interaction, key).data,
+          objectId: interaction.objectTrackId,
+          label: interaction.objectLabel
+        }
+      });
+    }
+  }
+
+  const holdingByObject = new Map(
+    [...runtime.activeInteractions.values()]
+      .filter((interaction) => interaction.type === 'holding')
+      .map((interaction) => [interaction.objectTrackId, interaction])
+  );
+
+  for (const object of runtime.objects) {
+    const holding = holdingByObject.get(object.id);
+    if (holding) {
+      object.holderTrackId = holding.participantTrackId || null;
+      object.holderParticipantId = holding.participantId || null;
+      object.interaction = 'holding';
+    } else if (object.interaction === 'holding') {
+      object.interaction = null;
+    }
+  }
+}
+
 async function scanRoom() {
   if (
     !runtime.running ||
@@ -904,6 +1118,7 @@ async function scanRoom() {
   runtime.scanBusy = true;
   const now = performance.now();
   const previousTracks = runtime.tracks;
+  const previousObjects = runtime.objects;
 
   try {
     const room = await runtime.identity.detectRoom(ui.video);
@@ -912,6 +1127,23 @@ async function scanRoom() {
       runtime.faces,
       room.bodies || []
     );
+    runtime.rawObjects = room.objects || [];
+    runtime.hands = room.hands || [];
+    runtime.gestures = room.gestures || [];
+
+    const liveObjects = assignObjectTracks(
+      previousObjects,
+      runtime.rawObjects,
+      now,
+      { nextId: nextObjectId }
+    );
+    const carriedObjects = carryLostObjectTracks(
+      previousObjects,
+      liveObjects,
+      now,
+      OBJECT_GRACE_MS
+    );
+    runtime.objects = [...liveObjects, ...carriedObjects];
 
     let liveTracks = assignBodyTracks(
       previousTracks,
@@ -1026,12 +1258,17 @@ async function scanRoom() {
     updateGroups();
     analyzeBehaviors(now);
     emitTrackTransitions(previousTracks, runtime.tracks, now);
+    emitObjectTransitions(previousObjects, runtime.objects);
+    synchronizeObjectInteractions(now);
     drawOverlay();
     renderAll();
 
     ui.identityStatus.textContent =
       runtime.tracks.length + ' tracked · ' +
       runtime.tracks.filter((track) => track.participantId).length + ' known';
+    ui.objectStatus.textContent = runtime.objects.length
+      ? runtime.objects.filter((object) => object.stable).length + ' persistent'
+      : 'Scanning';
     setHealth('online');
   } catch (error) {
     console.error(error);
