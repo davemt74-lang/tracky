@@ -18,6 +18,15 @@ test('different room evidence does not coalesce',()=>{
  const second=enqueueBriefing(first.queue,b('B2',{evidence:{subjectId:'O1',roomId:'ROOM02'}}),{agentConnected:true},2000);
  assert.equal(second.coalesced,false);assert.equal(second.queue.length,2);
 });
+test('V2.2 pending briefing is migrated into the V2.3 queue on re-evaluation',()=>{
+ const legacy={...b('B-legacy'),deliveryState:undefined,semanticKey:undefined,expiresAt:undefined};
+ const q=reevaluateBriefingQueue([legacy],{agentConnected:false},2000);
+ assert.ok(q[0].semanticKey);
+ assert.equal(q[0].occurrenceCount,1);
+ assert.equal(q[0].deliveryState,'deferred');
+ assert.ok(q[0].expiresAt>2000);
+});
+
 test('reconnect re-evaluation promotes deferred high briefing to ready',()=>{
  const first=enqueueBriefing([],b('B1',{urgency:'high'}),{agentConnected:false},1000);
  assert.equal(first.entry.deliveryState,'deferred');
