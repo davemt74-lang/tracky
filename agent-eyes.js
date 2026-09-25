@@ -128,6 +128,21 @@ import {
   classifyVisibility,
   visibilityOccludersFromGraph
 } from './src/visibility-core.js';
+import {
+  createSpatialMemoryState,
+  entityHistory,
+  entityJourney,
+  expectedLocationFor,
+  ignoreMemoryProposal,
+  observeSpatialMemory,
+  resolveMemoryProposal,
+  spatialMemorySnapshot
+} from './src/spatial-memory-core.js';
+import {
+  clearSpatialMemory as clearSpatialMemoryStore,
+  loadSpatialMemory,
+  saveSpatialMemory
+} from './src/spatial-memory-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -158,6 +173,7 @@ const ui = {
   environmentStatus: $('#eyesEnvironmentStatus'),
   worldStatus: $('#eyesWorldStatus'),
   multiRoomTopStatus: $('#eyesMultiRoomStatus'),
+  spatialMemoryTopStatus: $('#eyesSpatialMemoryStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -235,6 +251,17 @@ const ui = {
   topologyPortalType: $('#topologyPortalType'),
   topologyConnectionList: $('#topologyConnectionList'),
   multiRoomTransitionFeed: $('#multiRoomTransitionFeed'),
+  spatialMemoryStatus: $('#spatialMemoryStatus'),
+  spatialMemoryEntityCount: $('#spatialMemoryEntityCount'),
+  spatialExpectedCount: $('#spatialExpectedCount'),
+  spatialRouteCount: $('#spatialRouteCount'),
+  spatialProposalCount: $('#spatialProposalCount'),
+  spatialMemoryFacts: $('#spatialMemoryFacts'),
+  spatialProposalStatus: $('#spatialProposalStatus'),
+  spatialProposalList: $('#spatialProposalList'),
+  spatialJourneyStatus: $('#spatialJourneyStatus'),
+  spatialJourneyList: $('#spatialJourneyList'),
+  clearSpatialMemory: $('#clearSpatialMemory'),
   environmentMatchStatus: $('#environmentMatchStatus'),
   environmentPrimaryMeta: $('#environmentPrimaryMeta'),
   environmentPrimaryImage: $('#environmentPrimaryImage'),
@@ -342,6 +369,7 @@ const sceneListeners = new Set();
 const cameraFusionListeners = new Set();
 const worldListeners = new Set();
 const roomListeners = new Map();
+const spatialMemoryListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -422,7 +450,9 @@ const runtime = {
   worldTopology: buildWorldTopology([]),
   roomVisibility: {},
   multiRoomEvents: [],
-  selectedGlobalRoomId: null
+  selectedGlobalRoomId: null,
+  spatialMemory: createSpatialMemoryState(),
+  spatialMemoryLastSavedAt: 0
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -464,7 +494,8 @@ window.TrackyAgentEyes = Object.freeze({
       sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
       physicalWorld: worldStateSnapshot(runtime.physicalWorld),
       topology: copySerializable(runtime.worldTopology),
-      multiRoom: multiRoomSnapshot(runtime.multiRoomWorld)
+      multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+      spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
     };
   },
   getEnvironmentState() {
@@ -516,6 +547,18 @@ window.TrackyAgentEyes = Object.freeze({
   getMultiRoomWorld() {
     return multiRoomSnapshot(runtime.multiRoomWorld);
   },
+  getSpatialMemory() {
+    return spatialMemorySnapshot(runtime.spatialMemory);
+  },
+  getExpectedLocation(entityId) {
+    return copySerializable(expectedLocationFor(runtime.spatialMemory, entityId));
+  },
+  getEntityHistory(entityId, limit = 50) {
+    return copySerializable(entityHistory(runtime.spatialMemory, entityId, limit));
+  },
+  getEntityJourney(entityId, limit = 30) {
+    return copySerializable(entityJourney(runtime.spatialMemory, entityId, limit));
+  },
   getChanges() {
     return sceneState.changes.slice();
   },
@@ -541,6 +584,16 @@ window.TrackyAgentEyes = Object.freeze({
     if (!roomListeners.has(roomId)) roomListeners.set(roomId, new Set());
     roomListeners.get(roomId).add(listener);
     return () => roomListeners.get(roomId)?.delete(listener);
+  },
+  subscribeSpatialMemory(listener) {
+    spatialMemoryListeners.add(listener);
+    return () => spatialMemoryListeners.delete(listener);
+  },
+  confirmMemoryProposal(key) {
+    return confirmSpatialMemoryProposal(key);
+  },
+  ignoreMemoryProposal(key) {
+    return ignoreSpatialMemoryProposal(key);
   },
   refreshEnvironment() {
     return refreshEnvironmentObservation({ reason: 'agent-request' });
