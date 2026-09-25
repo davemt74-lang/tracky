@@ -90,3 +90,23 @@ test('object world id persists across camera handoff', () => {
   assert.equal(objects[0].id,'WO001');
   assert.equal(objects[0].primaryCameraId,'CAM02');
 });
+
+
+test('known participant position conflict trusts best calibrated view instead of averaging', () => {
+  const entities=fuseParticipantObservations([
+    person('CAM01','T1',.15,'p1',.96,.9),
+    person('CAM02','T2',.90,'p1',.50,.7)
+  ]);
+  assert.equal(entities.length,1);
+  assert.equal(entities[0].positionConflict,true);
+  assert.ok(entities[0].roomPosition.x<.3);
+  assert.deepEqual(entities[0].conflictingCameraIds,['CAM02']);
+});
+
+test('two same-label objects from one camera remain separate world objects', () => {
+  const objects=fuseWorldObjects([],[
+    {cameraId:'CAM01',roomId:'ROOM01',localObjectId:'O1',label:'cup',roomPosition:{x:.40,y:.40},confidence:.9,stable:true},
+    {cameraId:'CAM01',roomId:'ROOM01',localObjectId:'O2',label:'cup',roomPosition:{x:.44,y:.42},confidence:.85,stable:true}
+  ],1000,{nextId:(()=>{let n=0;return()=> 'WO00'+(++n);})()});
+  assert.equal(objects.length,2);
+});
