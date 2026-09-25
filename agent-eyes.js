@@ -3474,8 +3474,14 @@ function renderWorldMap() {
   ui.worldMapEntities.replaceChildren();
   renderWorldMapVectors();
 
+  const activeRoomId = runtime.fusionState.roomId || primaryCameraConfig()?.roomId || 'ROOM01';
+
   for (const camera of runtime.cameraConfigs) {
-    if (!camera.enabled || !cameraCalibrationValid(camera)) continue;
+    if (
+      !camera.enabled ||
+      camera.roomId !== activeRoomId ||
+      !cameraCalibrationValid(camera)
+    ) continue;
 
     const polygon = document.createElement('div');
     polygon.className = 'world-camera-coverage';
@@ -3562,7 +3568,10 @@ function renderWorldMap() {
   }
 
   const onlineCount = runtime.cameraConfigs.filter(
-    (camera) => cameraStatusFor(camera) === 'online'
+    (camera) => (
+      camera.roomId === activeRoomId &&
+      cameraStatusFor(camera) === 'online'
+    )
   ).length;
   const people = runtime.fusionState.participants || [];
   const objects = runtime.fusionState.objects || [];
