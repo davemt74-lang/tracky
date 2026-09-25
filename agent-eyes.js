@@ -3806,6 +3806,169 @@ function cameraStatusFor(camera) {
   return runtime.cameraStatuses.get(camera.id) || 'offline';
 }
 
+
+function percent(value) {
+  return Number.isFinite(Number(value))
+    ? Math.round(Number(value) * 100) + '%'
+    : '—';
+}
+
+function renderEnvironmentImage(image, empty, dataUrl) {
+  if (dataUrl) {
+    image.src = dataUrl;
+    image.hidden = false;
+    empty.hidden = true;
+  } else {
+    image.removeAttribute('src');
+    image.hidden = true;
+    empty.hidden = false;
+  }
+}
+
+function renderEnvironmentPanel() {
+  const analysis = runtime.environmentAnalysis;
+  const room = activeEnvironmentRoom();
+  const view = activeEnvironmentView();
+  const primary = room?.views?.find((candidate) => candidate.id === room.primaryViewId) ||
+    room?.views?.find((candidate) => candidate.primary) ||
+    null;
+  const current = runtime.currentEnvironment;
+
+  renderEnvironmentImage(
+    ui.environmentPrimaryImage,
+    ui.environmentPrimaryEmpty,
+    primary?.imageDataUrl || null
+  );
+  renderEnvironmentImage(
+    ui.environmentCurrentImage,
+    ui.environmentCurrentEmpty,
+    current?.imageDataUrl || null
+  );
+
+  ui.environmentPrimaryMeta.textContent = primary
+    ? [room?.name || room?.id, primary.name, 'v' + Number(primary.version || 1)]
+        .filter(Boolean).join(' · ')
+    : 'Not saved';
+  ui.environmentCurrentMeta.textContent = current
+    ? new Date(current.capturedAt).toLocaleTimeString([], {
+        hour:'2-digit', minute:'2-digit', second:'2-digit'
+      })
+    : 'Waiting for camera';
+
+  const classification = analysis?.classification ||
+    (room ? 'baseline-ready' : 'no-baseline');
+  ui.environmentMatchStatus.textContent = classification;
+  ui.environmentStatus.textContent =
+    classification === 'known-view'
+      ? 'Known environment'
+      : classification === 'known-room-new-view'
+        ? 'New angle'
+        : classification === 'uncertain'
+          ? 'Uncertain'
+          : classification === 'unknown'
+            ? 'Unknown'
+            : room
+              ? 'Baseline ready'
+              : 'No baseline';
+
+  ui.environmentRoomMatch.textContent = analysis?.best
+    ? (analysis.best.roomName || analysis.best.roomId) + ' · ' + percent(analysis.best.score)
+    : '—';
+  ui.environmentViewMatch.textContent = analysis?.best
+    ? (analysis.best.viewName || analysis.best.viewId)
+    : '—';
+  ui.environmentStructureScore.textContent = analysis?.best
+    ? percent(analysis.best.evidence?.landmarks)
+    : '—';
+  ui.environmentDriftScore.textContent = analysis?.drift
+    ? percent(analysis.drift.environmentStateDrift)
+    : '—';
+  ui.environmentQualityScore.textContent = current?.quality
+    ? percent(current.quality.score)
+    : '—';
+  ui.environmentCameraScore.textContent = analysis?.best
+    ? percent(analysis.best.evidence?.camera)
+    : '—';
+
+  const cameraReady = runtime.running && ui.video.readyState >= 2;
+  ui.capturePrimaryEnvironment.disabled = !cameraReady;
+  ui.saveAlternateEnvironment.disabled = !cameraReady;
+  ui.scanEnvironment.disabled = !cameraReady;
+  ui.promoteEnvironmentPrimary.disabled = !cameraReady || !primary;
+}
+
+function renderEnvironmentMapping() {
+  const proposal = runtime.mappingProposal;
+  ui.environmentMappingPreview.replaceChildren();
+  ui.environmentMappingList.replaceChildren();
+
+  if (!proposal) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent =
+      'Scan the environment to propose a floor plane, stable landmarks, zones, and portal candidates.';
+    ui.environmentMappingPreview.append(empty);
+    ui.environmentMappingStatus.textContent = 'Not scanned';
+    ui.acceptEnvironmentMap.disabled = true;
+    ui.discardEnvironmentMap.disabled = true;
+    return;
+  }
+
+  const imageUrl = runtime.currentEnvironment?.imageDataUrl;
+  if (imageUrl) {
+    const img = document.createElement('img');
+    img.src = imageUrl;
+    img.alt = 'Environment mapping reference';
+    ui.environmentMappingPreview.append(img);
+
+    for (const landmark of proposal.landmarks || []) {
+      const pin = document.createElement('span');
+      pin.className = 'environment-landmark-marker';
+      pin.style.left = (landmark.position.x * 100) + '%';
+      pin.style.top = (landmark.position.y * 100) + '%';
+      pin.textContent = landmark.name || landmark.label;
+      ui.environmentMappingPreview.append(pin);
+    }
+  }
+
+  const rows = [
+    ['Floor proposal', percent(proposal.floor?.confidence)],
+    ['Landmarks', String(proposal.landmarks?.length || 0)],
+    ['Zones', String(proposal.zones?.length || 0)],
+    ['Portals', String(proposal.portals?.length || 0)]
+  ];
+
+  for (const [label, value] of rows) {
+    const row = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = label;
+    meta.textContent = value;
+    row.append(name, meta);
+    ui.environmentMappingList.append(row);
+  }
+
+  for (const landmark of proposal.landmarks || []) {
+    const row = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = landmark.name || landmark.label;
+    meta.textContent = [
+      landmark.stability,
+      percent(landmark.confidence),
+      Math.round(landmark.position.x * 100) + ',' +
+        Math.round(landmark.position.y * 100)
+    ].join(' · ');
+    row.append(name, meta);
+    ui.environmentMappingList.append(row);
+  }
+
+  ui.environmentMappingStatus.textContent =
+    'Proposal · ' + percent(proposal.confidence);
+  ui.acceptEnvironmentMap.disabled = false;
+  ui.discardEnvironmentMap.disabled = false;
+}
+
 function renderCameraNetwork() {
   ui.cameraRegistryList.replaceChildren();
 
