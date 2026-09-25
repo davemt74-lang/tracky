@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.3 — Agent Eyes</title>
+  <title>Tracky V1.4 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.3 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.4 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -37,6 +37,7 @@
     <div><span>CAMERA FUSION</span><b id="eyesFusionStatus">Single camera</b></div>
     <div><span>ENVIRONMENT</span><b id="eyesEnvironmentStatus">No baseline</b></div>
     <div><span>WORLD MODEL</span><b id="eyesWorldStatus">Standby</b></div>
+    <div><span>MULTI-ROOM</span><b id="eyesMultiRoomStatus">Standby</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -261,6 +262,72 @@
         <summary>Scene graph / world-state JSON</summary>
         <pre id="physicalWorldJson" class="room-state-json">{}</pre>
       </details>
+    </article>
+  </section>
+
+  <section class="multi-room-grid">
+    <article class="hud-panel multi-room-map-panel">
+      <div class="hud-panel-head">
+        <div><small>GLOBAL PHYSICAL WORLD</small><h2>Rooms + topology</h2></div>
+        <span id="multiRoomStatus" class="status-chip">No rooms</span>
+      </div>
+
+      <div id="globalRoomMap" class="global-room-map">
+        <svg id="globalRoomLinks" class="global-room-links" viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div id="globalRoomNodes" class="global-room-nodes"></div>
+        <span class="global-room-label">CONFIRMED ROOM TOPOLOGY · CLICK ROOM TO INSPECT</span>
+      </div>
+
+      <div class="multi-room-summary">
+        <div><span>ROOMS</span><b id="multiRoomRoomCount">0</b></div>
+        <div><span>CONFIRMED PEOPLE</span><b id="multiRoomPersonCount">0</b></div>
+        <div><span>WORLD OBJECTS</span><b id="multiRoomObjectCount">0</b></div>
+        <div><span>TRANSITIONS</span><b id="multiRoomTransitionCount">0</b></div>
+        <div><span>CONVERSATIONS</span><b id="multiRoomConversationCount">0</b></div>
+        <div><span>UNCERTAIN</span><b id="multiRoomUncertainCount">0</b></div>
+      </div>
+
+      <div id="multiRoomSelected" class="multi-room-selected">
+        <div class="agent-empty">Select a room to inspect its cameras, participants, objects, visibility evidence, and conversations.</div>
+      </div>
+    </article>
+
+    <article class="hud-panel multi-room-topology-panel">
+      <div class="hud-panel-head">
+        <div><small>ROOM CONNECTIONS</small><h2>Portal topology</h2></div>
+        <span id="topologyStatus" class="status-chip">No connections</span>
+      </div>
+
+      <form id="topologyConnectForm" class="topology-connect-form">
+        <label>From room
+          <select id="topologyFromRoom"><option value="">Select room</option></select>
+        </label>
+        <label>To room
+          <select id="topologyToRoom"><option value="">Select room</option></select>
+        </label>
+        <label>Connection
+          <select id="topologyPortalType">
+            <option value="doorway">Doorway</option>
+            <option value="opening">Opening</option>
+            <option value="hallway">Hallway</option>
+            <option value="stairs">Stairs</option>
+            <option value="elevator">Elevator</option>
+            <option value="passage">Passage</option>
+          </select>
+        </label>
+        <button class="hud-button primary" type="submit">Confirm connection</button>
+      </form>
+
+      <div id="topologyConnectionList" class="topology-connection-list">
+        <div class="agent-empty">Confirmed portals connect room models and allow evidence-backed room transitions.</div>
+      </div>
+
+      <div class="hud-panel-head compact-world-head">
+        <div><small>RECENT MOVEMENT</small><h2>Cross-room transitions</h2></div>
+      </div>
+      <div id="multiRoomTransitionFeed" class="multi-room-transition-feed">
+        <div class="agent-empty">No cross-room transitions recorded.</div>
+      </div>
     </article>
   </section>
 
