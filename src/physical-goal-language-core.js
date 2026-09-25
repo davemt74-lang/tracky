@@ -31,8 +31,10 @@ export function parsePhysicalGoalCommand(input){
   if(m) return out('pause',{raw,goalRef:txt(m[1],160)});
   m=text.match(/^(?:resume|enable)\s+(?:goal\s+|expectation\s+|routine\s+)?(.+)$/i);
   if(m) return out('resume',{raw,goalRef:txt(m[1],160)});
+  m=text.match(/^(?:run|check)\s+(?:goal\s+|routine\s+)?(.+)$/i);
+  if(m) return out('run',{raw,goalRef:txt(m[1],160)});
 
-  m=text.match(/^make sure\s+(.+?)\s+is empty\s+when\s+(.+?)\s+leaves(?:\s+(.+))?$/i);
+  m=text.match(/^make sure\s+(.+?)\s+is empty\s+when\s+(.+?)\s+(?:leave|leaves)(?:\s+(.+))?$/i);
   if(m) return out('create',{
     raw,type:'routine',template:'room-empty-on-leave',
     checkRoomText:txt(m[1],100),triggerSubjectText:txt(m[2],100),
@@ -104,7 +106,7 @@ export function resolvePhysicalGoalCommand(parsed,context={},goals=[],now=Date.n
   if(!parsed||parsed.intent==='unknown') return {status:'unsupported',intent:'unknown',message:'I could not map that request to a supported physical-world goal or routine.'};
   if(parsed.intent==='list') return {status:'ready',intent:'list',goals:arr(goals)};
   if(parsed.intent==='clear-history') return {status:'ready',intent:'clear-history'};
-  if(['remove','pause','resume'].includes(parsed.intent)){
+  if(['remove','pause','resume','run'].includes(parsed.intent)){
     const matches=goalCandidates(parsed.goalRef,goals);
     if(matches.length===1) return {status:'ready',intent:parsed.intent,goal:matches[0]};
     if(matches.length>1) return {status:'ambiguous',intent:parsed.intent,message:'More than one physical goal matches that description.',candidates:candidates(matches,'goal')};
