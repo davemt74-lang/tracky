@@ -79,8 +79,12 @@ test('briefing-eligible goal events enter existing governed Agent briefing queue
 test('V2.4 startup loads goals and evaluates standing expectations after Agent context baseline',()=>{
   const load=source.indexOf('await initializePhysicalGoals();');
   const baseline=source.indexOf('runtime.agentContext = currentAgentContext({}, Date.now());');
-  const evaluate=source.indexOf("await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now());");
+  const evaluate=source.indexOf("await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now(), { suppressRoutineTriggers:true });");
   assert.ok(load>=0);assert.ok(baseline>load);assert.ok(evaluate>baseline);
+});
+
+test('V2.4 startup explicitly suppresses event-driven routine triggers',()=>{
+  assert.match(source,/suppressRoutineTriggers:true/);
 });
 
 test('V2.4 integration retains no autonomous physical execution authority',()=>{
