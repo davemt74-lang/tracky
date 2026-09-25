@@ -187,6 +187,16 @@ export class MultiCameraSensorRuntime {
     session.timer = setTimeout(() => void this.scan(session), delay);
   }
 
+  setScanIntervalMs(intervalMs) {
+    const next = Math.max(200, Math.min(10000, Number(intervalMs || this.scanIntervalMs)));
+    if (next === this.scanIntervalMs) return next;
+    this.scanIntervalMs = next;
+    for (const session of this.sessions.values()) {
+      if (!session.busy) this.schedule(session, next);
+    }
+    return next;
+  }
+
   async scan(session) {
     if (
       session.busy ||

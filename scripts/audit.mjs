@@ -51,7 +51,9 @@ const requiredFiles = [
   'src/room-topology-core.js',
   'src/spatial-memory-store.js',
   'src/spatial-memory-core.js',
-  'src/privacy-policy-core.js'
+  'src/privacy-policy-core.js',
+  'src/attention-core.js',
+  'src/attention-store.js'
 ];
 
 const runtimeJs = [
@@ -92,7 +94,9 @@ const runtimeJs = [
   'src/room-topology-core.js',
   'src/spatial-memory-store.js',
   'src/spatial-memory-core.js',
-  'src/privacy-policy-core.js'
+  'src/privacy-policy-core.js',
+  'src/attention-core.js',
+  'src/attention-store.js'
 ];
 
 const htmlContracts = [
@@ -118,8 +122,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.6.0') {
-  fail('package.json version must be 1.6.0');
+if (packageJson.version !== '1.7.0') {
+  fail('package.json version must be 1.7.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -164,7 +168,9 @@ for (const file of [
   'src/multiroom-core.js',
   'src/spatial-memory-core.js',
   'src/spatial-memory-store.js',
-  'src/privacy-policy-core.js'
+  'src/privacy-policy-core.js',
+  'src/attention-core.js',
+  'src/attention-store.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -577,10 +583,52 @@ for (const mode of ['ignore','anonymous','live-only']) {
   }
 }
 
+const attentionCore = read('src/attention-core.js');
+for (const symbol of [
+  'TASK_MODES',
+  'createAttentionState',
+  'setActiveTask',
+  'clearActiveTask',
+  'prioritizeAttention',
+  'upsertAttentionItems',
+  'resolveAttentionItem',
+  'computePerceptionBudget',
+  'taskDerivedSignals',
+  'privacyCaps',
+  'attentionSnapshot'
+]) {
+  if (!attentionCore.includes(symbol)) {
+    fail('Attention core is missing required V1.7 interface: ' + symbol);
+  }
+}
+for (const mode of [
+  'general',
+  'find-object',
+  'follow-participant',
+  'conversation',
+  'environment-watch',
+  'mapping',
+  'low-power'
+]) {
+  if (!attentionCore.includes("'" + mode + "'")) {
+    fail('Attention core is missing task mode: ' + mode);
+  }
+}
+if (!/allowVisualObservation/.test(attentionCore) || !/allowRoomAudio/.test(attentionCore)) {
+  fail('Attention budget must preserve privacy policy capability caps');
+}
+
+const attentionStore = read('src/attention-store.js');
+for (const symbol of ['loadAttentionState','saveAttentionState']) {
+  if (!attentionStore.includes(symbol)) {
+    fail('Attention store is missing persistence interface: ' + symbol);
+  }
+}
+
 const environmentStorePolicy = read('src/environment-store.js');
 for (const symbol of ['loadEnvironmentPolicy','saveEnvironmentPolicy','defaultObservationPolicy']) {
   if (!environmentStorePolicy.includes(symbol)) {
-    fail('Environment policy store is missing V1.6 interface: ' + symbol);
+    fail('Environment policy store is missing V1.7 interface: ' + symbol);
   }
 }
 
@@ -728,7 +776,7 @@ for (const symbol of [
   'renderPrivacyMasks'
 ]) {
   if (!agentEyes.includes(symbol)) {
-    fail('Agent Eyes is missing V1.6 privacy interface: ' + symbol);
+    fail('Agent Eyes is missing V1.7 privacy interface: ' + symbol);
   }
 }
 if (!/privacyPolicyStatus/.test(indexHtml) || !/privacyRegionForm/.test(indexHtml)) {
@@ -739,6 +787,46 @@ if (!/privacyCameraMasks/.test(indexHtml) || !/privacyRadarMasks/.test(indexHtml
 }
 if (!/privacy\.policy_changed/.test(perceptionCore)) {
   fail('Perception core must expose privacy.policy_changed');
+}
+for (const eventName of [
+  'task.started',
+  'task.cleared',
+  'attention.updated',
+  'attention.resolved',
+  'perception.budget_changed'
+]) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing V1.7 attention event: ' + eventName);
+  }
+}
+for (const symbol of [
+  'getAttentionState',
+  'getActiveTask',
+  'getPerceptionBudget',
+  'setTask',
+  'clearTask',
+  'resolveAttention',
+  'dismissAttention',
+  'subscribeAttention'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V1.7 attention API: ' + symbol);
+  }
+}
+if (!/attentionTaskForm/.test(indexHtml) || !/attentionQueueList/.test(indexHtml)) {
+  fail('Agent Eyes must expose task and attention queue controls');
+}
+if (!/renderAttentionController/.test(agentEyes) || !/updateAttentionController/.test(agentEyes)) {
+  fail('Agent Eyes must render and run task-conditioned attention');
+}
+if (!/currentPerceptionBudget/.test(agentEyes) || !/environmentCheckMs/.test(agentEyes)) {
+  fail('Agent Eyes must apply adaptive perception budget to runtime cadence');
+}
+if (!/setScanIntervalMs/.test(read('src/multicamera-runtime.js'))) {
+  fail('Secondary camera runtime must expose governed adaptive scan cadence');
+}
+if (!/tracky:attention-state/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level attention state');
 }
 if (!/applyParticipantObservationPolicy/.test(agentEyes) || !/applyObjectObservationPolicy/.test(agentEyes)) {
   fail('Agent Eyes must apply room privacy policy before camera fusion');
@@ -770,7 +858,7 @@ for (const eventName of [
   'spatial_memory.ignored'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.6 spatial memory event: ' + eventName);
+    fail('Perception core is missing V1.7 spatial memory event: ' + eventName);
   }
 }
 if (!/globalRoomMap/.test(indexHtml) || !/topologyConnectForm/.test(indexHtml)) {
@@ -790,7 +878,7 @@ for (const eventName of [
   'visibility.changed'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.6 world event: ' + eventName);
+    fail('Perception core is missing V1.7 world event: ' + eventName);
   }
 }
 for (const eventName of [
@@ -843,11 +931,14 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.6-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.6 deploy ZIP');
+if (!/tracky-v1\.7-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.7 deploy ZIP');
+}
+if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
+  fail('CI V1.7 deploy package must include attention core and store');
 }
 if (!workflow.includes('src/privacy-policy-core.js')) {
-  fail('CI V1.6 deploy package must include privacy policy core');
+  fail('CI V1.7 deploy package must include privacy policy core');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -877,5 +968,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );

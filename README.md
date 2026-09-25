@@ -2,6 +2,137 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.7 — Task-Conditioned Perception & Agent Attention Controller
+
+V1.7 adds a governed attention layer above Tracky's existing perception/world stack.
+
+The controller changes **what deserves attention and how much compute perception receives**. It does not create a second perception pipeline and cannot override V1.6 privacy policy, participant identity authority, or evidence confidence rules.
+
+### Task modes
+
+Agent Eyes supports explicit perception tasks:
+
+- `general` — balanced room awareness
+- `find-object` — prioritize target objects and learned expected locations
+- `follow-participant` — prioritize participant continuity and reacquisition
+- `conversation` — prioritize participant/speaker/conversation evidence
+- `environment-watch` — prioritize environment drift and structural changes
+- `mapping` — prioritize room/environment mapping work
+- `low-power` — reduce perception cadence while preserving privacy and high-severity world evidence
+
+Tasks may include a target entity/label, room hint, expiry, and optional sticky persistence.
+
+A task never auto-enables a disabled camera, microphone, identity capability, transcription, retention, or spatial-memory permission.
+
+### Adaptive perception budget
+
+The active task and recent meaningful activity produce a current budget containing:
+
+- main-camera scan interval
+- secondary-camera scan interval
+- environment comparison interval
+- intensity level
+- privacy-derived capability caps
+
+General Awareness automatically backs off after periods without meaningful changes and wakes again when meaningful events occur.
+
+Secondary camera cadence can be changed in-place without restarting the camera.
+
+### Privacy remains the hard ceiling
+
+The attention controller computes capability caps from the room's Observation Policy.
+
+For example, a Conversation task in a room where audio/transcription is disabled creates a high-priority **policy-limited task** item instead of turning audio on.
+
+Likewise, a Find Object task cannot re-enable object observation in a room where object observation is disabled.
+
+### Task-derived attention
+
+Tasks can add contextual queue items without changing the underlying evidence.
+
+Examples:
+
+- Find Object → target found, or search its learned expected location first
+- Follow Participant → participant continuity requires reacquisition
+- Conversation → room audio unavailable or blocked by policy
+- Environment Watch → meaningful environment-state drift
+- Mapping → room mapping proposal needed
+
+### Agent attention queue
+
+World attention and task-derived attention are merged into one deduplicated queue.
+
+Each item carries:
+
+- semantic type/category
+- original evidence priority
+- task-conditioned priority
+- summary/context
+- lifecycle state
+- timestamps/expiry
+
+Users or future Agent workflows can Resolve or Dismiss items.
+
+Contradictions and privacy restrictions remain high-priority regardless of the active task.
+
+### Meaningful-activity wake-up
+
+Events such as participant entry/recognition, object pickup, room transition, conversation start, environment change, visibility change, privacy-policy change, spatial-memory proposals, and camera handoff reset the inactivity clock.
+
+This lets Tracky spend less compute when a room is stable while responding faster when something meaningful changes.
+
+### Persistence
+
+Attention history is stored locally.
+
+Only tasks explicitly marked **Persist task across reload** are restored after page reload. Ordinary active tasks return to General Awareness.
+
+Pending queue items are not blindly restored because their evidence may already be stale.
+
+### Agent APIs
+
+V1.7 adds:
+
+```js
+TrackyAgentEyes.getAttentionState()
+TrackyAgentEyes.getActiveTask()
+TrackyAgentEyes.getPerceptionBudget()
+
+TrackyAgentEyes.setTask(task)
+TrackyAgentEyes.clearTask()
+
+TrackyAgentEyes.resolveAttention(key)
+TrackyAgentEyes.dismissAttention(key)
+TrackyAgentEyes.subscribeAttention(handler)
+```
+
+Attention state is also dispatched through:
+
+```text
+tracky:attention-state
+```
+
+New perception events:
+
+- `task.started`
+- `task.cleared`
+- `attention.updated`
+- `attention.resolved`
+- `perception.budget_changed`
+
+### Current World State
+
+`getWorldState()` now also exposes:
+
+```js
+{
+  attentionController,
+  perceptionBudget
+}
+```
+
+This gives a future VP3 Agent Brain access to both **what Tracky currently knows** and **what Tracky is intentionally paying attention to**.
+
 ## V1.6 — Privacy Zones & Observation Policy
 
 V1.6 turns the privacy/retention defaults introduced in V1.3 into an enforceable room-scoped observation policy.
