@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.2 — Agent Eyes</title>
+  <title>Tracky V1.3 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.2 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.3 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -35,6 +35,8 @@
     <div><span>OBJECTS</span><b id="eyesObjectStatus">Standby</b></div>
     <div><span>SCENE MEMORY</span><b id="eyesSceneStatus">Standby</b></div>
     <div><span>CAMERA FUSION</span><b id="eyesFusionStatus">Single camera</b></div>
+    <div><span>ENVIRONMENT</span><b id="eyesEnvironmentStatus">No baseline</b></div>
+    <div><span>WORLD MODEL</span><b id="eyesWorldStatus">Standby</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -171,6 +173,95 @@
         <pre id="roomStateJson" class="room-state-json" tabindex="0">{}</pre>
       </section>
     </aside>
+  </section>
+
+  <section class="environment-grid">
+    <article class="hud-panel environment-baseline-panel">
+      <div class="hud-panel-head">
+        <div><small>ENVIRONMENT BASELINE</small><h2>Primary / current environment</h2></div>
+        <span id="environmentMatchStatus" class="status-chip">No baseline</span>
+      </div>
+
+      <div class="environment-photo-grid">
+        <figure class="environment-photo">
+          <figcaption><span>PRIMARY</span><b id="environmentPrimaryMeta">Not saved</b></figcaption>
+          <div class="environment-photo-stage">
+            <img id="environmentPrimaryImage" alt="Primary environment reference" hidden>
+            <div id="environmentPrimaryEmpty" class="agent-empty">Capture a Primary Environment after Agent Eyes is positioned.</div>
+          </div>
+        </figure>
+        <figure class="environment-photo">
+          <figcaption><span>CURRENT</span><b id="environmentCurrentMeta">Waiting for camera</b></figcaption>
+          <div class="environment-photo-stage">
+            <img id="environmentCurrentImage" alt="Current environment comparison" hidden>
+            <div id="environmentCurrentEmpty" class="agent-empty">Current environment is captured automatically when Agent Eyes engages.</div>
+          </div>
+        </figure>
+      </div>
+
+      <div class="environment-controls">
+        <label>Room name
+          <input id="environmentRoomName" maxlength="48" placeholder="Office">
+        </label>
+        <label>View name
+          <input id="environmentViewName" maxlength="48" placeholder="Main desk view">
+        </label>
+        <button id="capturePrimaryEnvironment" class="hud-button primary" type="button">Capture Primary</button>
+        <button id="saveAlternateEnvironment" class="hud-button" type="button">Save Alternate View</button>
+        <button id="scanEnvironment" class="hud-button" type="button">Scan / Map Environment</button>
+        <button id="promoteEnvironmentPrimary" class="hud-button" type="button">Update Primary</button>
+      </div>
+
+      <div class="environment-metrics">
+        <div><span>ROOM MATCH</span><b id="environmentRoomMatch">—</b></div>
+        <div><span>VIEW MATCH</span><b id="environmentViewMatch">—</b></div>
+        <div><span>STRUCTURE</span><b id="environmentStructureScore">—</b></div>
+        <div><span>STATE DRIFT</span><b id="environmentDriftScore">—</b></div>
+        <div><span>BASELINE QUALITY</span><b id="environmentQualityScore">—</b></div>
+        <div><span>CAMERA POSE</span><b id="environmentCameraScore">—</b></div>
+      </div>
+
+      <p class="privacy-note">Current comparison frames are ephemeral by default. Primary/alternate environment photos are saved locally only when explicitly captured.</p>
+    </article>
+
+    <article class="hud-panel environment-map-panel">
+      <div class="hud-panel-head">
+        <div><small>ASSISTED ROOM MAPPING</small><h2>Floor + landmarks + portals</h2></div>
+        <span id="environmentMappingStatus" class="status-chip">Not scanned</span>
+      </div>
+
+      <div id="environmentMappingPreview" class="environment-mapping-preview">
+        <div class="agent-empty">Scan the environment to propose a floor plane, stable landmarks, zones, and portal candidates.</div>
+      </div>
+      <div id="environmentMappingList" class="environment-mapping-list"></div>
+      <div class="environment-map-actions">
+        <button id="acceptEnvironmentMap" class="hud-button primary" type="button" disabled>Accept mapping</button>
+        <button id="discardEnvironmentMap" class="hud-button" type="button" disabled>Discard suggestions</button>
+      </div>
+      <p class="privacy-note">Automatic floor/boundary suggestions are evidence, not ground truth. User-confirmed structure outranks inferred structure.</p>
+    </article>
+
+    <article class="hud-panel environment-world-panel">
+      <div class="hud-panel-head">
+        <div><small>PHYSICAL WORLD STATE</small><h2>Evidence graph</h2></div>
+        <span id="physicalWorldStatus" class="status-chip">Standby</span>
+      </div>
+
+      <div class="physical-world-summary">
+        <div><span>GRAPH NODES</span><b id="physicalGraphNodes">0</b></div>
+        <div><span>RELATIONSHIPS</span><b id="physicalGraphEdges">0</b></div>
+        <div><span>CONTRADICTIONS</span><b id="physicalContradictions">0</b></div>
+        <div><span>ATTENTION ITEMS</span><b id="physicalAttentionCount">0</b></div>
+      </div>
+
+      <div id="physicalAttentionFeed" class="physical-attention-feed">
+        <div class="agent-empty">World-model attention items will appear here.</div>
+      </div>
+      <details class="environment-json-details">
+        <summary>Scene graph / world-state JSON</summary>
+        <pre id="physicalWorldJson" class="room-state-json">{}</pre>
+      </details>
+    </article>
   </section>
 
   <section class="multi-camera-grid">
