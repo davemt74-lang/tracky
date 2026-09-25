@@ -48,7 +48,9 @@ const requiredFiles = [
   'src/perception-replay-core.js',
   'src/multiroom-core.js',
   'src/visibility-core.js',
-  'src/room-topology-core.js'
+  'src/room-topology-core.js',
+  'src/spatial-memory-store.js',
+  'src/spatial-memory-core.js'
 ];
 
 const runtimeJs = [
@@ -86,7 +88,9 @@ const runtimeJs = [
   'src/perception-replay-core.js',
   'src/multiroom-core.js',
   'src/visibility-core.js',
-  'src/room-topology-core.js'
+  'src/room-topology-core.js',
+  'src/spatial-memory-store.js',
+  'src/spatial-memory-core.js'
 ];
 
 const htmlContracts = [
@@ -112,8 +116,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.4.0') {
-  fail('package.json version must be 1.4.0');
+if (packageJson.version !== '1.5.0') {
+  fail('package.json version must be 1.5.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -155,7 +159,9 @@ for (const file of [
   'src/perception-replay-core.js',
   'src/room-topology-core.js',
   'src/visibility-core.js',
-  'src/multiroom-core.js'
+  'src/multiroom-core.js',
+  'src/spatial-memory-core.js',
+  'src/spatial-memory-store.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -509,6 +515,38 @@ for (const symbol of [
   }
 }
 
+const spatialMemoryCore = read('src/spatial-memory-core.js');
+for (const symbol of [
+  'createSpatialMemoryState',
+  'observeSpatialMemory',
+  'expectedLocationFor',
+  'confirmedExpectedLocationFor',
+  'entityHistory',
+  'entityJourney',
+  'recordCirculationTransition',
+  'resolveMemoryProposal',
+  'ignoreMemoryProposal',
+  'spatialMemorySnapshot'
+]) {
+  if (!spatialMemoryCore.includes(symbol)) {
+    fail('Spatial memory core is missing required learned-knowledge interface: ' + symbol);
+  }
+}
+if (!spatialMemoryCore.includes("'owned-by'") || !spatialMemoryCore.includes("'belongs-to'")) {
+  fail('Spatial memory must explicitly exclude inferred ownership relationships');
+}
+
+const spatialMemoryStore = read('src/spatial-memory-store.js');
+for (const symbol of [
+  'loadSpatialMemory',
+  'saveSpatialMemory',
+  'clearSpatialMemory'
+]) {
+  if (!spatialMemoryStore.includes(symbol)) {
+    fail('Spatial memory store is missing required local persistence interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -619,6 +657,38 @@ for (const symbol of [
 if (!/tracky:multi-room-world/.test(agentEyes) || !/tracky:room-state/.test(agentEyes)) {
   fail('Agent Eyes must emit multi-room and room-scoped browser state');
 }
+for (const symbol of [
+  'getSpatialMemory',
+  'getExpectedLocation',
+  'getExpectedLocationEvidence',
+  'getEntityHistory',
+  'getEntityJourney',
+  'subscribeSpatialMemory',
+  'confirmMemoryProposal',
+  'ignoreMemoryProposal'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing spatial memory Agent API: ' + symbol);
+  }
+}
+if (!/tracky:spatial-memory/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level spatial memory state');
+}
+if (!/spatialMemoryFacts/.test(indexHtml) || !/spatialProposalList/.test(indexHtml) || !/spatialJourneyList/.test(indexHtml)) {
+  fail('Agent Eyes must expose spatial memory facts, proposal review, and journey UI');
+}
+if (!/renderSpatialMemory/.test(agentEyes) || !/confirmSpatialMemoryProposal/.test(agentEyes)) {
+  fail('Agent Eyes must render and explicitly confirm learned spatial knowledge');
+}
+for (const eventName of [
+  'spatial_memory.proposed',
+  'spatial_memory.confirmed',
+  'spatial_memory.ignored'
+]) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing V1.5 spatial memory event: ' + eventName);
+  }
+}
 if (!/globalRoomMap/.test(indexHtml) || !/topologyConnectForm/.test(indexHtml)) {
   fail('Agent Eyes must expose global room topology UI');
 }
@@ -636,7 +706,7 @@ for (const eventName of [
   'visibility.changed'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.4 world event: ' + eventName);
+    fail('Perception core is missing V1.5 world event: ' + eventName);
   }
 }
 for (const eventName of [
@@ -689,8 +759,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.4-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.4 deploy ZIP');
+if (!/tracky-v1\.5-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.5 deploy ZIP');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -720,5 +790,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
