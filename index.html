@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.5 — Agent Eyes</title>
+  <title>Tracky V1.6 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.5 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.6 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -39,6 +39,7 @@
     <div><span>WORLD MODEL</span><b id="eyesWorldStatus">Standby</b></div>
     <div><span>MULTI-ROOM</span><b id="eyesMultiRoomStatus">Standby</b></div>
     <div><span>SPATIAL MEMORY</span><b id="eyesSpatialMemoryStatus">Learning</b></div>
+    <div><span>AWARENESS</span><b id="eyesAwarenessStatus">Standby</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -373,6 +374,50 @@
       </div>
       <div id="spatialJourneyList" class="spatial-journey-list">
         <div class="agent-empty">Object and participant journeys will appear after repeated observations.</div>
+      </div>
+    </article>
+  </section>
+
+  <section class="awareness-grid">
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>PROACTIVE ENVIRONMENTAL AWARENESS</small><h2>Verified incidents</h2></div>
+        <span id="awarenessStatus" class="status-chip">Standby</span>
+      </div>
+
+      <div class="awareness-controls">
+        <label class="switch-row compact-switch">
+          <input id="awarenessEnabled" type="checkbox" checked>
+          Enable awareness
+        </label>
+        <label class="switch-row compact-switch">
+          <input id="awarenessSpeakHigh" type="checkbox">
+          Speak high-severity alerts
+        </label>
+        <button id="verifyAwarenessNow" class="hud-button" type="button">Verify now</button>
+        <button id="clearAwarenessHistory" class="hud-button" type="button">Clear incident history</button>
+      </div>
+
+      <div class="awareness-summary">
+        <div><span>ACTIVE</span><b id="awarenessActiveCount">0</b></div>
+        <div><span>CONFIRMED</span><b id="awarenessConfirmedCount">0</b></div>
+        <div><span>VERIFYING</span><b id="awarenessVerifyingCount">0</b></div>
+        <div><span>HIGH</span><b id="awarenessHighCount">0</b></div>
+      </div>
+
+      <div id="awarenessActiveList" class="awareness-incident-list">
+        <div class="agent-empty">No verified environmental incidents.</div>
+      </div>
+      <p class="privacy-note">One-frame differences remain candidates. Incidents must survive a verification window before proactive confirmation.</p>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>RECENT RESOLUTIONS</small><h2>Cleared / acknowledged</h2></div>
+        <span id="awarenessRecentStatus" class="status-chip">No history</span>
+      </div>
+      <div id="awarenessRecentList" class="awareness-recent-list">
+        <div class="agent-empty">Resolved incidents will appear here.</div>
       </div>
     </article>
   </section>
