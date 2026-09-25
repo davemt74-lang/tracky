@@ -629,8 +629,198 @@ function meaningfulAttentionEvent(type) {
     'privacy.policy_changed',
     'spatial_memory.proposed',
     'camera.handoff',
-    'camera.status'
+    'camera.status',
+    'anomaly.confirmed',
+    'anomaly.cleared',
+    'anomaly.acknowledged',
+    'anomaly.dismissed'
   ]).has(type);
+}
+
+
+function confirmedExpectedLocationsForAnomalies() {
+  return (runtime.spatialMemory.proposals || [])
+    .filter((proposal) => (
+      proposal.type === 'expected-location' &&
+      proposal.status === 'confirmed'
+    ))
+    .map((proposal) => ({
+      entityId: proposal.subjectId,
+      roomId: proposal.roomId || null,
+      anchorId: proposal.anchorId || null,
+      anchorLabel: proposal.anchorLabel || null,
+      confidence: proposal.confidence,
+      evidence: proposal.evidence || null,
+      confirmedAt: proposal.resolvedAt || proposal.updatedAt || null
+    }));
+}
+
+function anomalyContext() {
+  return {
+    activeRoomId: runtime.fusionState.roomId ||
+      primaryCameraConfig()?.roomId ||
+      null,
+    environment: runtime.environmentAnalysis,
+    currentEnvironment: runtime.currentEnvironment,
+    policies: runtime.roomPolicies,
+    confirmedExpectedLocations: confirmedExpectedLocationsForAnomalies(),
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    landmarksByRoom: spatialLandmarksByRoom(),
+    roomVisibility: runtime.roomVisibility,
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    sceneChanges: sceneState.changes.slice(-40)
+  };
+}
+
+async function persistAnomalyState(force = false) {
+  const now = Date.now();
+  if (
+    !force &&
+    now - Number(runtime.anomalyLastSavedAt || 0) < 10000
+  ) return;
+  runtime.anomalyLastSavedAt = now;
+  try {
+    await saveAnomalyState(anomalySnapshot(runtime.anomalyState));
+  } catch (error) {
+    console.error('Could not persist anomaly state', error);
+  }
+}
+
+async function initializeAnomalyState() {
+  try {
+    const saved = await loadAnomalyState();
+    const fresh = createAnomalyState();
+    if (saved) {
+      fresh.history = Array.isArray(saved.history)
+        ? saved.history.slice(-300)
+        : [];
+      fresh.suppressedUntil = saved.suppressedUntil || {};
+      fresh.stats = {
+        ...fresh.stats,
+        ...(saved.stats || {})
+      };
+    }
+    runtime.anomalyState = fresh;
+  } catch (error) {
+    console.error('Could not load anomaly state', error);
+    runtime.anomalyState = createAnomalyState();
+  }
+  renderProactiveAwareness();
+}
+
+function anomalyAttentionItems() {
+  return anomalySnapshot(runtime.anomalyState).active.map((anomaly) => ({
+    key: 'anomaly::' + anomaly.signature,
+    type: 'anomaly.' + anomaly.type,
+    category: anomaly.category,
+    priority: anomaly.priority,
+    confidence: anomaly.confidence,
+    subjectId: anomaly.subjectId,
+    objectId: anomaly.objectId,
+    participantId: anomaly.participantId,
+    roomId: anomaly.roomId,
+    summary: anomaly.summary,
+    data: {
+      anomalyId: anomaly.id,
+      signature: anomaly.signature,
+      severity: anomaly.severity,
+      evidence: anomaly.evidence
+    }
+  }));
+}
+
+function updateAnomalyAwareness(now = Date.now()) {
+  const signals = deriveAnomalySignals(anomalyContext(), now);
+  const events = observeAnomalySignals(
+    runtime.anomalyState,
+    signals,
+    now
+  );
+
+  for (const event of events) {
+    const anomaly = event.anomaly;
+    if (event.type === 'confirmed') {
+      emit('anomaly.confirmed', {
+        source: 'proactive-awareness',
+        confidence: anomaly.confidence,
+        data: anomaly
+      });
+    } else if (event.type === 'cleared') {
+      resolveAttentionItem(
+        runtime.attention,
+        'anomaly::' + anomaly.signature,
+        'resolved',
+        now
+      );
+      emit('anomaly.cleared', {
+        source: 'proactive-awareness',
+        confidence: anomaly.confidence,
+        data: anomaly
+      });
+    }
+  }
+
+  const summary = proactiveAwarenessSummary(runtime.anomalyState);
+  const topSignature = summary.top?.signature || null;
+  if (topSignature !== runtime.anomalyTopSignature) {
+    runtime.anomalyTopSignature = topSignature;
+    emit('proactive_awareness.updated', {
+      source: 'proactive-awareness',
+      confidence: summary.top?.confidence || 0,
+      data: summary
+    });
+  }
+
+  const snapshot = anomalySnapshot(runtime.anomalyState);
+  for (const listener of anomalyListeners) listener(snapshot);
+  window.dispatchEvent(new CustomEvent('tracky:anomaly-state', {
+    detail: snapshot
+  }));
+  renderProactiveAwareness();
+  void persistAnomalyState(false);
+  return snapshot;
+}
+
+function acknowledgeActiveAnomaly(signature) {
+  const anomaly = acknowledgeAnomaly(
+    runtime.anomalyState,
+    signature,
+    Date.now()
+  );
+  if (!anomaly) return null;
+  emit('anomaly.acknowledged', {
+    source: 'proactive-awareness',
+    confidence: anomaly.confidence,
+    data: anomaly
+  });
+  renderProactiveAwareness();
+  void persistAnomalyState(true);
+  return copySerializable(anomaly);
+}
+
+function dismissActiveAnomaly(signature, suppressMs = 60 * 60 * 1000) {
+  const anomaly = dismissAnomaly(
+    runtime.anomalyState,
+    signature,
+    Date.now(),
+    suppressMs
+  );
+  if (!anomaly) return null;
+  resolveAttentionItem(
+    runtime.attention,
+    'anomaly::' + signature,
+    'dismissed',
+    Date.now()
+  );
+  emit('anomaly.dismissed', {
+    source: 'proactive-awareness',
+    confidence: anomaly.confidence,
+    data: anomaly
+  });
+  updateAttentionController(Date.now());
+  renderProactiveAwareness();
+  void persistAnomalyState(true);
+  return copySerializable(anomaly);
 }
 
 async function persistAttentionState(force = false) {
@@ -767,10 +957,11 @@ function updateAttentionController(now = Date.now(), options = {}) {
     runtime.attention.activeTask,
     attentionContext()
   );
+  const proactiveItems = anomalyAttentionItems();
 
   const items = upsertAttentionItems(
     runtime.attention,
-    [...baseItems, ...taskItems],
+    [...baseItems, ...taskItems, ...proactiveItems],
     now,
     { ttlMs: 45000 }
   );
