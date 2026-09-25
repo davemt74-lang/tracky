@@ -6197,6 +6197,161 @@ function renderPrivacyPolicy() {
   renderPrivacyMasks();
 }
 
+
+function parseAttentionTaskForm() {
+  const mode = ui.attentionTaskMode.value || 'general';
+  const rawTarget = ui.attentionTarget.value.trim();
+  let targetId = null;
+  let targetLabel = null;
+
+  if (rawTarget) {
+    if (mode === 'follow-participant') {
+      const participants = Object.values(runtime.multiRoomWorld.participants || {});
+      const match = participants.find((person) => (
+        String(person.participantId || '').toLowerCase() === rawTarget.toLowerCase() ||
+        String(person.id || '').toLowerCase() === rawTarget.toLowerCase() ||
+        String(person.participantName || '').toLowerCase() === rawTarget.toLowerCase()
+      ));
+      if (match?.participantId) {
+        targetId = match.participantId;
+        targetLabel = match.participantName || rawTarget;
+      } else {
+        targetId = rawTarget.replace(/^PERSON:/i, '');
+        targetLabel = rawTarget;
+      }
+    } else if (mode === 'find-object') {
+      const objects = Object.values(runtime.multiRoomWorld.objects || {});
+      const idMatch = objects.find((object) => (
+        String(object.id || '').toLowerCase() === rawTarget.toLowerCase()
+      ));
+      const labelMatches = objects.filter((object) => (
+        String(object.label || '').toLowerCase() === rawTarget.toLowerCase()
+      ));
+      if (idMatch) {
+        targetId = idMatch.id;
+        targetLabel = idMatch.label || rawTarget;
+      } else if (labelMatches.length === 1) {
+        targetId = labelMatches[0].id;
+        targetLabel = labelMatches[0].label;
+      } else {
+        targetLabel = rawTarget;
+      }
+    } else {
+      targetLabel = rawTarget;
+    }
+  }
+
+  const minutes = Math.max(0, Number(ui.attentionDuration.value || 0));
+  const now = Date.now();
+  return {
+    id: 'task-' + now,
+    mode,
+    label: mode === 'general'
+      ? 'General awareness'
+      : mode.replaceAll('-', ' '),
+    targetId,
+    targetLabel,
+    roomId: ui.attentionRoom.value.trim() || null,
+    sticky: ui.attentionSticky.checked,
+    expiresAt: minutes > 0 ? now + minutes * 60000 : null,
+    source: 'user'
+  };
+}
+
+function renderAttentionController() {
+  const state = attentionSnapshot(runtime.attention);
+  const task = state.activeTask || { mode:'general', label:'General awareness' };
+  const budget = runtime.perceptionBudget || currentPerceptionBudget();
+
+  ui.taskTopStatus.textContent = task.label || task.mode || 'General awareness';
+  ui.attentionTaskStatus.textContent = [
+    task.label || task.mode,
+    task.targetLabel || task.targetId || null
+  ].filter(Boolean).join(' · ');
+
+  ui.attentionBudgetStatus.textContent =
+    String(budget.intensity || 'balanced').toUpperCase();
+  ui.attentionBudgetMain.textContent =
+    Math.round(Number(budget.scanIntervalMs || 0)) + ' ms';
+  ui.attentionBudgetSecondary.textContent =
+    Math.round(Number(budget.secondaryIntervalMs || 0)) + ' ms';
+  ui.attentionBudgetEnvironment.textContent =
+    Math.round(Number(budget.environmentCheckMs || 0) / 1000) + ' s';
+  ui.attentionBudgetIntensity.textContent =
+    String(budget.intensity || 'balanced');
+
+  ui.attentionBudgetCaps.replaceChildren();
+  for (const [name, enabled] of Object.entries(budget.capabilities || {})) {
+    const chip = document.createElement('span');
+    chip.className = 'attention-cap-chip ' + (enabled ? 'allowed' : 'blocked');
+    chip.textContent = name + ' · ' + (enabled ? 'allowed' : 'blocked');
+    ui.attentionBudgetCaps.append(chip);
+  }
+
+  const pending = state.items
+    .filter((item) => item.state === 'pending' || item.state === 'active')
+    .sort((a,b) => Number(b.taskPriority || 0) - Number(a.taskPriority || 0));
+  ui.attentionQueueStatus.textContent = pending.length + ' pending';
+  ui.attentionQueueList.replaceChildren();
+
+  if (!pending.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No task-conditioned attention items.';
+    ui.attentionQueueList.append(empty);
+    return;
+  }
+
+  for (const item of pending.slice(0, 20)) {
+    const row = document.createElement('article');
+    row.className = 'attention-queue-row';
+    if (item.key === runtime.attentionTopKey) row.classList.add('top');
+
+    const copy = document.createElement('div');
+    const head = document.createElement('div');
+    const type = document.createElement('strong');
+    const score = document.createElement('span');
+    type.textContent = item.type || item.category || 'attention';
+    score.textContent = Math.round(Number(item.taskPriority || 0) * 100) + '%';
+    head.append(type, score);
+
+    const summary = document.createElement('p');
+    summary.textContent = item.summary || item.type || 'Attention item';
+
+    const meta = document.createElement('small');
+    meta.textContent = [
+      item.category,
+      item.roomId || item.data?.roomId || null,
+      task.mode
+    ].filter(Boolean).join(' · ');
+
+    copy.append(head, summary, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'attention-queue-actions';
+
+    const resolve = document.createElement('button');
+    resolve.type = 'button';
+    resolve.className = 'agent-entity-action';
+    resolve.textContent = 'Resolve';
+    resolve.addEventListener('click', () => (
+      resolveAttentionQueueItem(item.key, 'resolved')
+    ));
+
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'agent-entity-action';
+    dismiss.textContent = 'Dismiss';
+    dismiss.addEventListener('click', () => (
+      resolveAttentionQueueItem(item.key, 'dismissed')
+    ));
+
+    actions.append(resolve, dismiss);
+    row.append(copy, actions);
+    ui.attentionQueueList.append(row);
+  }
+}
+
 function renderCameraNetwork() {
   ui.cameraRegistryList.replaceChildren();
 
@@ -6699,6 +6854,21 @@ function eventLabel(event) {
     case 'privacy.policy_changed':
       return 'Privacy policy updated · ' +
         String(event.data?.roomId || 'room');
+    case 'task.started':
+      return 'Perception task started · ' +
+        String(event.data?.mode || 'task');
+    case 'task.cleared':
+      return 'Perception task cleared · General awareness';
+    case 'attention.updated':
+      return event.data?.summary
+        ? 'Attention → ' + String(event.data.summary)
+        : 'Attention queue updated';
+    case 'attention.resolved':
+      return 'Attention item ' + String(event.data?.resolution || 'resolved');
+    case 'perception.budget_changed':
+      return 'Perception budget → ' +
+        String(event.data?.intensity || 'balanced') + ' · ' +
+        String(event.data?.taskMode || 'general');
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -6857,6 +7027,7 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderAttentionController();
   renderEnvironmentPanel();
   renderPrivacyPolicy();
   renderMultiRoomWorld();
