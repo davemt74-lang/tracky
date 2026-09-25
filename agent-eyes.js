@@ -90,6 +90,10 @@ import {
 
 const $ = (selector) => document.querySelector(selector);
 
+function copySerializable(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 const ui = {
   startEyes: $('#startEyes'),
   startEars: $('#startEars'),
@@ -345,11 +349,11 @@ window.TrackyAgentEyes = Object.freeze({
     return {
       room: roomStateSnapshot(roomState),
       scene: sceneStateSnapshot(sceneState),
-      cameraFusion: structuredClone(runtime.fusionState)
+      cameraFusion: copySerializable(runtime.fusionState)
     };
   },
   getCameraFusionState() {
-    return structuredClone(runtime.fusionState);
+    return copySerializable(runtime.fusionState);
   },
   getCameras() {
     return runtime.cameraConfigs.map((camera) => ({
@@ -618,7 +622,7 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
   updateWorldTrails(now);
   for (const event of result.events) publishFusionEvent(event);
 
-  const detail = structuredClone(runtime.fusionState);
+  const detail = copySerializable(runtime.fusionState);
   for (const listener of cameraFusionListeners) listener(detail);
   window.dispatchEvent(new CustomEvent('tracky:camera-fusion', {
     detail
