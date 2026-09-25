@@ -44,6 +44,13 @@ import {
   inferWave,
   keypointMap
 } from './src/behavior-core.js';
+import {
+  OBJECT_TRACK_GRACE_MS,
+  assignObjectTracks,
+  bestObjectInteractions,
+  carryLostObjectTracks,
+  interactionKey
+} from './src/object-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -64,6 +71,7 @@ const ui = {
   transcriptStatus: $('#eyesTranscriptStatus'),
   healthStatus: $('#eyesHealthStatus'),
   behaviorStatus: $('#eyesBehaviorStatus'),
+  objectStatus: $('#eyesObjectStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -75,10 +83,16 @@ const ui = {
   audioPath: $('#eyesAudioPath'),
   poseCount: $('#eyesPoseCount'),
   attentionCount: $('#eyesAttentionCount'),
+  objectCount: $('#eyesObjectCount'),
+  handCount: $('#eyesHandCount'),
+  interactionCount: $('#eyesInteractionCount'),
   poseOverlay: $('#eyesPoseOverlay'),
   attentionOverlay: $('#eyesAttentionOverlay'),
+  objectOverlay: $('#eyesObjectOverlay'),
   radarTracks: $('#agentRadarTracks'),
   participants: $('#eyesParticipants'),
+  objects: $('#eyesObjects'),
+  objectRuntimeStatus: $('#objectRuntimeStatus'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -103,7 +117,19 @@ const ui = {
   inspectorLandmarkCount: $('#inspectorLandmarkCount'),
   inspectorLandmarks: $('#inspectorLandmarks'),
   inspectorJson: $('#inspectorJson'),
-  closeInspector: $('#closeEvidenceInspector')
+  closeInspector: $('#closeEvidenceInspector'),
+  objectInspector: $('#objectEvidenceInspector'),
+  objectInspectorName: $('#objectInspectorName'),
+  objectInspectorTrack: $('#objectInspectorTrack'),
+  objectInspectorClass: $('#objectInspectorClass'),
+  objectInspectorConfidence: $('#objectInspectorConfidence'),
+  objectInspectorStatus: $('#objectInspectorStatus'),
+  objectInspectorHolder: $('#objectInspectorHolder'),
+  objectInspectorMotion: $('#objectInspectorMotion'),
+  objectInspectorInteraction: $('#objectInspectorInteraction'),
+  objectInspectorSignals: $('#objectInspectorSignals'),
+  objectInspectorJson: $('#objectInspectorJson'),
+  closeObjectInspector: $('#closeObjectEvidenceInspector')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
@@ -128,6 +154,14 @@ const runtime = {
   previousGroups: new Map(),
   faces: [],
   bodies: [],
+  objects: [],
+  rawObjects: [],
+  hands: [],
+  gestures: [],
+  objectCounter: 0,
+  activeInteractions: new Map(),
+  relationDistances: new Map(),
+  selectedObjectId: null,
   audio: null,
   audioActive: false,
   voiceEngine: new VoiceIdentityEngine(),
@@ -156,6 +190,8 @@ const SCAN_INTERVAL_MS = 550;
 const TRACK_GRACE_MS = BODY_OCCLUSION_GRACE_MS;
 const PHOTO_REFRESH_INTERVAL_MS = 5000;
 const GESTURE_COOLDOWN_MS = 2500;
+const OBJECT_GRACE_MS = OBJECT_TRACK_GRACE_MS;
+const INTERACTION_COOLDOWN_MS = 900;
 
 function emit(type, payload = {}) {
   return bus.emit(type, payload, {
@@ -186,6 +222,11 @@ window.TrackyAgentEyes = Object.freeze({
 function nextTrackId() {
   runtime.trackCounter += 1;
   return 'T' + String(runtime.trackCounter).padStart(3, '0');
+}
+
+function nextObjectId() {
+  runtime.objectCounter += 1;
+  return 'O' + String(runtime.objectCounter).padStart(3, '0');
 }
 
 function participantById(id) {
