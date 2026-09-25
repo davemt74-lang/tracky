@@ -40,8 +40,10 @@ export function parseWorldWatchCommand(input){
   const n=norm(text);
   if(!text) return result('unknown',{raw,status:'empty'});
 
-  if(/^(?:what am i watching|show|list)(?: my)?(?: world| physical-world)? watches?$/.test(n)||
-     /^(?:show|list) watches$/.test(n)){
+  if(
+    /^(?:what am i watching|what are my watches|show my watches|list my watches)$/.test(n) ||
+    /^(?:show|list)(?: my)?(?: world| physical world)? watches?$/.test(n)
+  ){
     return result('list',{raw});
   }
   if(/^(?:clear|delete) (?:my )?(?:watch )?(?:trigger )?history$/.test(n)){
