@@ -752,8 +752,11 @@ if (!/spatialMemoryRetentionAllowed/.test(agentEyes)) {
 if (!/allowVisualObservation/.test(agentEyes) || !/Disabled by privacy/.test(agentEyes)) {
   fail('Agent Eyes must stop visual inference when room visual observation is disabled');
 }
-if (!/getParticipants\(camera\)/.test(read('src/multicamera-runtime.js'))) {
-  fail('Secondary camera identity lookup must receive camera context for room privacy policy');
+if (!/getParticipants\(session\.camera\)/.test(read('src/multicamera-runtime.js'))) {
+  fail('Secondary camera runtime must pass camera context to participant lookup');
+}
+if (!/getParticipants\(camera\)/.test(agentEyes)) {
+  fail('Agent Eyes must use camera room context when supplying secondary identity profiles');
 }
 if (!/spatialMemoryFacts/.test(indexHtml) || !/spatialProposalList/.test(indexHtml) || !/spatialJourneyList/.test(indexHtml)) {
   fail('Agent Eyes must expose spatial memory facts, proposal review, and journey UI');
