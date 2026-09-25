@@ -39,5 +39,8 @@ export function acknowledgeAgentBriefing(briefing,now=Date.now()){
   return {...briefing,status:'acknowledged',acknowledgedAt:Number(now)};
 }
 export function pendingAgentBriefings(items=[]){
-  return items.filter((item)=>item?.status==='pending').sort((a,b)=>Number(b.generatedAt||0)-Number(a.generatedAt||0));
+  return items.filter((item)=>(
+    item?.status==='pending' &&
+    !['acknowledged','expired'].includes(item?.deliveryState)
+  )).sort((a,b)=>Number(b.generatedAt||0)-Number(a.generatedAt||0));
 }
