@@ -2,6 +2,175 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.9 — Physical World Recall, Search & Explainability
+
+V1.9 makes the physical-world model directly queryable without sending room state to a cloud model.
+
+The query path is deterministic and local-first:
+
+```text
+question
+  → intent parse
+  → entity / room resolution
+  → policy-governed semantic state
+  → evidence-backed answer
+  → confidence + freshness + uncertainty + provenance
+```
+
+### Supported questions
+
+The initial recall engine supports:
+
+- `Where is <entity>?`
+- `When did you last see <entity>?`
+- `Where has <entity> been?`
+- `Who had <object>?`
+- `Who is in <room>?`
+- `What changed?`
+- `Any anomalies?`
+- confirmed expected-location questions
+- evidence / explanation requests
+- physical-world entity search
+
+Structured Agent requests can use the same intents directly.
+
+### No guessing on ambiguity
+
+Entity and room references are resolved against the current world index, spatial memory, and scene graph.
+
+If two objects match `phone` with similar confidence, V1.9 returns an ambiguous result with candidate IDs instead of selecting one arbitrarily.
+
+### Current vs last-known
+
+Recall explicitly distinguishes:
+
+- currently confirmed location
+- transitioning location
+- last-known location
+- unknown location
+
+A stale observation is never phrased as a current physical fact.
+
+### Confirmed expectations only
+
+Queries about where an object "usually" belongs treat V1.5's authority boundary as canonical.
+
+An unreviewed learned candidate is returned only as **unconfirmed evidence**.
+
+Only a confirmed expected-location proposal is presented as an authoritative expected location.
+
+### Custody is not ownership
+
+`Who had the phone?` uses semantic holding/custody history.
+
+The answer explicitly preserves the rule:
+
+```text
+possession does not imply ownership
+```
+
+V1.9 does not infer ownership from repeated handling.
+
+### World timeline
+
+The query engine can build one semantic timeline from:
+
+- multi-room transitions
+- Scene Intelligence changes
+- proactive anomaly lifecycle
+- entity spatial-memory history
+
+The timeline is bounded, deduplicated, newest-first, and filterable by:
+
+- room
+- entity
+- time window
+- result limit
+
+### Privacy-aware historical recall
+
+V1.9 checks V1.6 room Observation Policy before exposing historical spatial evidence.
+
+If a room has:
+
+```js
+allowSpatialMemory: false
+```
+
+historical room evidence from that room is excluded from recall/timeline results.
+
+Current already-governed physical state may still be queried where the room policy permits live observation.
+
+### Evidence bundles
+
+Agent Eyes can produce a privacy-safe evidence bundle containing:
+
+- current entity state
+- latest semantic history
+- confirmed expected location
+- scene-graph relationships
+- relevant anomaly records
+- provenance entries
+
+The query sanitizer removes sensitive/raw fields such as:
+
+- embeddings
+- face/voice descriptors
+- image data URLs
+- raw provider payloads
+- audio/sample/frame material
+
+### Agent APIs
+
+V1.9 adds:
+
+```js
+TrackyAgentEyes.queryPhysicalWorld(query)
+TrackyAgentEyes.getWorldTimeline(options)
+TrackyAgentEyes.getWorldEvidence(entityId)
+TrackyAgentEyes.getRecentWorldQueries()
+TrackyAgentEyes.subscribeWorldQueries(handler)
+```
+
+Browser integrations receive:
+
+```text
+tracky:world-query
+```
+
+and perception events include:
+
+```text
+world_query.answered
+```
+
+### Query history
+
+Recent queries are stored locally as compact semantic records only:
+
+- query text
+- intent
+- answer status
+- summary
+- confidence
+- timestamp
+
+Full evidence payloads, images, embeddings, descriptors, and raw sensor data are not persisted in query history.
+
+### Agent Eyes console
+
+The V1.9 console adds:
+
+- Ask Physical World input
+- common recall shortcuts
+- answer confidence and freshness
+- fact rows
+- ambiguity candidates
+- uncertainty notes
+- provenance/source rows
+- local recent-query history
+- clear-history control
+
 ## V1.8 — Proactive Environmental Awareness & Anomaly Verification
 
 V1.8 adds a governed proactive-awareness layer above the existing V1.3–V1.7 physical-world, privacy, spatial-memory, and attention systems.

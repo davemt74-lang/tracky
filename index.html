@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.8 — Agent Eyes</title>
+  <title>Tracky V1.9 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.8 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.9 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -472,6 +472,49 @@
 
       <div id="attentionQueueList" class="attention-queue-list">
         <div class="agent-empty">No task-conditioned attention items.</div>
+      </div>
+    </article>
+  </section>
+
+  <section class="world-query-grid">
+    <article class="hud-panel world-query-panel">
+      <div class="hud-panel-head">
+        <div><small>PHYSICAL WORLD RECALL</small><h2>Ask Agent Eyes</h2></div>
+        <span id="worldQueryStatus" class="status-chip">Ready</span>
+      </div>
+      <form id="worldQueryForm" class="world-query-form">
+        <input id="worldQueryInput" maxlength="240" placeholder="Where are the keys?">
+        <button class="hud-button primary" type="submit">Ask</button>
+      </form>
+      <div class="world-query-presets">
+        <button type="button" data-world-query="What changed?">What changed?</button>
+        <button type="button" data-world-query="Any anomalies?">Anomalies</button>
+        <button type="button" data-world-query="Who is in Office?">Who is in Office?</button>
+      </div>
+      <div id="worldQueryAnswer" class="world-query-answer">
+        <div class="agent-empty">Ask about current location, last seen, history, custody, room occupancy, expected location, anomalies, or evidence.</div>
+      </div>
+      <p class="privacy-note">Recall operates on policy-governed semantic state. It does not persist images, embeddings, descriptors, or full evidence payloads in query history.</p>
+    </article>
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>WHY I THINK THAT</small><h2>Evidence + provenance</h2></div>
+        <span id="worldQueryEvidenceStatus" class="status-chip">No answer</span>
+      </div>
+      <div id="worldQueryEvidence" class="world-query-evidence">
+        <div class="agent-empty">Evidence and uncertainty will appear after a query.</div>
+      </div>
+    </article>
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>LOCAL QUERY HISTORY</small><h2>Recent recall</h2></div>
+        <span id="worldQueryHistoryStatus" class="status-chip">0 recent</span>
+      </div>
+      <div id="worldQueryHistory" class="world-query-history">
+        <div class="agent-empty">Recent compact semantic queries will appear here.</div>
+      </div>
+      <div class="world-query-history-actions">
+        <button id="clearWorldQueryHistory" class="hud-button" type="button">Clear query history</button>
       </div>
     </article>
   </section>
