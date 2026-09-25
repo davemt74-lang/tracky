@@ -7583,7 +7583,10 @@ function renderRoomState() {
     roomVisibility: runtime.roomVisibility,
     spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
     observationPolicies: copySerializable(runtime.roomPolicies),
-    privacyStats: copySerializable(runtime.privacyStats)
+    privacyStats: copySerializable(runtime.privacyStats),
+    attentionController: attentionSnapshot(runtime.attention),
+    perceptionBudget: copySerializable(currentPerceptionBudget()),
+    proactiveAwareness: anomalySnapshot(runtime.anomalyState)
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -7969,7 +7972,12 @@ async function copySnapshot() {
     topology: runtime.worldTopology,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
     roomVisibility: runtime.roomVisibility,
-    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+    observationPolicies: copySerializable(runtime.roomPolicies),
+    privacyStats: copySerializable(runtime.privacyStats),
+    attentionController: attentionSnapshot(runtime.attention),
+    perceptionBudget: copySerializable(currentPerceptionBudget()),
+    proactiveAwareness: anomalySnapshot(runtime.anomalyState)
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
