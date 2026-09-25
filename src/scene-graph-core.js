@@ -266,6 +266,68 @@ export function markGraphFactsStale(graph, now = Date.now(), options = {}) {
   return graph;
 }
 
+
+export function confirmGraphNode(graph, input = {}, now = Date.now()) {
+  if (!input.id) throw new Error('Confirmed graph node requires an id.');
+  return upsertGraphNode(graph, {
+    ...input,
+    state: 'user-confirmed',
+    confidence: Math.max(0.98, Number(input.confidence || 0)),
+    lastObservedAt: now,
+    provenance: [
+      ...(input.provenance || []),
+      { kind:'user-confirmation', source:input.source || 'user', timestamp:now }
+    ]
+  });
+}
+
+export function confirmGraphEdge(graph, input = {}, now = Date.now()) {
+  if (!input.subjectId || !input.predicate || !input.objectId) {
+    throw new Error('Confirmed graph edge requires subjectId, predicate, and objectId.');
+  }
+  return upsertGraphEdge(graph, {
+    ...input,
+    state: 'user-confirmed',
+    confidence: Math.max(0.98, Number(input.confidence || 0)),
+    lastObservedAt: now,
+    provenance: [
+      ...(input.provenance || []),
+      { kind:'user-confirmation', source:input.source || 'user', timestamp:now }
+    ]
+  });
+}
+
+export function nearestGraphNode(graph, position, options = {}) {
+  if (!position) return null;
+  const maxDistance = Number(options.maxDistance || 0.18);
+  const types = options.types ? new Set(options.types) : null;
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const node of Object.values(graph?.nodes || {})) {
+    if (!node.position || node.state === 'expired') continue;
+    if (types && !types.has(node.type)) continue;
+    const distance = Math.hypot(
+      Number(node.position.x || 0) - Number(position.x || 0),
+      Number(node.position.y || 0) - Number(position.y || 0)
+    );
+    if (distance < bestDistance && distance <= maxDistance) {
+      best = node;
+      bestDistance = distance;
+    }
+  }
+
+  return best ? { node: best, distance: bestDistance } : null;
+}
+
+export function graphFactsForEntity(graph, entityId) {
+  return {
+    node: graph?.nodes?.[entityId] || null,
+    outgoing: Object.values(graph?.edges || {}).filter((edge) => edge.subjectId === entityId),
+    incoming: Object.values(graph?.edges || {}).filter((edge) => edge.objectId === entityId)
+  };
+}
+
 export function sceneGraphSnapshot(graph) {
   return {
     schemaVersion: graph.schemaVersion,
