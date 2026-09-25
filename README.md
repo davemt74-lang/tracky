@@ -2,6 +2,180 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.8 — Proactive Environmental Awareness & Anomaly Verification
+
+V1.8 adds a governed proactive-awareness layer above the existing V1.3–V1.7 physical-world, privacy, spatial-memory, and attention systems.
+
+The core rule is:
+
+```text
+observation
+  → anomaly candidate
+  → persistence / repeated evidence
+  → confirmed anomaly
+  → Agent attention
+  → cleared / acknowledged / dismissed
+```
+
+A single frame is not enough to create a proactive alert for ordinary environmental changes.
+
+### Supported anomaly classes
+
+V1.8 currently recognizes:
+
+- `world-contradiction`
+- `environment-unrecognized`
+- `environment-structural-drift`
+- `camera-pose-shift`
+- `camera-quality-degraded`
+- `expected-location-deviation`
+- `expected-object-missing`
+- `new-object-presence`
+
+Each type defines:
+
+- minimum observation count
+- persistence duration
+- clear grace period
+- default severity
+
+Critical physical-world contradictions may confirm immediately because they already represent conflicting authoritative state.
+
+### Verification candidates
+
+Before confirmation, anomaly evidence remains in a separate candidate state.
+
+The Agent Eyes console shows:
+
+- candidate type
+- observations collected vs required
+- persistence progress
+- confidence
+
+Candidates disappear if the supporting evidence does not persist.
+
+### Confirmed anomalies
+
+Confirmed anomalies carry:
+
+- stable signature
+- type/category
+- severity
+- confidence
+- priority
+- room/entity references
+- evidence
+- first/last seen times
+- observation count
+- status
+
+They are injected into the V1.7 attention controller as governed attention items.
+
+An anomaly cannot bypass privacy policy or directly enable a sensor/model that policy has disabled.
+
+### Spatial-memory boundary
+
+Expected-location anomaly detection uses **confirmed** V1.5 expected locations only.
+
+Unreviewed learned candidates do not create proactive missing/moved-object alerts.
+
+### Privacy enforcement
+
+Object/location anomaly derivation checks the room observation policy.
+
+If visual or object observation is disabled for the room, object anomalies are suppressed.
+
+Current comparison imagery and long-term semantic storage continue to follow the V1.6 retention/policy layer.
+
+### Environment reasoning
+
+V1.8 keeps separate anomaly classes for:
+
+- unknown environment
+- structural environment drift
+- camera pose shift
+- degraded camera quality
+
+A moved camera is not silently reported as room structure changing.
+
+### Missing vs not visible
+
+Expected-object-missing alerts require V1.4 visibility reasoning.
+
+The system only escalates the condition when an object is last-known/absent **and** should be visible in calibrated camera coverage without an expected occlusion.
+
+### New objects
+
+New-object presence is intentionally low severity and requires repeated persistence in a known environment.
+
+Ordinary brief detector appearances do not become proactive alerts.
+
+### Acknowledge and dismiss
+
+The proactive console supports:
+
+- **Acknowledge** — keep the anomaly active but mark that it has been seen
+- **Dismiss 1h** — remove it and suppress the same anomaly signature temporarily
+
+Cleared and dismissed anomalies are retained in bounded semantic history.
+
+### Agent APIs
+
+V1.8 adds:
+
+```js
+TrackyAgentEyes.getAnomalyState()
+TrackyAgentEyes.getProactiveAwareness()
+TrackyAgentEyes.acknowledgeAnomaly(signature)
+TrackyAgentEyes.dismissAnomaly(signature, suppressMs)
+TrackyAgentEyes.subscribeAnomalies(handler)
+```
+
+Browser integrations receive:
+
+```text
+tracky:anomaly-state
+```
+
+Perception events include:
+
+```text
+anomaly.confirmed
+anomaly.cleared
+anomaly.acknowledged
+anomaly.dismissed
+proactive_awareness.updated
+```
+
+### Local persistence
+
+Only semantic anomaly state/history is persisted locally:
+
+- bounded history
+- suppression timers
+- aggregate anomaly stats
+
+Live candidates/active conditions are re-derived from current physical-world evidence after restart.
+
+### Relationship to V1.7 attention
+
+V1.8 does not replace the task-conditioned attention controller.
+
+Instead:
+
+```text
+physical world
++ confirmed spatial expectations
++ privacy policy
++ anomaly verification
+        ↓
+proactive anomaly attention items
+        ↓
+V1.7 attention queue / compute budget
+```
+
+This keeps proactive awareness governed by the same attention and privacy architecture as the rest of Agent Eyes.
+
 ## V1.7 — Task-Conditioned Perception & Agent Attention Controller
 
 V1.7 adds a governed attention layer above Tracky's existing perception/world stack.
