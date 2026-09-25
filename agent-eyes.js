@@ -559,6 +559,264 @@ function policyForRoom(roomId) {
   return runtime.roomPolicies[id] || defaultObservationPolicy(id);
 }
 
+
+function currentPerceptionBudget(now = Date.now()) {
+  const roomId = primaryCameraConfig()?.roomId || roomState.roomId || 'ROOM01';
+  const activityAgeMs = Math.max(
+    0,
+    now - Number(runtime.attention.lastMeaningfulActivityAt || now)
+  );
+  return computePerceptionBudget({
+    task: runtime.attention.activeTask,
+    activityAgeMs,
+    policy: policyForRoom(roomId)
+  });
+}
+
+function attentionContext() {
+  const task = runtime.attention.activeTask;
+  const expectedLocationEvidence = {};
+  if (task?.targetId) {
+    const normalizedId = String(task.targetId).replace(/^OBJECT:/, '');
+    expectedLocationEvidence[normalizedId] =
+      expectedLocationFor(runtime.spatialMemory, normalizedId);
+    expectedLocationEvidence[task.targetId] =
+      expectedLocationEvidence[normalizedId];
+  }
+
+  return {
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    environment: runtime.environmentAnalysis,
+    mappingProposal: runtime.mappingProposal,
+    policy: policyForRoom(primaryCameraConfig()?.roomId),
+    audioActive: runtime.audioActive,
+    expectedLocationEvidence
+  };
+}
+
+function meaningfulAttentionEvent(type) {
+  return new Set([
+    'participant.entered',
+    'participant.recognized',
+    'participant.room_transition',
+    'participant.location_uncertain',
+    'object.detected',
+    'object.picked_up',
+    'object.put_down',
+    'object.room_transition',
+    'conversation.started',
+    'environment.changed',
+    'environment.unknown',
+    'environment.mapping_updated',
+    'visibility.changed',
+    'privacy.policy_changed',
+    'spatial_memory.proposed',
+    'camera.handoff',
+    'camera.status'
+  ]).has(type);
+}
+
+async function persistAttentionState(force = false) {
+  const now = Date.now();
+  if (
+    !force &&
+    now - Number(runtime.attentionLastSavedAt || 0) < 10000
+  ) return;
+  runtime.attentionLastSavedAt = now;
+  try {
+    await saveAttentionState(attentionSnapshot(runtime.attention));
+  } catch (error) {
+    console.error('Could not persist attention state', error);
+  }
+}
+
+async function initializeAttentionState() {
+  try {
+    const saved = await loadAttentionState();
+    const fresh = createAttentionState();
+    if (saved) {
+      fresh.history = Array.isArray(saved.history) ? saved.history.slice(-200) : [];
+      const savedTask = saved.activeTask
+        ? normalizeTask(saved.activeTask)
+        : null;
+      if (
+        savedTask?.sticky &&
+        savedTask.status === 'active' &&
+        !taskExpired(savedTask)
+      ) {
+        fresh.activeTask = savedTask;
+      }
+    }
+    fresh.items = [];
+    fresh.lastMeaningfulActivityAt = Date.now();
+    runtime.attention = fresh;
+  } catch (error) {
+    console.error('Could not load attention state', error);
+    runtime.attention = createAttentionState();
+  }
+  updateAttentionController(Date.now(), { forceBudgetEvent: true });
+}
+
+function startAttentionTask(input = {}) {
+  const now = Date.now();
+  const task = setActiveTask(runtime.attention, {
+    ...input,
+    source: input.source || 'user'
+  }, now);
+  markMeaningfulActivity(runtime.attention, now);
+  emit('task.started', {
+    source: 'attention-controller',
+    confidence: 1,
+    data: {
+      taskId: task.id,
+      mode: task.mode,
+      targetId: task.targetId,
+      targetLabel: task.targetLabel,
+      roomId: task.roomId,
+      sticky: task.sticky,
+      expiresAt: task.expiresAt
+    }
+  });
+  updateAttentionController(now, { forceBudgetEvent: true });
+  void persistAttentionState(true);
+  return copySerializable(task);
+}
+
+function clearAttentionTask() {
+  const now = Date.now();
+  const previous = runtime.attention.activeTask;
+  const task = clearActiveTask(runtime.attention, now);
+  markMeaningfulActivity(runtime.attention, now);
+  emit('task.cleared', {
+    source: 'attention-controller',
+    confidence: 1,
+    data: {
+      previousTaskId: previous?.id || null,
+      previousMode: previous?.mode || null
+    }
+  });
+  updateAttentionController(now, { forceBudgetEvent: true });
+  void persistAttentionState(true);
+  return copySerializable(task);
+}
+
+function resolveAttentionQueueItem(key, resolution = 'resolved') {
+  const item = resolveAttentionItem(
+    runtime.attention,
+    key,
+    resolution,
+    Date.now()
+  );
+  if (!item) return null;
+  emit('attention.resolved', {
+    source: 'attention-controller',
+    confidence: item.taskPriority || item.priority || 0,
+    data: {
+      key,
+      resolution: item.state,
+      type: item.type,
+      category: item.category
+    }
+  });
+  updateAttentionController(Date.now());
+  void persistAttentionState(true);
+  return copySerializable(item);
+}
+
+function updateAttentionController(now = Date.now(), options = {}) {
+  const activeTask = runtime.attention.activeTask;
+  if (activeTask && taskExpired(activeTask, now)) {
+    clearActiveTask(runtime.attention, now);
+    emit('task.cleared', {
+      source: 'attention-controller',
+      confidence: 1,
+      data: {
+        previousTaskId: activeTask.id,
+        previousMode: activeTask.mode,
+        reason: 'expired'
+      }
+    });
+  }
+
+  const baseItems = (runtime.physicalWorld.attention || []).map((item) => ({
+    ...item,
+    key: item.key || [
+      'world',
+      item.type || 'attention',
+      item.data?.subjectId || item.data?.roomId || item.summary || ''
+    ].join('::')
+  }));
+  const taskItems = taskDerivedSignals(
+    runtime.attention.activeTask,
+    attentionContext()
+  );
+
+  const items = upsertAttentionItems(
+    runtime.attention,
+    [...baseItems, ...taskItems],
+    now,
+    { ttlMs: 45000 }
+  );
+
+  const budget = currentPerceptionBudget(now);
+  const budgetSignature = JSON.stringify({
+    scanIntervalMs: budget.scanIntervalMs,
+    secondaryIntervalMs: budget.secondaryIntervalMs,
+    environmentCheckMs: budget.environmentCheckMs,
+    intensity: budget.intensity,
+    capabilities: budget.capabilities,
+    taskMode: budget.taskMode
+  });
+
+  if (
+    options.forceBudgetEvent ||
+    runtime.perceptionBudgetSignature !== budgetSignature
+  ) {
+    runtime.perceptionBudget = budget;
+    runtime.perceptionBudgetSignature = budgetSignature;
+    runtime.secondaryCameras?.setScanIntervalMs(budget.secondaryIntervalMs);
+    emit('perception.budget_changed', {
+      source: 'attention-controller',
+      confidence: 1,
+      data: {
+        taskMode: budget.taskMode,
+        intensity: budget.intensity,
+        scanIntervalMs: budget.scanIntervalMs,
+        secondaryIntervalMs: budget.secondaryIntervalMs,
+        environmentCheckMs: budget.environmentCheckMs,
+        capabilities: budget.capabilities
+      }
+    });
+  } else {
+    runtime.perceptionBudget = budget;
+  }
+
+  const top = items.find((item) => item.state === 'pending') || null;
+  if (top?.key !== runtime.attentionTopKey) {
+    runtime.attentionTopKey = top?.key || null;
+    emit('attention.updated', {
+      source: 'attention-controller',
+      confidence: top?.taskPriority || 0,
+      data: {
+        topKey: top?.key || null,
+        type: top?.type || null,
+        category: top?.category || null,
+        summary: top?.summary || null,
+        taskMode: runtime.attention.activeTask?.mode || 'general'
+      }
+    });
+  }
+
+  const snapshot = attentionSnapshot(runtime.attention);
+  for (const listener of attentionListeners) listener(snapshot);
+  window.dispatchEvent(new CustomEvent('tracky:attention-state', {
+    detail: snapshot
+  }));
+  renderAttentionController();
+  void persistAttentionState(false);
+  return snapshot;
+}
+
 function eventRoomId(payload = {}) {
   return payload.data?.roomId ||
     payload.data?.toRoomId ||
