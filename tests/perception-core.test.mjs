@@ -404,3 +404,29 @@ test('multi-room world events are accepted by perception bus', () => {
   assert.equal(seen.length,1);
   assert.equal(seen[0].data.toRoomId,'ROOM02');
 });
+
+
+test('privacy policy changes update room privacy state', () => {
+  const state = createRoomState('ROOM01');
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'privacy.policy_changed',
+    {
+      data:{
+        roomId:'ROOM01',
+        summary:{
+          roomId:'ROOM01',
+          identity:false,
+          transcriptStorage:false,
+          spatialMemory:false,
+          regionCount:2
+        }
+      }
+    },
+    { timestamp:4, roomId:'ROOM01' }
+  ));
+  const snapshot=roomStateSnapshot(state);
+  assert.equal(snapshot.privacy.identity,false);
+  assert.equal(snapshot.privacy.transcriptStorage,false);
+  assert.equal(snapshot.privacy.spatialMemory,false);
+  assert.equal(snapshot.privacy.regionCount,2);
+});
