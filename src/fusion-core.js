@@ -177,14 +177,58 @@ export function fuseParticipantObservations(observations = []) {
     }
   }
 
-  return [
-    ...[...byParticipant.values()]
-      .map(fuseKnownParticipantObservations)
-      .filter(Boolean),
-    ...clusterUnknownObservations(unknown)
-      .map(fuseUnknownCluster)
-      .filter(Boolean)
-  ];
+  const known = [...byParticipant.values()]
+    .map(fuseKnownParticipantObservations)
+    .filter(Boolean);
+  const unresolved = [];
+
+  for (const cluster of clusterUnknownObservations(unknown)) {
+    const anonymous = fuseUnknownCluster(cluster);
+    if (!anonymous) continue;
+
+    const candidates = known
+      .filter((entity) => (
+        !cluster.some((observation) => entity.cameraIds.includes(observation.cameraId)) &&
+        roomDistance(entity.roomPosition, anonymous.roomPosition) <= UNKNOWN_OVERLAP_DISTANCE
+      ))
+      .sort((a, b) => (
+        roomDistance(a.roomPosition, anonymous.roomPosition) -
+        roomDistance(b.roomPosition, anonymous.roomPosition)
+      ));
+
+    const best = candidates[0];
+    const second = candidates[1];
+    const bestDistance = best
+      ? roomDistance(best.roomPosition, anonymous.roomPosition)
+      : Infinity;
+    const secondDistance = second
+      ? roomDistance(second.roomPosition, anonymous.roomPosition)
+      : Infinity;
+
+    if (best && secondDistance - bestDistance >= 0.04) {
+      best.cameraIds = [
+        ...new Set([...best.cameraIds, ...anonymous.cameraIds])
+      ];
+      best.observations.push(...anonymous.observations);
+      best.overlap = true;
+      best.spatialSupportCameraIds = anonymous.cameraIds;
+      continue;
+    }
+
+    if (best && !second) {
+      best.cameraIds = [
+        ...new Set([...best.cameraIds, ...anonymous.cameraIds])
+      ];
+      best.observations.push(...anonymous.observations);
+      best.overlap = true;
+      best.spatialSupportCameraIds = anonymous.cameraIds;
+      continue;
+    }
+
+    unresolved.push(anonymous);
+  }
+
+  return [...known, ...unresolved];
 }
 
 function objectCandidateCost(track, observation) {
