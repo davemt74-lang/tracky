@@ -939,6 +939,7 @@ async function initializeAgentBriefings() {
       currentAgentDeliveryContext(Date.now()),
       Date.now()
     ).slice(0, 50);
+    await persistAgentBriefingQueue();
   } catch (error) {
     console.error('Could not load Agent briefings', error);
     runtime.agentBriefings = [];
@@ -995,7 +996,10 @@ async function markPhysicalAgentBriefingSurfaced(id, now = Date.now()) {
 async function deferPhysicalAgentBriefing(id, delayMs = 300000, reason = 'user-deferred', now = Date.now()) {
   const current = runtime.agentBriefings.find((item) => item.id === id);
   if (!current) return null;
-  runtime.agentBriefings = deferBriefing(runtime.agentBriefings, id, delayMs, reason, now);
+  const manualReason = String(reason || 'deferred').startsWith('user-')
+    ? String(reason)
+    : 'user-' + String(reason || 'deferred');
+  runtime.agentBriefings = deferBriefing(runtime.agentBriefings, id, delayMs, manualReason, now);
   const updated = runtime.agentBriefings.find((item) => item.id === id);
   await saveAgentBriefing(updated);
   return copySerializable(updated);
