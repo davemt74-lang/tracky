@@ -239,6 +239,9 @@ export class MultiCameraSensorRuntime {
         track.status = track.participantId
           ? roomPresenceState(track, now)
           : track.status || 'body-detected';
+        if (!track.presenceAnnounced && now - Number(track.firstSeenAt || now) >= 900) {
+          track.presenceAnnounced = true;
+        }
         if (track.status !== 'occluded' && track.status !== 'reacquiring') {
           track.behaviorEvidence = buildBehaviorEvidence(track, tracks);
         }
@@ -266,7 +269,7 @@ export class MultiCameraSensorRuntime {
         camera: session.camera,
         timestamp: session.lastScanAt,
         participants: tracks
-          .filter((track) => track.status !== 'reacquiring')
+          .filter((track) => track.presenceAnnounced && track.status !== 'reacquiring')
           .map((track) => participantObservation(session.camera, track)),
         objects: objects
           .filter((object) => object.stable && object.status !== 'reacquiring')
