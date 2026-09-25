@@ -115,3 +115,25 @@ test('cross-room object alias persists canonical identity on later scans',()=>{
   assert.equal(state.objects.WO1.roomId,'ROOM02');
   assert.equal(state.objects.WO7,undefined);
 });
+
+
+test('repeated known handoffs across unconnected rooms create proposal but not connection',()=>{
+  const state=createMultiRoomWorld();
+  const noTopology={rooms:[{id:'ROOM01'},{id:'ROOM04'}],connections:[],portals:[]};
+  for(let n=0;n<3;n+=1){
+    state.participants['PERSON:p1']={
+      id:'PERSON:p1',participantId:'p1',participantName:'Dave',
+      roomId:'ROOM01',lastKnownRoomId:'ROOM01',presence:'confirmed',
+      confidence:.9,lastObservedAt:1000+n*10000
+    };
+    reconcileParticipantLocations(state,{
+      ROOM04:{participants:[{
+        id:'P:p1',participantId:'p1',participantName:'Dave',
+        confidence:.9,roomPosition:{x:.5,y:.5},cameraIds:['CAM04'],status:'visible'
+      }]}
+    },noTopology,3000+n*10000);
+  }
+  assert.equal(state.topologyProposals.length,1);
+  assert.equal(state.topologyProposals[0].observedTransitionCount,3);
+  assert.equal(state.topologyProposals[0].readyForConfirmation,true);
+});
