@@ -12,11 +12,16 @@ function id(prefix,now=Date.now()){
 }
 function arr(value){ return Array.isArray(value)?value:[]; }
 function subjectKey(item){ return String(item?.participantId||item?.objectId||item?.subjectId||item?.id||''); }
+function subjectKind(item){
+  if(item?.participantId) return 'person';
+  if(item?.objectId) return 'object';
+  return null;
+}
 function allEntities(context={}){
   return [...arr(context.people),...arr(context.objects)];
 }
 function matchingEntities(context,watch){
-  const entities=allEntities(context);
+  const entities=allEntities(context).filter((item)=>!watch.subjectKind||subjectKind(item)===watch.subjectKind);
   if(watch.subjectId) return entities.filter((item)=>subjectKey(item)===watch.subjectId);
   if(watch.subjectLabel){
     const matches=entities.filter((item)=>txt(item.label,80).toLowerCase()===watch.subjectLabel.toLowerCase());
@@ -57,6 +62,7 @@ export function normalizeWorldWatch(input={},now=Date.now()){
     enabled:input.enabled!==false,
     subjectId:txt(input.subjectId||'',120)||null,
     subjectLabel:txt(input.subjectLabel||'',80)||null,
+    subjectKind:['person','object'].includes(String(input.subjectKind||''))?String(input.subjectKind):null,
     roomId:txt(input.roomId||'',120)||null,
     anomalySignature:txt(input.anomalySignature||'',140)||null,
     anomalyType:txt(input.anomalyType||'',100)||null,
