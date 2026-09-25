@@ -280,7 +280,20 @@ export function sanitizeEventPayload(type, payload = {}, policy) {
     }
   };
 
-  if (decision.anonymize) {
+  let anonymizeParticipant = decision.anonymize;
+  if (next.participantId && kind !== 'participant') {
+    const participantDecision = observationDecision({
+      policy,
+      kind: 'participant',
+      position: payload.roomPosition,
+      roomId: policy?.roomId
+    });
+    anonymizeParticipant = anonymizeParticipant ||
+      participantDecision.anonymize ||
+      !participantDecision.allowed;
+  }
+
+  if (anonymizeParticipant) {
     next.participantId = null;
     next.participantName = null;
     if (kind === 'voice' || kind === 'transcript') {
