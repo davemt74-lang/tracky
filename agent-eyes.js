@@ -38,6 +38,12 @@ import {
   createRoomState,
   roomStateSnapshot
 } from './src/perception-core.js';
+import {
+  POSE_CONNECTIONS,
+  buildBehaviorEvidence,
+  inferWave,
+  keypointMap
+} from './src/behavior-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -57,6 +63,7 @@ const ui = {
   voiceStatus: $('#eyesVoiceStatus'),
   transcriptStatus: $('#eyesTranscriptStatus'),
   healthStatus: $('#eyesHealthStatus'),
+  behaviorStatus: $('#eyesBehaviorStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -66,6 +73,10 @@ const ui = {
   noiseDb: $('#eyesNoiseDb'),
   vad: $('#eyesVad'),
   audioPath: $('#eyesAudioPath'),
+  poseCount: $('#eyesPoseCount'),
+  attentionCount: $('#eyesAttentionCount'),
+  poseOverlay: $('#eyesPoseOverlay'),
+  attentionOverlay: $('#eyesAttentionOverlay'),
   radarTracks: $('#agentRadarTracks'),
   participants: $('#eyesParticipants'),
   activeSpeaker: $('#agentActiveSpeaker'),
@@ -76,7 +87,23 @@ const ui = {
   events: $('#eyesEventFeed'),
   dialogue: $('#eyesDialogue'),
   dialogueStatus: $('#eyesDialogueStatus'),
-  eventBusStatus: $('#eventBusStatus')
+  eventBusStatus: $('#eventBusStatus'),
+  inspector: $('#evidenceInspector'),
+  inspectorName: $('#inspectorName'),
+  inspectorTrack: $('#inspectorTrack'),
+  inspectorIdentity: $('#inspectorIdentity'),
+  inspectorPose: $('#inspectorPose'),
+  inspectorOrientation: $('#inspectorOrientation'),
+  inspectorPosture: $('#inspectorPosture'),
+  inspectorMotion: $('#inspectorMotion'),
+  inspectorGesture: $('#inspectorGesture'),
+  inspectorAttention: $('#inspectorAttention'),
+  inspectorAddressing: $('#inspectorAddressing'),
+  inspectorSignals: $('#inspectorSignals'),
+  inspectorLandmarkCount: $('#inspectorLandmarkCount'),
+  inspectorLandmarks: $('#inspectorLandmarks'),
+  inspectorJson: $('#inspectorJson'),
+  closeInspector: $('#closeEvidenceInspector')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
@@ -118,12 +145,17 @@ const runtime = {
   audioPath: 'offline',
   ttsPending: 0,
   startedAt: null,
-  lastFrameAt: 0
+  lastFrameAt: 0,
+  behaviorByTrack: new Map(),
+  wristHistory: new Map(),
+  lastGestureAt: new Map(),
+  selectedTrackId: null
 };
 
 const SCAN_INTERVAL_MS = 550;
 const TRACK_GRACE_MS = BODY_OCCLUSION_GRACE_MS;
 const PHOTO_REFRESH_INTERVAL_MS = 5000;
+const GESTURE_COOLDOWN_MS = 2500;
 
 function emit(type, payload = {}) {
   return bus.emit(type, payload, {
@@ -631,6 +663,192 @@ function updateGroups() {
   runtime.previousGroups = nextGroups;
 }
 
+function behaviorSignature(behavior) {
+  if (!behavior) return '';
+  return [
+    behavior.orientation?.horizontal || 'unknown',
+    behavior.orientation?.vertical || 'unknown',
+    behavior.posture?.posture || 'unknown',
+    behavior.motion?.motion || 'unknown',
+    behavior.gesture?.type || 'none',
+    behavior.attention?.targetName || behavior.attention?.targetType || 'none',
+    behavior.addressing?.addressing ? behavior.addressing.targetName || 'target' : 'none'
+  ].join('|');
+}
+
+function compactBehavior(behavior) {
+  return {
+    orientation: behavior.orientation?.horizontal || 'unknown',
+    verticalOrientation: behavior.orientation?.vertical || 'unknown',
+    orientationConfidence: Number(behavior.orientation?.confidence || 0),
+    posture: behavior.posture?.posture || 'unknown',
+    postureConfidence: Number(behavior.posture?.confidence || 0),
+    motion: behavior.motion?.motion || 'unknown',
+    motionSpeed: Number(behavior.motion?.speed || 0),
+    gesture: behavior.gesture?.type || null,
+    gestureConfidence: Number(behavior.gesture?.confidence || 0),
+    poseConfidence: Number(behavior.poseConfidence || 0)
+  };
+}
+
+function gestureHistory(track, side, now) {
+  const points = keypointMap(track.keypoints || []);
+  const wrist = points.get(side + 'Wrist');
+  const shoulder = points.get(side + 'Shoulder');
+  const key = track.id + ':' + side;
+  const history = runtime.wristHistory.get(key) || [];
+
+  if (!wrist || !shoulder || wrist.y >= shoulder.y - 0.03) {
+    runtime.wristHistory.delete(key);
+    return null;
+  }
+
+  history.push({ x: wrist.x, y: wrist.y, at: now });
+  while (history.length > 8) history.shift();
+  runtime.wristHistory.set(key, history);
+  return inferWave(history);
+}
+
+function emitGestureIfReady(track, gesture, confidence, now) {
+  if (!gesture) return;
+  const key = track.id + ':' + gesture;
+  const last = Number(runtime.lastGestureAt.get(key) || 0);
+  if (now - last < GESTURE_COOLDOWN_MS) return;
+
+  runtime.lastGestureAt.set(key, now);
+  emit('gesture.detected', {
+    participantId: track.participantId || null,
+    participantName: track.participantName || null,
+    trackId: track.id,
+    confidence,
+    source: 'pose-landmarks',
+    roomPosition: roomPosition(track),
+    conversationGroup: track.conversationGroupId || null,
+    data: { gesture }
+  });
+}
+
+function analyzeBehaviors(now) {
+  const liveIds = new Set(runtime.tracks.map((track) => track.id));
+
+  for (const key of runtime.behaviorByTrack.keys()) {
+    if (!liveIds.has(key)) runtime.behaviorByTrack.delete(key);
+  }
+
+  for (const track of runtime.tracks) {
+    if (track.status === 'occluded' || track.status === 'reacquiring') {
+      track.behaviorEvidence = null;
+      continue;
+    }
+
+    const speaking = Boolean(
+      roomState.activeSpeaker &&
+      (
+        roomState.activeSpeaker.trackId === track.id ||
+        (
+          track.participantId &&
+          roomState.activeSpeaker.participantId === track.participantId
+        )
+      )
+    );
+
+    const behavior = buildBehaviorEvidence(
+      track,
+      runtime.tracks,
+      { speaking }
+    );
+    track.behaviorEvidence = behavior;
+
+    if (!track.presenceAnnounced) continue;
+
+    const previous = runtime.behaviorByTrack.get(track.id);
+    const signature = behaviorSignature(behavior);
+    const previousSignature = previous?.signature || '';
+
+    if (
+      signature !== previousSignature &&
+      behavior.poseConfidence >= 0.28
+    ) {
+      emit('behavior.changed', {
+        participantId: track.participantId || null,
+        participantName: track.participantName || null,
+        trackId: track.id,
+        confidence: Math.max(
+          behavior.poseConfidence,
+          behavior.orientation?.confidence || 0
+        ),
+        source: 'pose+face',
+        roomPosition: roomPosition(track),
+        conversationGroup: track.conversationGroupId || null,
+        evidence: behavior,
+        data: {
+          behavior: compactBehavior(behavior),
+          addressing: behavior.addressing
+        }
+      });
+    }
+
+    const attentionKey = [
+      behavior.attention?.targetType || 'unknown',
+      behavior.attention?.targetTrackId || '',
+      behavior.attention?.targetParticipantId || ''
+    ].join(':');
+
+    if (
+      attentionKey !== previous?.attentionKey &&
+      Number(behavior.attention?.confidence || 0) >= 0.32
+    ) {
+      emit('attention.changed', {
+        participantId: track.participantId || null,
+        participantName: track.participantName || null,
+        trackId: track.id,
+        confidence: behavior.attention.confidence,
+        source: 'head-orientation+spatial',
+        roomPosition: roomPosition(track),
+        conversationGroup: track.conversationGroupId || null,
+        evidence: behavior.attention.evidence,
+        data: { attention: behavior.attention }
+      });
+    }
+
+    if (
+      behavior.gesture?.type &&
+      behavior.gesture.confidence >= 0.55 &&
+      behavior.gesture.type !== previous?.gestureType
+    ) {
+      emitGestureIfReady(
+        track,
+        behavior.gesture.type,
+        behavior.gesture.confidence,
+        now
+      );
+    }
+
+    for (const side of ['left', 'right']) {
+      const wave = gestureHistory(track, side, now);
+      if (wave?.detected) {
+        emitGestureIfReady(
+          track,
+          side + '-hand-wave',
+          wave.confidence,
+          now
+        );
+      }
+    }
+
+    runtime.behaviorByTrack.set(track.id, {
+      signature,
+      attentionKey,
+      gestureType: behavior.gesture?.type || null
+    });
+  }
+
+  ui.behaviorStatus.textContent = runtime.tracks.some((track) => track.behaviorEvidence)
+    ? 'Analyzing ' + runtime.tracks.filter((track) => track.behaviorEvidence).length
+    : runtime.running ? 'Waiting for pose' : 'Standby';
+}
+
+
 async function scanRoom() {
   if (
     !runtime.running ||
@@ -765,6 +983,7 @@ async function scanRoom() {
     ]);
 
     updateGroups();
+    analyzeBehaviors(now);
     emitTrackTransitions(previousTracks, runtime.tracks, now);
     drawOverlay();
     renderAll();
@@ -791,6 +1010,115 @@ function resizeOverlay() {
 
   if (ui.overlay.width !== width) ui.overlay.width = width;
   if (ui.overlay.height !== height) ui.overlay.height = height;
+}
+
+
+function canvasPoint(point, width, height) {
+  return {
+    x: (1 - Number(point.x || 0)) * width,
+    y: Number(point.y || 0) * height
+  };
+}
+
+function drawPoseSkeleton(track, width, height, selected = false) {
+  if (!ui.poseOverlay.checked || !track.keypoints?.length) return;
+
+  const points = keypointMap(track.keypoints);
+  const color = track.participantId ? '#5cff9d' : '#4ee8ff';
+
+  overlayCtx.save();
+  overlayCtx.strokeStyle = color;
+  overlayCtx.fillStyle = color;
+  overlayCtx.lineWidth = selected
+    ? Math.max(3, width / 500)
+    : Math.max(1.5, width / 800);
+  overlayCtx.globalAlpha = selected ? 0.95 : 0.7;
+
+  for (const [aName, bName] of POSE_CONNECTIONS) {
+    const a = points.get(aName);
+    const b = points.get(bName);
+    if (!a || !b) continue;
+    const pa = canvasPoint(a, width, height);
+    const pb = canvasPoint(b, width, height);
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(pa.x, pa.y);
+    overlayCtx.lineTo(pb.x, pb.y);
+    overlayCtx.stroke();
+  }
+
+  for (const point of points.values()) {
+    const p = canvasPoint(point, width, height);
+    overlayCtx.beginPath();
+    overlayCtx.arc(
+      p.x,
+      p.y,
+      selected ? Math.max(3, width / 320) : Math.max(2, width / 500),
+      0,
+      Math.PI * 2
+    );
+    overlayCtx.fill();
+  }
+
+  overlayCtx.restore();
+}
+
+function drawAttentionRay(track, width, height) {
+  if (!ui.attentionOverlay.checked) return;
+  const attention = track.behaviorEvidence?.attention;
+  if (!attention || Number(attention.confidence || 0) < 0.32) return;
+
+  const points = keypointMap(track.keypoints || []);
+  const head = points.get('nose') || points.get('leftEye') || points.get('rightEye');
+  const start = head
+    ? canvasPoint(head, width, height)
+    : {
+        x: (1 - Number(track.cx || 0.5)) * width,
+        y: Number(track.box?.y || track.cy || 0.5) * height
+      };
+
+  let end = null;
+  if (attention.targetTrackId) {
+    const target = runtime.tracks.find(
+      (candidate) => candidate.id === attention.targetTrackId
+    );
+    if (target) {
+      end = {
+        x: (1 - Number(target.cx || 0.5)) * width,
+        y: Number(target.cy || 0.5) * height
+      };
+    }
+  } else if (attention.targetType === 'camera') {
+    end = {
+      x: start.x,
+      y: Math.max(10, start.y - Math.max(35, height * 0.11))
+    };
+  } else {
+    const direction = track.behaviorEvidence?.orientation?.horizontal === 'left'
+      ? 1
+      : -1;
+    end = {
+      x: start.x + direction * Math.max(45, width * 0.10),
+      y: start.y
+    };
+  }
+
+  if (!end) return;
+
+  overlayCtx.save();
+  overlayCtx.strokeStyle = '#ffd166';
+  overlayCtx.fillStyle = '#ffd166';
+  overlayCtx.lineWidth = Math.max(1.5, width / 850);
+  overlayCtx.setLineDash([8, 6]);
+  overlayCtx.globalAlpha = 0.82;
+  overlayCtx.beginPath();
+  overlayCtx.moveTo(start.x, start.y);
+  overlayCtx.lineTo(end.x, end.y);
+  overlayCtx.stroke();
+  overlayCtx.setLineDash([]);
+  overlayCtx.beginPath();
+  overlayCtx.arc(end.x, end.y, Math.max(3, width / 360), 0, Math.PI * 2);
+  overlayCtx.fill();
+  overlayCtx.restore();
 }
 
 function drawOverlay() {
@@ -835,6 +1163,10 @@ function drawOverlay() {
       Math.max(16, y - labelHeight + labelHeight * 0.7)
     );
 
+    const selected = runtime.selectedTrackId === track.id;
+    drawPoseSkeleton(track, width, height, selected);
+    drawAttentionRay(track, width, height);
+
     if (track.face?.box) {
       const face = track.face.box;
       const fx = (1 - face.x - face.width) * width;
@@ -873,6 +1205,207 @@ async function enrollUnknownTrack(track) {
   } catch (error) {
     console.error(error);
   }
+}
+
+
+function confidenceText(value) {
+  return Number.isFinite(Number(value))
+    ? Math.round(Number(value) * 100) + '%'
+    : '—';
+}
+
+function appendInspectorSignal(label, value, confidence, detail = '') {
+  const row = document.createElement('div');
+  row.className = 'evidence-signal-row';
+
+  const top = document.createElement('div');
+  const key = document.createElement('span');
+  const val = document.createElement('b');
+  key.textContent = label;
+  val.textContent = value + (Number.isFinite(Number(confidence)) ? ' · ' + confidenceText(confidence) : '');
+  top.append(key, val);
+
+  const meter = document.createElement('div');
+  meter.className = 'evidence-confidence-meter';
+  const fill = document.createElement('i');
+  fill.style.width = Math.round(Math.max(0, Math.min(1, Number(confidence || 0))) * 100) + '%';
+  meter.append(fill);
+
+  row.append(top, meter);
+
+  if (detail) {
+    const note = document.createElement('small');
+    note.textContent = detail;
+    row.append(note);
+  }
+
+  ui.inspectorSignals.append(row);
+}
+
+function renderEvidenceInspector() {
+  if (!runtime.selectedTrackId) {
+    ui.inspector.hidden = true;
+    return;
+  }
+
+  const track = runtime.tracks.find(
+    (candidate) => candidate.id === runtime.selectedTrackId
+  );
+
+  if (!track) {
+    runtime.selectedTrackId = null;
+    ui.inspector.hidden = true;
+    return;
+  }
+
+  const participant = track.participantId
+    ? participantById(track.participantId)
+    : null;
+  const voice = voiceProfileReadiness(participant || {});
+  const behavior = track.behaviorEvidence;
+
+  ui.inspector.hidden = false;
+  ui.inspectorName.textContent = track.participantName || 'Unknown participant';
+  ui.inspectorTrack.textContent = track.id + ' · ' + statusText(track);
+  ui.inspectorIdentity.textContent = track.participantId
+    ? confidenceText(track.similarity || 0)
+    : 'UNRESOLVED';
+  ui.inspectorPose.textContent = behavior
+    ? confidenceText(behavior.poseConfidence)
+    : '—';
+  ui.inspectorOrientation.textContent = behavior
+    ? [
+        behavior.orientation?.horizontal,
+        behavior.orientation?.vertical
+      ].filter((value) => value && value !== 'unknown').join(' / ') || 'unknown'
+    : '—';
+  ui.inspectorPosture.textContent = behavior?.posture?.posture || '—';
+  ui.inspectorMotion.textContent = behavior?.motion?.motion || '—';
+  ui.inspectorGesture.textContent = behavior?.gesture?.type || 'none';
+  ui.inspectorAttention.textContent =
+    behavior?.attention?.targetName ||
+    behavior?.attention?.targetType ||
+    'unknown';
+  ui.inspectorAddressing.textContent =
+    behavior?.addressing?.addressing
+      ? 'Likely → ' + (behavior.addressing.targetName || 'participant')
+      : 'Not established';
+
+  ui.inspectorSignals.replaceChildren();
+
+  appendInspectorSignal(
+    'FACE IDENTITY',
+    track.face ? (track.participantName || 'face visible') : 'face not visible',
+    track.face ? (track.similarity || track.quality || 0) : 0,
+    track.face
+      ? 'Face descriptor / enrolled participant evidence.'
+      : 'No current face evidence; body continuity may still preserve identity.'
+  );
+
+  appendInspectorSignal(
+    'BODY CONTINUITY',
+    track.status === 'occluded' ? 'occlusion memory' : 'body track active',
+    track.status === 'occluded'
+      ? 0.55
+      : Math.max(0.4, Number(track.bodyScore || 0)),
+    'Persistent track ' + track.id + ' with motion and bounding-box continuity.'
+  );
+
+  appendInspectorSignal(
+    'VOICE PROFILE',
+    participant
+      ? (voice.ready ? 'profile ready' : voice.embeddingCount + '/3 samples')
+      : 'no enrolled participant',
+    voice.ready ? 0.8 : Math.min(0.65, voice.embeddingCount / 3),
+    'Voice identity is an independent signal and is not inferred from body shape.'
+  );
+
+  appendInspectorSignal(
+    'POSE LANDMARKS',
+    (track.keypoints?.length || 0) + ' landmarks',
+    behavior?.poseConfidence || 0,
+    'Named shoulders, wrists, hips, knees, ankles and head landmarks when visible.'
+  );
+
+  appendInspectorSignal(
+    'HEAD ORIENTATION',
+    behavior?.orientation?.horizontal || 'unknown',
+    behavior?.orientation?.confidence || 0,
+    behavior?.orientation?.source === 'face-rotation'
+      ? 'Derived from face yaw/pitch.'
+      : 'Fallback uses shoulder geometry only; exact left/right is not claimed.'
+  );
+
+  appendInspectorSignal(
+    'POSTURE',
+    behavior?.posture?.posture || 'unknown',
+    behavior?.posture?.confidence || 0,
+    'Uses hip, knee and ankle geometry; partial bodies remain uncertain.'
+  );
+
+  appendInspectorSignal(
+    'ATTENTION',
+    behavior?.attention?.targetName || behavior?.attention?.targetType || 'unknown',
+    behavior?.attention?.confidence || 0,
+    'Approximate head direction + spatial position. This is not precise eye-gaze tracking.'
+  );
+
+  appendInspectorSignal(
+    'ADDRESSING',
+    behavior?.addressing?.addressing
+      ? behavior.addressing.targetName || 'participant'
+      : 'not established',
+    behavior?.addressing?.confidence || 0,
+    'Requires speaking + likely attention target + shared conversation group.'
+  );
+
+  const points = keypointMap(track.keypoints || []);
+  ui.inspectorLandmarks.replaceChildren();
+  ui.inspectorLandmarkCount.textContent = points.size + ' visible';
+
+  for (const point of [...points.values()].sort((a, b) => String(a.part).localeCompare(String(b.part)))) {
+    const chip = document.createElement('span');
+    const name = document.createElement('b');
+    const score = document.createElement('i');
+    name.textContent = point.part;
+    score.textContent = confidenceText(point.score);
+    chip.append(name, score);
+    ui.inspectorLandmarks.append(chip);
+  }
+
+  ui.inspectorJson.textContent = JSON.stringify({
+    trackId: track.id,
+    participantId: track.participantId || null,
+    participantName: track.participantName || null,
+    status: track.status,
+    identity: {
+      source: track.identitySource || null,
+      confidence: track.similarity || 0,
+      faceVisible: Boolean(track.face),
+      bodyScore: track.bodyScore || 0
+    },
+    voiceProfile: {
+      ready: voice.ready,
+      sampleCount: voice.embeddingCount,
+      totalSeconds: voice.totalSeconds
+    },
+    behavior,
+    conversationGroup: track.conversationGroupId || null,
+    roomPosition: roomPosition(track),
+    landmarkCount: points.size
+  }, null, 2);
+}
+
+function openEvidenceInspector(trackId) {
+  runtime.selectedTrackId = trackId;
+  renderEvidenceInspector();
+  drawOverlay();
+}
+
+function closeEvidenceInspector() {
+  runtime.selectedTrackId = null;
+  ui.inspector.hidden = true;
+  drawOverlay();
 }
 
 function renderParticipants() {
@@ -923,11 +1456,16 @@ function renderParticipants() {
     const signals = document.createElement('div');
     signals.className = 'agent-entity-signals';
 
+    const behavior = track.behaviorEvidence;
     const rows = [
       ['FACE', track.face ? Math.round((track.similarity || track.quality || 0) * 100) + '%' : 'NOT VISIBLE'],
       ['BODY', track.status === 'occluded' ? 'MEMORY' : 'LOCK'],
       ['VOICE', participant ? (voice.ready ? 'PROFILE READY' : voice.embeddingCount + '/3') : 'UNKNOWN'],
-      ['GROUP', track.conversationGroupId || '—']
+      ['POSE', behavior ? Math.round((behavior.poseConfidence || 0) * 100) + '%' : '—'],
+      ['FACING', behavior?.orientation?.horizontal || '—'],
+      ['POSTURE', behavior?.posture?.posture || '—'],
+      ['MOTION', behavior?.motion?.motion || '—'],
+      ['ATTENTION', behavior?.attention?.targetName || behavior?.attention?.targetType || '—']
     ];
 
     for (const [label, value] of rows) {
@@ -943,15 +1481,26 @@ function renderParticipants() {
     copy.append(name, meta, signals);
     card.append(portrait, copy);
 
+    const actions = document.createElement('div');
+    actions.className = 'agent-entity-actions';
+
+    const inspect = document.createElement('button');
+    inspect.className = 'agent-entity-action';
+    inspect.type = 'button';
+    inspect.textContent = 'Inspect';
+    inspect.addEventListener('click', () => openEvidenceInspector(track.id));
+    actions.append(inspect);
+
     if (!track.participantId && track.embedding && track.latestPhoto) {
-      const action = document.createElement('button');
-      action.className = 'agent-entity-action';
-      action.type = 'button';
-      action.textContent = 'Identify';
-      action.addEventListener('click', () => enrollUnknownTrack(track));
-      card.append(action);
+      const identify = document.createElement('button');
+      identify.className = 'agent-entity-action';
+      identify.type = 'button';
+      identify.textContent = 'Identify';
+      identify.addEventListener('click', () => enrollUnknownTrack(track));
+      actions.append(identify);
     }
 
+    card.append(actions);
     ui.participants.append(card);
   }
 }
@@ -984,6 +1533,15 @@ function renderRadar() {
         : '');
 
     dot.append(label);
+    dot.tabIndex = 0;
+    dot.setAttribute('role', 'button');
+    dot.addEventListener('click', () => openEvidenceInspector(track.id));
+    dot.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openEvidenceInspector(track.id);
+      }
+    });
     ui.radarTracks.append(dot);
   }
 }
@@ -1012,6 +1570,19 @@ function eventLabel(event) {
       return (event.participantName || event.trackId || 'Face') + ' face out of view';
     case 'conversation.participant_joined':
       return (event.participantName || event.trackId) + ' joined ' + event.conversationGroup;
+    case 'behavior.changed':
+      return (event.participantName || event.trackId || 'Participant') + ' behavior → ' +
+        [
+          event.data?.behavior?.posture,
+          event.data?.behavior?.motion,
+          event.data?.behavior?.orientation
+        ].filter(Boolean).join(' · ');
+    case 'attention.changed':
+      return (event.participantName || event.trackId || 'Participant') + ' attention → ' +
+        (event.data?.attention?.targetName || event.data?.attention?.targetType || 'unknown');
+    case 'gesture.detected':
+      return (event.participantName || event.trackId || 'Participant') + ' gesture → ' +
+        String(event.data?.gesture || 'gesture');
     case 'transcript.turn':
       return (event.participantName || 'Unknown speaker') + ': ' + String(event.data?.text || '');
     case 'sensor.status':
@@ -1144,6 +1715,12 @@ function renderSignals() {
       : runtime.audioPath === 'script-processor-fallback'
         ? 'Compatibility'
         : 'Offline';
+  ui.poseCount.textContent = String(
+    runtime.tracks.filter((track) => track.behaviorEvidence?.poseConfidence >= 0.28).length
+  );
+  ui.attentionCount.textContent = String(
+    runtime.tracks.filter((track) => Number(track.behaviorEvidence?.attention?.confidence || 0) >= 0.32).length
+  );
 }
 
 function renderAll() {
@@ -1151,6 +1728,7 @@ function renderAll() {
   renderRadar();
   renderSignals();
   renderRoomState();
+  renderEvidenceInspector();
 }
 
 function suppressMicForSpeech() {
@@ -1464,6 +2042,9 @@ ui.cameraSelect.addEventListener('change', () => {
   if (runtime.running) void startEyes(ui.cameraSelect.value);
 });
 ui.copyState.addEventListener('click', () => void copySnapshot());
+ui.closeInspector.addEventListener('click', closeEvidenceInspector);
+ui.poseOverlay.addEventListener('change', drawOverlay);
+ui.attentionOverlay.addEventListener('change', drawOverlay);
 window.addEventListener('resize', () => {
   resizeOverlay();
   drawOverlay();

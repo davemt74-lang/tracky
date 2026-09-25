@@ -182,3 +182,55 @@ test('conversation start and leave update participant group membership', () => {
   ));
   assert.equal(state.participants.p1.conversationGroup, null);
 });
+
+
+test('behavior attention and gesture events update participant state', () => {
+  const state = createRoomState();
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'participant.recognized',
+    { participantId:'p1', participantName:'Dave', trackId:'T001' },
+    { timestamp:1 }
+  ));
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'behavior.changed',
+    {
+      participantId:'p1',
+      participantName:'Dave',
+      trackId:'T001',
+      data:{
+        behavior:{posture:'standing',motion:'stationary',orientation:'center'},
+        addressing:{targetName:'Sarah',confidence:0.72}
+      }
+    },
+    { timestamp:2 }
+  ));
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'attention.changed',
+    {
+      participantId:'p1',
+      participantName:'Dave',
+      trackId:'T001',
+      data:{attention:{targetName:'Sarah',targetType:'participant',confidence:0.81}}
+    },
+    { timestamp:3 }
+  ));
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'gesture.detected',
+    {
+      participantId:'p1',
+      participantName:'Dave',
+      trackId:'T001',
+      confidence:0.84,
+      data:{gesture:'left-hand-raised'}
+    },
+    { timestamp:4 }
+  ));
+
+  assert.equal(state.participants.p1.behavior.posture,'standing');
+  assert.equal(state.participants.p1.attention.targetName,'Sarah');
+  assert.equal(state.participants.p1.lastGesture.type,'left-hand-raised');
+});

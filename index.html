@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V0.8 — Agent Eyes</title>
+  <title>Tracky V0.9 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,9 +13,9 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V0.8 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V0.9 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
-        <p>Live visual, spatial, voice, and conversation awareness for the Agent system.</p>
+        <p>Live visual, spatial, behavioral, attention, voice, and conversation awareness for the Agent system.</p>
       </div>
     </div>
     <nav class="jarvis-nav">
@@ -31,6 +31,7 @@
     <div><span>MICROPHONE</span><b id="eyesMicStatus">Offline</b></div>
     <div><span>VOICE PROFILE</span><b id="eyesVoiceStatus">Standby</b></div>
     <div><span>TRANSCRIPTION</span><b id="eyesTranscriptStatus">Standby</b></div>
+    <div><span>BEHAVIOR</span><b id="eyesBehaviorStatus">Standby</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -46,6 +47,14 @@
     <label class="switch-row compact-switch">
       <input id="eyesSpokenAcks" type="checkbox" checked>
       Spoken acknowledgements
+    </label>
+    <label class="switch-row compact-switch">
+      <input id="eyesPoseOverlay" type="checkbox" checked>
+      Pose overlay
+    </label>
+    <label class="switch-row compact-switch">
+      <input id="eyesAttentionOverlay" type="checkbox" checked>
+      Attention rays
     </label>
     <span class="agent-runtime-clock" id="agentRuntimeClock">ROOM STANDBY</span>
   </section>
@@ -87,6 +96,8 @@
         <div><span>NOISE</span><b id="eyesNoiseDb">— dB</b></div>
         <div><span>VAD</span><b id="eyesVad">QUIET</b></div>
         <div><span>AUDIO PATH</span><b id="eyesAudioPath">Offline</b></div>
+        <div><span>POSE TRACKS</span><b id="eyesPoseCount">0</b></div>
+        <div><span>ATTENTION</span><b id="eyesAttentionCount">0</b></div>
       </div>
 
       <div class="agent-room-radar">
@@ -105,7 +116,7 @@
     <aside class="agent-side-stack">
       <section class="hud-panel">
         <div class="hud-panel-head">
-          <div><small>ROOM ENTITIES</small><h2>Participants</h2></div>
+          <div><small>ROOM ENTITIES</small><h2>Participants + behavior</h2></div>
           <a class="button-link" href="./participants.html">Manage</a>
         </div>
         <div id="eyesParticipants" class="agent-participant-list">
@@ -150,6 +161,53 @@
     <span>Initial model downloads require network access.</span>
   </footer>
 </main>
+
+<aside id="evidenceInspector" class="evidence-inspector" hidden aria-label="Perception evidence inspector">
+  <div class="evidence-inspector-head">
+    <div>
+      <small>PERCEPTION EVIDENCE</small>
+      <strong id="inspectorName">Participant</strong>
+      <span id="inspectorTrack">—</span>
+    </div>
+    <button id="closeEvidenceInspector" class="hud-button" type="button">Close</button>
+  </div>
+
+  <div class="evidence-inspector-summary">
+    <div><span>IDENTITY</span><b id="inspectorIdentity">—</b></div>
+    <div><span>POSE</span><b id="inspectorPose">—</b></div>
+    <div><span>ORIENTATION</span><b id="inspectorOrientation">—</b></div>
+    <div><span>POSTURE</span><b id="inspectorPosture">—</b></div>
+    <div><span>MOTION</span><b id="inspectorMotion">—</b></div>
+    <div><span>GESTURE</span><b id="inspectorGesture">—</b></div>
+    <div><span>ATTENTION</span><b id="inspectorAttention">—</b></div>
+    <div><span>ADDRESSING</span><b id="inspectorAddressing">—</b></div>
+  </div>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>INDEPENDENT SIGNALS</small>
+      <strong>Confidence + evidence</strong>
+    </div>
+    <div id="inspectorSignals" class="evidence-signal-list"></div>
+  </section>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>POSE LANDMARKS</small>
+      <strong id="inspectorLandmarkCount">0 visible</strong>
+    </div>
+    <div id="inspectorLandmarks" class="evidence-landmarks"></div>
+  </section>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>RAW INSPECTOR SNAPSHOT</small>
+      <strong>Agent-readable</strong>
+    </div>
+    <pre id="inspectorJson" class="room-state-json">{}</pre>
+  </section>
+</aside>
+
 <script type="module" src="./agent-eyes.js"></script>
 </body>
 </html>
