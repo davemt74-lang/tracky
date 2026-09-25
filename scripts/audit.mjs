@@ -31,7 +31,8 @@ const requiredFiles = [
   'src/room-audio-engine.js',
   'src/room-audio-worklet.js',
   'src/model-config.js',
-  'src/perception-core.js'
+  'src/perception-core.js',
+  'src/behavior-core.js'
 ];
 
 const runtimeJs = [
@@ -52,7 +53,8 @@ const runtimeJs = [
   'src/room-audio-engine.js',
   'src/room-audio-worklet.js',
   'src/model-config.js',
-  'src/perception-core.js'
+  'src/perception-core.js',
+  'src/behavior-core.js'
 ];
 
 const htmlContracts = [
@@ -78,8 +80,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '0.8.0') {
-  fail('package.json version must be 0.8.0');
+if (packageJson.version !== '0.9.0') {
+  fail('package.json version must be 0.9.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -95,6 +97,9 @@ if (!packageJson.scripts?.test?.includes('agent-eyes.js')) {
 }
 if (!packageJson.scripts?.test?.includes('src/perception-core.js')) {
   fail('test script must syntax-check perception core');
+}
+if (!packageJson.scripts?.test?.includes('src/behavior-core.js')) {
+  fail('test script must syntax-check behavior core');
 }
 
 for (const file of runtimeJs) {
@@ -225,6 +230,19 @@ for (const symbol of [
   }
 }
 
+const behaviorCore = read('src/behavior-core.js');
+for (const symbol of [
+  'buildBehaviorEvidence',
+  'likelyAttentionTarget',
+  'inferRaisedHands',
+  'inferWave',
+  'POSE_CONNECTIONS'
+]) {
+  if (!behaviorCore.includes(symbol)) {
+    fail('Behavior core is missing required perception interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -234,6 +252,12 @@ if (!/tracky:perception/.test(agentEyes)) {
 }
 if (!/saveDialogueTurn/.test(agentEyes)) {
   fail('Agent Eyes must persist accepted dialogue turns');
+}
+if (!/evidenceInspector/.test(read('index.html')) || !/renderEvidenceInspector/.test(agentEyes)) {
+  fail('Agent Eyes must include the perception evidence inspector');
+}
+if (!/behavior\.changed/.test(perceptionCore) || !/attention\.changed/.test(perceptionCore) || !/gesture\.detected/.test(perceptionCore)) {
+  fail('Perception core must expose behavior, attention, and gesture events');
 }
 
 const modelConfig = read('src/model-config.js');
@@ -257,7 +281,7 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v0\.8-deploy\.zip/.test(workflow)) {
+if (!/tracky-v0\.9-deploy\.zip/.test(workflow)) {
   fail('CI must build the V0.8 deploy ZIP');
 }
 
@@ -288,5 +312,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, imports, perception interfaces, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, behavior/perception interfaces, inspector, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
