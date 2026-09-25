@@ -585,7 +585,9 @@ async function reloadEnvironmentRooms() {
     console.error('Could not load environment rooms', error);
     runtime.environmentRooms = [];
   }
+  runtime.worldTopology = buildWorldTopology(runtime.environmentRooms);
   renderEnvironmentPanel();
+  renderMultiRoomWorld();
   return runtime.environmentRooms;
 }
 
@@ -1187,40 +1189,196 @@ function updateWorldTrails(now = Date.now()) {
   }
 }
 
+function roomCustodyMap() {
+  const map = {};
+  const primary = primaryCameraConfig();
+  if (!primary) return map;
+
+  for (const interaction of roomStateSnapshot(roomState).interactions || []) {
+    if (interaction.type !== 'holding') continue;
+    map[primary.roomId + ':' + interaction.objectId] = {
+      participantId: interaction.participantId || null,
+      participantName: interaction.participantName || null,
+      confidence: interaction.confidence || 0
+    };
+  }
+
+  return map;
+}
+
+function publishMultiRoomEvent(event) {
+  const payload = {
+    participantId: event.participantId || null,
+    participantName: event.participantName || null,
+    confidence: event.confidence || 0,
+    source: 'multi-room-world',
+    data: { ...event }
+  };
+
+  delete payload.data.type;
+
+  if (PERCEPTION_EVENT_TYPES.includes(event.type)) {
+    emit(event.type, payload);
+  }
+
+  if (
+    event.type === 'participant.room_transition' &&
+    event.portalId
+  ) {
+    emit('portal.crossing', {
+      participantId: event.participantId,
+      participantName: event.participantName,
+      confidence: event.confidence,
+      source: 'multi-room-world',
+      data: {
+        portalId: event.portalId,
+        fromRoomId: event.fromRoomId,
+        toRoomId: event.toRoomId
+      }
+    });
+  }
+}
+
+function updateRoomVisibility() {
+  const visibility = {};
+
+  for (const [roomId, room] of Object.entries(runtime.roomFusionStates)) {
+    const cameras = runtime.cameraConfigs.filter(
+      (camera) => camera.roomId === roomId && camera.enabled
+    );
+    const cameraStatuses = Object.fromEntries(
+      cameras.map((camera) => [camera.id, runtime.cameraStatuses.get(camera.id) || 'offline'])
+    );
+    const activeRoomId = runtime.fusionState.roomId;
+    const occluders = roomId === activeRoomId
+      ? visibilityOccludersFromGraph(sceneGraphSnapshot(runtime.sceneGraph))
+      : [];
+
+    visibility[roomId] = {
+      participants: {},
+      objects: {}
+    };
+
+    for (const entity of room.participants || []) {
+      visibility[roomId].participants[entity.id] = classifyVisibility({
+        position: entity.roomPosition,
+        cameras,
+        cameraStatuses,
+        observedCameraIds: entity.status === 'visible' ? entity.cameraIds : [],
+        occluders
+      });
+    }
+
+    for (const object of room.objects || []) {
+      visibility[roomId].objects[object.id] = classifyVisibility({
+        position: object.roomPosition,
+        cameras,
+        cameraStatuses,
+        observedCameraIds: object.status === 'visible' ? object.cameraIds : [],
+        occluders
+      });
+    }
+  }
+
+  runtime.roomVisibility = visibility;
+}
+
+function publishRoomStates() {
+  for (const [roomId, state] of Object.entries(runtime.roomFusionStates)) {
+    const detail = {
+      room: copySerializable(state),
+      visibility: copySerializable(runtime.roomVisibility[roomId] || null)
+    };
+    for (const listener of roomListeners.get(roomId) || []) listener(detail);
+    window.dispatchEvent(new CustomEvent('tracky:room-state', {
+      detail: { roomId, ...detail }
+    }));
+  }
+}
+
 function updateCameraFusion(now = Date.now(), updateScene = false) {
   const activeObservations = [...runtime.cameraObservations.values()]
     .filter((observation) => now - Number(observation.timestamp || 0) <= 3000);
 
-  const participantObservations = activeObservations.flatMap(
-    (observation) => observation.participants || []
-  );
-  const objectObservations = activeObservations.flatMap(
-    (observation) => observation.objects || []
-  );
+  const roomIds = new Set([
+    ...runtime.environmentRooms.map((room) => room.id),
+    ...runtime.cameraConfigs.filter((camera) => camera.enabled).map((camera) => camera.roomId),
+    ...activeObservations.map((observation) => observation.camera?.roomId).filter(Boolean)
+  ]);
 
-  const result = updateWorldFusion(
-    runtime.fusionState,
-    participantObservations,
-    objectObservations,
-    now,
+  for (const roomId of roomIds) {
+    const observations = activeObservations.filter(
+      (observation) => observation.camera?.roomId === roomId
+    );
+    const previous = runtime.roomFusionStates[roomId] || {
+      schemaVersion: 1,
+      roomId,
+      updatedAt: now,
+      participants: [],
+      objects: []
+    };
+
+    const result = updateWorldFusion(
+      previous,
+      observations.flatMap((observation) => observation.participants || []),
+      observations.flatMap((observation) => observation.objects || []),
+      now,
+      {
+        roomId,
+        nextId: nextWorldObjectId
+      }
+    );
+
+    runtime.roomFusionStates[roomId] = result.state;
+    for (const event of result.events) publishFusionEvent(event);
+  }
+
+  const activeRoomId = primaryCameraConfig()?.roomId ||
+    runtime.environmentAnalysis?.best?.roomId ||
+    runtime.fusionState.roomId ||
+    'ROOM01';
+  runtime.fusionState = runtime.roomFusionStates[activeRoomId] || {
+    schemaVersion: 1,
+    roomId: activeRoomId,
+    updatedAt: now,
+    participants: [],
+    objects: []
+  };
+
+  runtime.worldTopology = buildWorldTopology(runtime.environmentRooms);
+  const multiRoomEvents = updateMultiRoomWorld(
+    runtime.multiRoomWorld,
     {
-      roomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || 'ROOM01',
-      nextId: nextWorldObjectId
-    }
+      rooms: runtime.environmentRooms,
+      cameras: runtime.cameraConfigs,
+      topology: runtime.worldTopology,
+      roomFusionStates: runtime.roomFusionStates,
+      roomSnapshots: {
+        [activeRoomId]: roomStateSnapshot(roomState)
+      },
+      custodyByLocalObjectId: roomCustodyMap()
+    },
+    now
   );
+  runtime.multiRoomEvents = multiRoomEvents;
+  for (const event of multiRoomEvents) publishMultiRoomEvent(event);
 
-  runtime.fusionState = result.state;
+  updateRoomVisibility();
   updateWorldTrails(now);
-  for (const event of result.events) publishFusionEvent(event);
+  publishRoomStates();
 
   const detail = copySerializable(runtime.fusionState);
   for (const listener of cameraFusionListeners) listener(detail);
   window.dispatchEvent(new CustomEvent('tracky:camera-fusion', {
     detail
   }));
+  window.dispatchEvent(new CustomEvent('tracky:multi-room-world', {
+    detail: multiRoomSnapshot(runtime.multiRoomWorld)
+  }));
 
   renderCameraNetwork();
   renderWorldMap();
+  renderMultiRoomWorld();
   renderRoomState();
 
   if (updateScene) updateSceneIntelligence(now);
@@ -1576,8 +1734,7 @@ async function startSecondaryCameras() {
       !camera.enabled ||
       camera.primary ||
       !camera.deviceId ||
-      camera.deviceId === primary?.deviceId ||
-      camera.roomId !== primary?.roomId
+      camera.deviceId === primary?.deviceId
     ) {
       continue;
     }
