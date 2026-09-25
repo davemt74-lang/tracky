@@ -3,21 +3,49 @@ import { clamp, normalizeBox } from './participant-core.js';
 export const BODY_TRACK_MAX_DISTANCE = 0.34;
 export const BODY_OCCLUSION_GRACE_MS = 6000;
 
+function normalizedBodyPoint(point, frameWidth, frameHeight) {
+  const raw = point?.positionRaw;
+  const position = point?.position;
+
+  const rawX = Array.isArray(raw) ? raw[0] : raw?.x;
+  const rawY = Array.isArray(raw) ? raw[1] : raw?.y;
+  const rawZ = Array.isArray(raw) ? raw[2] : raw?.z;
+
+  const px = Array.isArray(position) ? position[0] : position?.x ?? point?.x;
+  const py = Array.isArray(position) ? position[1] : position?.y ?? point?.y;
+  const pz = Array.isArray(position) ? position[2] : position?.z ?? point?.z;
+
+  return {
+    part: point?.part || point?.name || null,
+    x: clamp(Number.isFinite(Number(rawX))
+      ? Number(rawX)
+      : Number(px || 0) / Math.max(1, frameWidth)),
+    y: clamp(Number.isFinite(Number(rawY))
+      ? Number(rawY)
+      : Number(py || 0) / Math.max(1, frameHeight)),
+    z: Number.isFinite(Number(rawZ))
+      ? Number(rawZ)
+      : Number.isFinite(Number(pz))
+        ? Number(pz)
+        : null,
+    score: Number(point?.score ?? point?.confidence ?? 0),
+    distance: point?.distance || null
+  };
+}
+
 export function bodyDetection(body, frameWidth = 1, frameHeight = 1) {
   const box = normalizeBox(body?.box, frameWidth, frameHeight);
   const keypoints = Array.isArray(body?.keypoints)
-    ? body.keypoints.map((point) => ({
-        x: clamp(Number(point.position?.x ?? point.x ?? 0) / Math.max(1, frameWidth)),
-        y: clamp(Number(point.position?.y ?? point.y ?? 0) / Math.max(1, frameHeight)),
-        score: Number(point.score ?? point.confidence ?? 0)
-      }))
+    ? body.keypoints.map((point) => normalizedBodyPoint(point, frameWidth, frameHeight))
     : [];
 
   return {
     raw: body,
+    id: body?.id ?? null,
     box,
     score: Number(body?.score ?? body?.confidence ?? 0),
-    keypoints
+    keypoints,
+    annotations: body?.annotations || null
   };
 }
 
@@ -113,6 +141,8 @@ export function createBodyTrack(id, detection, now = 0) {
     vx: 0,
     vy: 0,
     bodyScore: detection.score || 0,
+    keypoints: detection.keypoints || [],
+    annotations: detection.annotations || null,
     firstSeenAt: now,
     lastSeenAt: now,
     lastBodySeenAt: now,
@@ -143,6 +173,8 @@ export function updateBodyTrack(track, detection, now) {
     vx: (track.vx || 0) * 0.55 + measuredVx * 0.45,
     vy: (track.vy || 0) * 0.55 + measuredVy * 0.45,
     bodyScore: detection.score || 0,
+    keypoints: detection.keypoints || [],
+    annotations: detection.annotations || null,
     lastSeenAt: now,
     lastBodySeenAt: now,
     status: track.participantId ? 'body-lock' : 'body-detected',
