@@ -966,8 +966,7 @@ async function initializeAgentBriefings() {
   }
 }
 
-async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
-  const briefing = buildAgentBriefing(event, watch || {}, now);
+async function queueAgentBriefing(briefing, reason, now = Date.now()) {
   const result = enqueueBriefing(
     runtime.agentBriefings,
     briefing,
@@ -993,6 +992,14 @@ async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
     publishAgentDeliveryReady(result.entry, reason, now);
   }
   return copySerializable(result.entry);
+}
+
+async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
+  return queueAgentBriefing(
+    buildAgentBriefing(event, watch || {}, now),
+    reason,
+    now
+  );
 }
 
 async function acknowledgePhysicalAgentBriefing(id, now = Date.now()) {
@@ -1029,6 +1036,200 @@ async function clearPhysicalAgentBriefings() {
   await clearAgentBriefingsStore();
   runtime.agentBriefings = [];
   return true;
+}
+
+function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now()) {
+  const context = agentContext || currentAgentContext({}, now);
+  const currentAnchors = {};
+  for (const entity of [...(context.people || []), ...(context.objects || [])]) {
+    if (!['confirmed','transitioning'].includes(String(entity.presence || 'confirmed'))) continue;
+    const semanticId = entity.participantId || entity.objectId || null;
+    if (!semanticId) continue;
+    const memoryId = entity.participantId ? 'PERSON:' + entity.participantId : entity.objectId;
+    const history = runtime.spatialMemory.entities?.[memoryId]?.history || [];
+    const latest = history[history.length - 1];
+    if (
+      latest?.anchorId &&
+      Number(latest.timestamp || 0) > 0 &&
+      now - Number(latest.timestamp) <= 60000
+    ) {
+      currentAnchors[semanticId] = {
+        anchorId: latest.anchorId,
+        anchorLabel: latest.anchorLabel || null,
+        roomId: latest.roomId || entity.roomId || null,
+        confidence: Number(latest.confidence || entity.confidence || 0)
+      };
+    }
+  }
+
+  const anchors = Object.values(runtime.sceneGraph.nodes || {})
+    .filter((node) => (
+      ['landmark','portal','portal-landmark'].includes(node.type) &&
+      node.state !== 'expired'
+    ))
+    .map((node) => ({
+      id: node.id,
+      label: node.label || node.id,
+      roomId: runtime.sceneGraph.roomId || null
+    }));
+
+  const rooms = runtime.environmentRooms.map((room) => ({
+    id: room.id,
+    name: room.name || room.label || room.id,
+    label: room.label || room.name || room.id
+  }));
+  const roomObservability = Object.fromEntries(
+    rooms.map((room) => [room.id, policyForRoom(room.id).allowVisualObservation !== false])
+  );
+
+  return {
+    ...context,
+    rooms,
+    anchors,
+    currentAnchors,
+    roomObservability,
+    selfSubjectId: options.selfSubjectId || null
+  };
+}
+
+function physicalGoalCommandContext(options = {}, now = Date.now()) {
+  return physicalGoalContextFromAgent(currentAgentContext({}, now), options, now);
+}
+
+async function initializePhysicalGoals() {
+  try {
+    runtime.physicalGoals = await listPhysicalGoals();
+    runtime.physicalGoalHistory = await listPhysicalGoalEvents(50);
+  } catch (error) {
+    console.error('Could not load physical goals', error);
+    runtime.physicalGoals = [];
+    runtime.physicalGoalHistory = [];
+  }
+}
+
+async function addPhysicalGoal(input = {}) {
+  const goal = normalizePhysicalGoal(input, Date.now());
+  await savePhysicalGoal(goal);
+  runtime.physicalGoals = [
+    ...runtime.physicalGoals.filter((item) => item.id !== goal.id),
+    goal
+  ];
+  return copySerializable(goal);
+}
+
+async function removePhysicalGoal(id) {
+  await deletePhysicalGoal(id);
+  runtime.physicalGoals = runtime.physicalGoals.filter((item) => item.id !== id);
+  return true;
+}
+
+async function clearPhysicalGoalHistory() {
+  await clearPhysicalGoalEvents();
+  runtime.physicalGoalHistory = [];
+  return true;
+}
+
+async function publishPhysicalGoalEvent(event, goal, reason, now = Date.now()) {
+  try {
+    await savePhysicalGoalEvent(event);
+  } catch (error) {
+    console.error('Could not persist physical goal event', error);
+  }
+  runtime.physicalGoalHistory = [
+    event,
+    ...runtime.physicalGoalHistory.filter((item) => item.id !== event.id)
+  ].slice(0, 50);
+  const detail = copySerializable({ event, goal, reason });
+  for (const listener of physicalGoalListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:physical-goal', { detail }));
+
+  if (event.briefingEligible) {
+    await queueAgentBriefing(
+      buildPhysicalGoalBriefing(event, goal || {}, now),
+      reason,
+      now
+    );
+  }
+  return detail;
+}
+
+async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Date.now()) {
+  const beforeById = new Map(runtime.physicalGoals.map((goal) => [goal.id, goal]));
+  const result = evaluatePhysicalGoals(
+    runtime.physicalGoals,
+    physicalGoalContextFromAgent(previous || {}, {}, now),
+    physicalGoalContextFromAgent(current || {}, {}, now),
+    now
+  );
+  runtime.physicalGoals = result.goals;
+
+  for (const goal of runtime.physicalGoals) {
+    const before = beforeById.get(goal.id);
+    if (
+      !before ||
+      before.lastState !== goal.lastState ||
+      before.lastTriggeredAt !== goal.lastTriggeredAt
+    ) {
+      try { await savePhysicalGoal(goal); } catch (error) { console.error('Could not persist physical goal state', error); }
+    }
+  }
+  for (const event of result.events) {
+    const goal = runtime.physicalGoals.find((item) => item.id === event.goalId);
+    await publishPhysicalGoalEvent(event, goal, reason, now);
+  }
+  return copySerializable(result);
+}
+
+async function runPhysicalRoutine(id, now = Date.now()) {
+  const goal = runtime.physicalGoals.find((item) => item.id === id);
+  if (!goal) return { status:'not-found', message:'Physical routine not found.' };
+  if (goal.type !== 'routine') return { status:'invalid', message:'Only routines can be run manually.' };
+  const context = physicalGoalCommandContext({}, now);
+  const result = evaluatePhysicalGoal(goal, context, context, now, { manual:true });
+  runtime.physicalGoals = runtime.physicalGoals.map((item) => item.id === goal.id ? result.goal : item);
+  await savePhysicalGoal(result.goal);
+  for (const event of result.events) {
+    await publishPhysicalGoalEvent(event, result.goal, 'manual-routine', now);
+  }
+  return copySerializable({ status:'ready', goal:result.goal, events:result.events });
+}
+
+async function processPhysicalGoalCommand(input, options = {}) {
+  const interpreted = interpretPhysicalGoalCommand(
+    input,
+    physicalGoalCommandContext(options, Date.now()),
+    runtime.physicalGoals,
+    Date.now()
+  );
+  if (interpreted.status !== 'ready') return copySerializable(interpreted);
+
+  if (interpreted.intent === 'create') {
+    const goal = await addPhysicalGoal(interpreted.goal);
+    return copySerializable({ ...interpreted, goal, message:'Physical goal created: ' + goal.label + '.' });
+  }
+  if (interpreted.intent === 'list') {
+    return copySerializable({
+      ...interpreted,
+      goals:runtime.physicalGoals,
+      message:runtime.physicalGoals.length
+        ? 'You have ' + runtime.physicalGoals.length + ' physical ' + (runtime.physicalGoals.length === 1 ? 'goal.' : 'goals.')
+        : 'You have no physical goals.'
+    });
+  }
+  if (interpreted.intent === 'remove') {
+    await removePhysicalGoal(interpreted.goal.id);
+    return copySerializable({ ...interpreted, message:'Physical goal removed: ' + interpreted.goal.label + '.' });
+  }
+  if (interpreted.intent === 'pause' || interpreted.intent === 'resume') {
+    const enabled = interpreted.intent === 'resume';
+    const goal = await addPhysicalGoal({ ...interpreted.goal, enabled });
+    return copySerializable({ ...interpreted, goal, message:(enabled ? 'Physical goal resumed: ' : 'Physical goal paused: ') + goal.label + '.' });
+  }
+  if (interpreted.intent === 'clear-history') {
+    await clearPhysicalGoalHistory();
+    return copySerializable({ ...interpreted, message:'Physical goal history cleared.' });
+  }
+  return copySerializable(interpreted);
 }
 
 async function processWorldWatchCommand(input) {
