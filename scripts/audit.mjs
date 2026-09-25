@@ -1114,8 +1114,20 @@ for (const modulePath of [
     fail('Agent Eyes must explicitly import V2.4 runtime dependency: ' + modulePath);
   }
 }
-if (!/allowVisualObservation !== false && hasOnlineCamera/.test(agentEyes)) {
-  fail('V2.4 room-empty checks must require policy permission and live camera coverage');
+if (
+  !/roomCameraCoverageConfidence/.test(agentEyes) ||
+  !/cameraCalibrationValid/.test(agentEyes) ||
+  !/cameraCoveragePolygon/.test(agentEyes) ||
+  !/roomCoverageConfidence\[room\.id\]/.test(agentEyes) ||
+  !/>= 0\.85/.test(agentEyes)
+) {
+  fail('V2.4 room-empty checks must require broad calibrated live camera coverage');
+}
+if (!/allowSpatialMemory === false/.test(agentEyes)) {
+  fail('V2.4 anchor expectations must respect the current spatial-memory privacy policy');
+}
+if (!/addAndEvaluatePhysicalGoal/.test(agentEyes)) {
+  fail('V2.4 newly activated goals must evaluate immediately');
 }
 if (!agentEyes.includes('buildPhysicalGoalBriefing') || !agentEyes.includes('queueAgentBriefing')) {
   fail('V2.4 goal violations must route through the governed Agent briefing queue');
