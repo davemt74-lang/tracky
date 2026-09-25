@@ -15,14 +15,17 @@ function subjectKey(item){ return String(item?.participantId||item?.objectId||it
 function allEntities(context={}){
   return [...arr(context.people),...arr(context.objects)];
 }
-function entityMatch(item,watch){
-  if(!item) return false;
-  if(watch.subjectId&&subjectKey(item)===watch.subjectId) return true;
-  if(watch.subjectLabel&&txt(item.label,80).toLowerCase()===watch.subjectLabel.toLowerCase()) return true;
-  return false;
+function matchingEntities(context,watch){
+  const entities=allEntities(context);
+  if(watch.subjectId) return entities.filter((item)=>subjectKey(item)===watch.subjectId);
+  if(watch.subjectLabel){
+    const matches=entities.filter((item)=>txt(item.label,80).toLowerCase()===watch.subjectLabel.toLowerCase());
+    return matches.length===1?matches:[];
+  }
+  return entities;
 }
 function findEntity(context,watch){
-  return allEntities(context).find((item)=>entityMatch(item,watch))||null;
+  return matchingEntities(context,watch)[0]||null;
 }
 function findAnomaly(context,watch){
   return arr(context?.anomalies).find((item)=>{
@@ -73,21 +76,57 @@ export function evaluateWorldWatch(input,previous={},current={},delta={},now=Dat
   if(!watch.enabled||!cooledDown(watch,now)) return null;
 
   if(watch.type==='entity-enters-room'||watch.type==='entity-leaves-room'||watch.type==='entity-moved'){
+    const scoped=Boolean(watch.subjectId||watch.subjectLabel);
+    const beforeMatches=matchingEntities(previous,watch);
+    const afterMatches=matchingEntities(current,watch);
     const before=findEntity(previous,watch);
     const after=findEntity(current,watch);
+
     if(watch.type==='entity-enters-room'){
-      if(after&&after.roomId===watch.roomId&&(!before||before.roomId!==watch.roomId)){
-        return trigger(watch,watch.type,(after.label||watch.subjectLabel||'Entity')+' entered '+(after.room||watch.roomId)+'.',now,
-          {subjectId:subjectKey(after),roomId:after.roomId,confidence:after.confidence});
+      if(scoped){
+        if(after&&after.roomId===watch.roomId&&(!before||before.roomId!==watch.roomId)){
+          return trigger(watch,watch.type,(after.label||watch.subjectLabel||'Entity')+' entered '+(after.room||watch.roomId)+'.',now,
+            {subjectId:subjectKey(after),roomId:after.roomId,confidence:after.confidence});
+        }
+      }else{
+        const beforeInRoom=new Set(beforeMatches.filter((item)=>item.roomId===watch.roomId).map(subjectKey));
+        const entrant=afterMatches.find((item)=>item.roomId===watch.roomId&&!beforeInRoom.has(subjectKey(item)));
+        if(entrant){
+          return trigger(watch,watch.type,(entrant.label||'Entity')+' entered '+(entrant.room||watch.roomId)+'.',now,
+            {subjectId:subjectKey(entrant),roomId:entrant.roomId,confidence:entrant.confidence});
+        }
       }
     }else if(watch.type==='entity-leaves-room'){
-      if(before&&before.roomId===watch.roomId&&(!after||after.roomId!==watch.roomId)){
-        return trigger(watch,watch.type,(before.label||watch.subjectLabel||'Entity')+' left '+(before.room||watch.roomId)+'.',now,
-          {subjectId:subjectKey(before),roomId:watch.roomId,confidence:before.confidence});
+      if(scoped){
+        if(before&&before.roomId===watch.roomId&&(!after||after.roomId!==watch.roomId)){
+          return trigger(watch,watch.type,(before.label||watch.subjectLabel||'Entity')+' left '+(before.room||watch.roomId)+'.',now,
+            {subjectId:subjectKey(before),roomId:watch.roomId,confidence:before.confidence});
+        }
+      }else{
+        const afterInRoom=new Set(afterMatches.filter((item)=>item.roomId===watch.roomId).map(subjectKey));
+        const leaver=beforeMatches.find((item)=>item.roomId===watch.roomId&&!afterInRoom.has(subjectKey(item)));
+        if(leaver){
+          return trigger(watch,watch.type,(leaver.label||'Entity')+' left '+(leaver.room||watch.roomId)+'.',now,
+            {subjectId:subjectKey(leaver),roomId:watch.roomId,confidence:leaver.confidence});
+        }
       }
-    }else if(before&&after&&(before.roomId!==after.roomId||before.presence!==after.presence)){
-      return trigger(watch,watch.type,(after.label||watch.subjectLabel||'Entity')+' changed location state.',now,
-        {subjectId:subjectKey(after),roomId:after.roomId,confidence:after.confidence});
+    }else{
+      if(scoped){
+        if(before&&after&&(before.roomId!==after.roomId||before.presence!==after.presence)){
+          return trigger(watch,watch.type,(after.label||watch.subjectLabel||'Entity')+' changed location state.',now,
+            {subjectId:subjectKey(after),roomId:after.roomId,confidence:after.confidence});
+        }
+      }else{
+        const beforeById=new Map(beforeMatches.map((item)=>[subjectKey(item),item]));
+        const moved=afterMatches.find((item)=>{
+          const prior=beforeById.get(subjectKey(item));
+          return prior&&(prior.roomId!==item.roomId||prior.presence!==item.presence);
+        });
+        if(moved){
+          return trigger(watch,watch.type,(moved.label||'Entity')+' changed location state.',now,
+            {subjectId:subjectKey(moved),roomId:moved.roomId,confidence:moved.confidence});
+        }
+      }
     }
   }
 
