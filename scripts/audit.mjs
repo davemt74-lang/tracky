@@ -635,49 +635,6 @@ const anomalyCore = read('src/anomaly-core.js');
 for (const symbol of [
   'ANOMALY_TYPES',
   'createAnomalyState',
-  'observeAnomalySignals',
-  'deriveAnomalySignals',
-  'acknowledgeAnomaly',
-  'dismissAnomaly',
-  'anomalySnapshot',
-  'proactiveAwarenessSummary'
-]) {
-  if (!anomalyCore.includes(symbol)) {
-    fail('Anomaly core is missing required V1.8 interface: ' + symbol);
-  }
-}
-for (const anomalyType of [
-  'world-contradiction',
-  'environment-unrecognized',
-  'environment-structural-drift',
-  'camera-pose-shift',
-  'camera-quality-degraded',
-  'expected-location-deviation',
-  'expected-object-missing',
-  'new-object-presence'
-]) {
-  if (!anomalyCore.includes("'" + anomalyType + "'")) {
-    fail('Anomaly core is missing anomaly type: ' + anomalyType);
-  }
-}
-if (!/minimumObservations/.test(anomalyCore) || !/persistenceMs/.test(anomalyCore)) {
-  fail('Anomaly confirmation must require explicit persistence/evidence thresholds');
-}
-if (!/allowObjectObservation/.test(anomalyCore)) {
-  fail('Anomaly derivation must respect room object-observation privacy policy');
-}
-
-const anomalyStore = read('src/anomaly-store.js');
-for (const symbol of ['loadAnomalyState','saveAnomalyState']) {
-  if (!anomalyStore.includes(symbol)) {
-    fail('Anomaly store is missing persistence interface: ' + symbol);
-  }
-}
-
-const anomalyCore = read('src/anomaly-core.js');
-for (const symbol of [
-  'ANOMALY_TYPES',
-  'createAnomalyState',
   'deriveAnomalySignals',
   'observeAnomalySignals',
   'acknowledgeAnomaly',
