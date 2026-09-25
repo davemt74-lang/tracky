@@ -221,6 +221,7 @@ import {
 import {
   acknowledgeAgentBriefing,
   buildAgentBriefing,
+  buildPhysicalGoalBriefing,
   pendingAgentBriefings
 } from './src/agent-briefing-core.js';
 import {
@@ -241,6 +242,22 @@ import {
   readyBriefings,
   reevaluateBriefingQueue
 } from './src/briefing-queue-core.js';
+import {
+  evaluatePhysicalGoal,
+  evaluatePhysicalGoals,
+  normalizePhysicalGoal
+} from './src/physical-goal-core.js';
+import {
+  clearPhysicalGoalEvents,
+  deletePhysicalGoal,
+  listPhysicalGoalEvents,
+  listPhysicalGoals,
+  savePhysicalGoal,
+  savePhysicalGoalEvent
+} from './src/physical-goal-store.js';
+import {
+  interpretPhysicalGoalCommand
+} from './src/physical-goal-language-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -543,6 +560,7 @@ const agentContextListeners = new Set();
 const worldWatchListeners = new Set();
 const agentBriefingListeners = new Set();
 const agentDeliveryListeners = new Set();
+const physicalGoalListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -645,7 +663,9 @@ const runtime = {
   worldWatches: [],
   worldWatchHistory: [],
   agentBriefings: [],
-  agentDeliveryContext: normalizeDeliveryContext({}, Date.now())
+  agentDeliveryContext: normalizeDeliveryContext({}, Date.now()),
+  physicalGoals: [],
+  physicalGoalHistory: []
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -946,8 +966,7 @@ async function initializeAgentBriefings() {
   }
 }
 
-async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
-  const briefing = buildAgentBriefing(event, watch || {}, now);
+async function queueAgentBriefing(briefing, reason, now = Date.now()) {
   const result = enqueueBriefing(
     runtime.agentBriefings,
     briefing,
@@ -973,6 +992,14 @@ async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
     publishAgentDeliveryReady(result.entry, reason, now);
   }
   return copySerializable(result.entry);
+}
+
+async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
+  return queueAgentBriefing(
+    buildAgentBriefing(event, watch || {}, now),
+    reason,
+    now
+  );
 }
 
 async function acknowledgePhysicalAgentBriefing(id, now = Date.now()) {
@@ -1009,6 +1036,275 @@ async function clearPhysicalAgentBriefings() {
   await clearAgentBriefingsStore();
   runtime.agentBriefings = [];
   return true;
+}
+
+function pointInsideRoomPolygon(point, polygon = []) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = Number(polygon[i]?.x || 0);
+    const yi = Number(polygon[i]?.y || 0);
+    const xj = Number(polygon[j]?.x || 0);
+    const yj = Number(polygon[j]?.y || 0);
+    const crosses = ((yi > point.y) !== (yj > point.y)) &&
+      (point.x < (xj - xi) * (point.y - yi) / ((yj - yi) || Number.EPSILON) + xi);
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function roomCameraCoverageConfidence(roomId) {
+  const cameras = runtime.cameraConfigs.filter((camera) => (
+    camera.roomId === roomId &&
+    camera.enabled &&
+    cameraCalibrationValid(camera) &&
+    ['online','starting'].includes(runtime.cameraStatuses.get(camera.id) || 'offline')
+  ));
+  if (!cameras.length) return 0;
+  const polygons = cameras.map((camera) => cameraCoveragePolygon(camera));
+  const grid = 16;
+  let covered = 0;
+  for (let y = 0; y < grid; y += 1) {
+    for (let x = 0; x < grid; x += 1) {
+      const point = { x:(x + 0.5) / grid, y:(y + 0.5) / grid };
+      if (polygons.some((polygon) => pointInsideRoomPolygon(point, polygon))) covered += 1;
+    }
+  }
+  return covered / (grid * grid);
+}
+
+function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now()) {
+  const context = agentContext || currentAgentContext({}, now);
+  const currentAnchors = {};
+  for (const entity of [...(context.people || []), ...(context.objects || [])]) {
+    if (!['confirmed','transitioning'].includes(String(entity.presence || 'confirmed'))) continue;
+    const semanticId = entity.participantId || entity.objectId || null;
+    if (!semanticId) continue;
+    if (policyForRoom(entity.roomId).allowSpatialMemory === false) continue;
+    const memoryId = entity.participantId ? 'PERSON:' + entity.participantId : entity.objectId;
+    const history = runtime.spatialMemory.entities?.[memoryId]?.history || [];
+    const latest = history[history.length - 1];
+    if (
+      latest?.anchorId &&
+      policyForRoom(latest.roomId || entity.roomId).allowSpatialMemory !== false &&
+      Number(latest.timestamp || 0) > 0 &&
+      now - Number(latest.timestamp) <= 60000
+    ) {
+      currentAnchors[semanticId] = {
+        anchorId: latest.anchorId,
+        anchorLabel: latest.anchorLabel || null,
+        roomId: latest.roomId || entity.roomId || null,
+        confidence: Number(latest.confidence || entity.confidence || 0)
+      };
+    }
+  }
+
+  const anchors = Object.values(runtime.sceneGraph.nodes || {})
+    .filter((node) => (
+      ['landmark','portal','portal-landmark'].includes(node.type) &&
+      node.state !== 'expired'
+    ))
+    .map((node) => ({
+      id: node.id,
+      label: node.label || node.id,
+      roomId: runtime.sceneGraph.roomId || null
+    }));
+
+  const rooms = runtime.environmentRooms.map((room) => ({
+    id: room.id,
+    name: room.name || room.label || room.id,
+    label: room.label || room.name || room.id
+  }));
+  const roomCoverageConfidence = Object.fromEntries(
+    rooms.map((room) => [room.id, roomCameraCoverageConfidence(room.id)])
+  );
+  const roomObservability = Object.fromEntries(
+    rooms.map((room) => {
+      const policy = policyForRoom(room.id);
+      const hasParticipantBlindSpot = (policy.sensitiveRegions || []).some((region) => (
+        region.enabled !== false &&
+        region.mode === 'ignore' &&
+        (region.appliesTo || []).includes('participant')
+      ));
+      return [
+        room.id,
+        policy.allowVisualObservation !== false &&
+        policy.allowAnonymousTracking !== false &&
+        !hasParticipantBlindSpot &&
+        Number(roomCoverageConfidence[room.id] || 0) >= 0.85
+      ];
+    })
+  );
+
+  return {
+    ...context,
+    rooms,
+    anchors,
+    currentAnchors,
+    roomObservability,
+    roomCoverageConfidence,
+    selfSubjectId: options.selfSubjectId || null
+  };
+}
+
+function physicalGoalCommandContext(options = {}, now = Date.now()) {
+  return physicalGoalContextFromAgent(currentAgentContext({}, now), options, now);
+}
+
+async function initializePhysicalGoals() {
+  try {
+    runtime.physicalGoals = await listPhysicalGoals();
+    runtime.physicalGoalHistory = await listPhysicalGoalEvents(50);
+  } catch (error) {
+    console.error('Could not load physical goals', error);
+    runtime.physicalGoals = [];
+    runtime.physicalGoalHistory = [];
+  }
+}
+
+async function addPhysicalGoalDefinition(input = {}) {
+  const goal = normalizePhysicalGoal(input, Date.now());
+  await savePhysicalGoal(goal);
+  runtime.physicalGoals = [
+    ...runtime.physicalGoals.filter((item) => item.id !== goal.id),
+    goal
+  ];
+  return copySerializable(goal);
+}
+
+async function addAndEvaluatePhysicalGoal(input = {}, reason = 'goal-created', now = Date.now()) {
+  const created = await addPhysicalGoalDefinition(input);
+  const stored = runtime.physicalGoals.find((item) => item.id === created.id);
+  const context = physicalGoalCommandContext({}, now);
+  const result = evaluatePhysicalGoal(stored, context, context, now);
+  runtime.physicalGoals = runtime.physicalGoals.map((item) => (
+    item.id === result.goal.id ? result.goal : item
+  ));
+  await savePhysicalGoal(result.goal);
+  for (const event of result.events) {
+    await publishPhysicalGoalEvent(event, result.goal, reason, now);
+  }
+  return copySerializable(result.goal);
+}
+
+async function removePhysicalGoalDefinition(id) {
+  await deletePhysicalGoal(id);
+  runtime.physicalGoals = runtime.physicalGoals.filter((item) => item.id !== id);
+  return true;
+}
+
+async function clearPhysicalGoalEventHistory() {
+  await clearPhysicalGoalEvents();
+  runtime.physicalGoalHistory = [];
+  return true;
+}
+
+async function publishPhysicalGoalEvent(event, goal, reason, now = Date.now()) {
+  try {
+    await savePhysicalGoalEvent(event);
+  } catch (error) {
+    console.error('Could not persist physical goal event', error);
+  }
+  runtime.physicalGoalHistory = [
+    event,
+    ...runtime.physicalGoalHistory.filter((item) => item.id !== event.id)
+  ].slice(0, 50);
+  const detail = copySerializable({ event, goal, reason });
+  for (const listener of physicalGoalListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:physical-goal', { detail }));
+
+  if (event.briefingEligible) {
+    await queueAgentBriefing(
+      buildPhysicalGoalBriefing(event, goal || {}, now),
+      reason,
+      now
+    );
+  }
+  return detail;
+}
+
+async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Date.now(), options = {}) {
+  const beforeById = new Map(runtime.physicalGoals.map((goal) => [goal.id, goal]));
+  const result = evaluatePhysicalGoals(
+    runtime.physicalGoals,
+    physicalGoalContextFromAgent(previous || {}, {}, now),
+    physicalGoalContextFromAgent(current || {}, {}, now),
+    now,
+    options
+  );
+  runtime.physicalGoals = result.goals;
+
+  for (const goal of runtime.physicalGoals) {
+    const before = beforeById.get(goal.id);
+    if (
+      !before ||
+      before.lastState !== goal.lastState ||
+      before.lastTriggeredAt !== goal.lastTriggeredAt
+    ) {
+      try { await savePhysicalGoal(goal); } catch (error) { console.error('Could not persist physical goal state', error); }
+    }
+  }
+  for (const event of result.events) {
+    const goal = runtime.physicalGoals.find((item) => item.id === event.goalId);
+    await publishPhysicalGoalEvent(event, goal, reason, now);
+  }
+  return copySerializable(result);
+}
+
+async function runPhysicalRoutineNow(id, now = Date.now()) {
+  const goal = runtime.physicalGoals.find((item) => item.id === id);
+  if (!goal) return { status:'not-found', message:'Physical routine not found.' };
+  if (goal.type !== 'routine') return { status:'invalid', message:'Only routines can be run manually.' };
+  const context = physicalGoalCommandContext({}, now);
+  const result = evaluatePhysicalGoal(goal, context, context, now, { manual:true });
+  runtime.physicalGoals = runtime.physicalGoals.map((item) => item.id === goal.id ? result.goal : item);
+  await savePhysicalGoal(result.goal);
+  for (const event of result.events) {
+    await publishPhysicalGoalEvent(event, result.goal, 'manual-routine', now);
+  }
+  return copySerializable({ status:'ready', goal:result.goal, events:result.events });
+}
+
+async function processPhysicalGoalCommandRuntime(input, options = {}) {
+  const interpreted = interpretPhysicalGoalCommand(
+    input,
+    physicalGoalCommandContext(options, Date.now()),
+    runtime.physicalGoals,
+    Date.now()
+  );
+  if (interpreted.status !== 'ready') return copySerializable(interpreted);
+
+  if (interpreted.intent === 'create') {
+    const goal = await addAndEvaluatePhysicalGoal(interpreted.goal, 'goal-created', Date.now());
+    return copySerializable({ ...interpreted, goal, message:'Physical goal created: ' + goal.label + '.' });
+  }
+  if (interpreted.intent === 'list') {
+    return copySerializable({
+      ...interpreted,
+      goals:runtime.physicalGoals,
+      message:runtime.physicalGoals.length
+        ? 'You have ' + runtime.physicalGoals.length + ' physical ' + (runtime.physicalGoals.length === 1 ? 'goal.' : 'goals.')
+        : 'You have no physical goals.'
+    });
+  }
+  if (interpreted.intent === 'remove') {
+    await removePhysicalGoalDefinition(interpreted.goal.id);
+    return copySerializable({ ...interpreted, message:'Physical goal removed: ' + interpreted.goal.label + '.' });
+  }
+  if (interpreted.intent === 'pause' || interpreted.intent === 'resume') {
+    const enabled = interpreted.intent === 'resume';
+    const goal = enabled
+      ? await addAndEvaluatePhysicalGoal({ ...interpreted.goal, enabled:true }, 'goal-resumed', Date.now())
+      : await addPhysicalGoalDefinition({ ...interpreted.goal, enabled:false });
+    return copySerializable({ ...interpreted, goal, message:(enabled ? 'Physical goal resumed: ' : 'Physical goal paused: ') + goal.label + '.' });
+  }
+  if (interpreted.intent === 'run') {
+    return runPhysicalRoutineNow(interpreted.goal.id, Date.now());
+  }
+  if (interpreted.intent === 'clear-history') {
+    await clearPhysicalGoalEventHistory();
+    return copySerializable({ ...interpreted, message:'Physical goal history cleared.' });
+  }
+  return copySerializable(interpreted);
 }
 
 async function processWorldWatchCommand(input) {
@@ -1116,6 +1412,7 @@ function refreshAgentContext(reason = 'runtime-update', now = Date.now()) {
   if (!delta.changed) return copySerializable({ context: next, delta });
 
   void evaluatePhysicalWorldWatches(previous, next, delta, reason, now);
+  void evaluatePhysicalGoalsRuntime(previous, next, reason, now);
   const detail = copySerializable({ context: next, delta, reason });
   for (const listener of agentContextListeners) listener(detail);
   window.dispatchEvent(new CustomEvent('tracky:agent-context', { detail }));
@@ -1666,6 +1963,35 @@ window.TrackyAgentEyes = Object.freeze({
   clearWorldWatchHistory() {
     return clearPhysicalWorldWatchHistory();
   },
+  addPhysicalGoal(input = {}) {
+    return addAndEvaluatePhysicalGoal(input, 'api-goal-created', Date.now());
+  },
+  removePhysicalGoal(id) {
+    return removePhysicalGoalDefinition(id);
+  },
+  getPhysicalGoals() {
+    return copySerializable(runtime.physicalGoals);
+  },
+  getPhysicalGoalHistory(limit = 50) {
+    return copySerializable(runtime.physicalGoalHistory.slice(0, Math.max(1, Math.min(50, Number(limit || 50)))));
+  },
+  clearPhysicalGoalHistory() {
+    return clearPhysicalGoalEventHistory();
+  },
+  interpretPhysicalGoal(input, options = {}) {
+    return copySerializable(interpretPhysicalGoalCommand(
+      input,
+      physicalGoalCommandContext(options, Date.now()),
+      runtime.physicalGoals,
+      Date.now()
+    ));
+  },
+  processPhysicalGoalCommand(input, options = {}) {
+    return processPhysicalGoalCommandRuntime(input, options);
+  },
+  runPhysicalRoutine(id) {
+    return runPhysicalRoutineNow(id);
+  },
   interpretWorldWatch(input) {
     return copySerializable(interpretWorldWatchCommand(
       input,
@@ -1818,6 +2144,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAgentDelivery(listener) {
     agentDeliveryListeners.add(listener);
     return () => agentDeliveryListeners.delete(listener);
+  },
+  subscribePhysicalGoals(listener) {
+    physicalGoalListeners.add(listener);
+    return () => physicalGoalListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -8672,7 +9002,9 @@ await initializeAttentionState();
 await initializeWorldQueries();
 await initializeWorldWatches();
 await initializeAgentBriefings();
+await initializePhysicalGoals();
 runtime.agentContext = currentAgentContext({}, Date.now());
+await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now(), { suppressRoutineTriggers:true });
 renderAll();
 renderEventFeed();
 renderRoomState();

@@ -13,6 +13,14 @@ test('related duplicate briefing coalesces inside time window',()=>{
  const second=enqueueBriefing(first.queue,b('B2',{generatedAt:2000}),{agentConnected:true,activeRoomId:'ROOM01'},2000);
  assert.equal(second.coalesced,true);assert.equal(second.queue.length,1);assert.equal(second.entry.id,'B1');assert.equal(second.entry.occurrenceCount,2);
 });
+test('different physical goals never coalesce even with identical evidence',()=>{
+ const one=b('B1',{type:'physical-world-goal',goalId:'G1'});
+ const two=b('B2',{type:'physical-world-goal',goalId:'G2',generatedAt:2000});
+ const first=enqueueBriefing([],one,{agentConnected:true,activeRoomId:'ROOM01'},1000);
+ const second=enqueueBriefing(first.queue,two,{agentConnected:true,activeRoomId:'ROOM01'},2000);
+ assert.equal(second.coalesced,false);assert.equal(second.queue.length,2);
+});
+
 test('different room evidence does not coalesce',()=>{
  const first=enqueueBriefing([],b('B1'),{agentConnected:true},1000);
  const second=enqueueBriefing(first.queue,b('B2',{evidence:{subjectId:'O1',roomId:'ROOM02'}}),{agentConnected:true},2000);
