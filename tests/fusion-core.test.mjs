@@ -110,3 +110,13 @@ test('two same-label objects from one camera remain separate world objects', () 
   ],1000,{nextId:(()=>{let n=0;return()=> 'WO00'+(++n);})()});
   assert.equal(objects.length,2);
 });
+
+
+test('anonymous overlap cluster id stays anchored to stable sorted observation id', () => {
+  const entities=fuseParticipantObservations([
+    person('CAM02','T9',.48),
+    person('CAM01','T1',.45)
+  ]);
+  assert.equal(entities[0].id,'U:CAM01:T1');
+  assert.deepEqual(entities[0].observationIds,['CAM01:T1','CAM02:T9']);
+});
