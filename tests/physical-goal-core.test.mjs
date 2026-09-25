@@ -62,6 +62,25 @@ test('routine reports needs-attention when a check is violated',()=>{
  const r=evaluatePhysicalGoal(goal,before,after,2000);
  assert.equal(r.events[0].type,'routine-needs-attention');assert.equal(r.events[0].briefingEligible,true);
 });
+test('baseline reconstruction can suppress recurring routine triggers',()=>{
+ const before={people:[],objects:[],roomObservability:{ROOM01:true},currentAnchors:{}};
+ const after=context();
+ const goal={id:'G-enter',type:'routine',label:'Entry check',cooldownMs:0,trigger:{kind:'entity-enters-room',subjectId:'p1',roomId:'ROOM01'},checks:[{kind:'room-empty',roomId:'ROOM02'}]};
+ const r=evaluatePhysicalGoal(goal,before,after,1000,{suppressRoutineTriggers:true});
+ assert.equal(r.events.length,0);
+});
+test('routine supports multiple ordered semantic checks',()=>{
+ const before=context(),after=context();
+ after.people[0]={...after.people[0],roomId:'ROOM02'};
+ const goal={id:'G-multi',type:'routine',label:'Exit checklist',cooldownMs:0,trigger:{kind:'entity-leaves-room',subjectId:'p1',roomId:'ROOM01'},checks:[
+  {kind:'room-empty',roomId:'ROOM01'},
+  {kind:'entity-in-room',subjectId:'O1',roomId:'ROOM01'}
+ ]};
+ const r=evaluatePhysicalGoal(goal,before,after,2000);
+ assert.equal(r.events[0].checks.length,2);
+ assert.equal(r.events[0].state,'met');
+});
+
 test('routine supports manual execution',()=>{
  const c=context();c.people=c.people.filter(x=>x.roomId!=='ROOM01');
  const goal={id:'G1',type:'routine',label:'Office check',cooldownMs:0,trigger:{kind:'manual'},checks:[{kind:'room-empty',roomId:'ROOM01'}]};
