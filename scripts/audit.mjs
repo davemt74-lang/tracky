@@ -1123,6 +1123,13 @@ if (
 ) {
   fail('V2.4 room-empty checks must require broad calibrated live camera coverage');
 }
+if (
+  !/allowAnonymousTracking !== false/.test(agentEyes) ||
+  !/hasParticipantBlindSpot/.test(agentEyes) ||
+  !/region\.mode === 'ignore'/.test(agentEyes)
+) {
+  fail('V2.4 room-empty verification must reject participant-observation privacy blind spots');
+}
 if (!/allowSpatialMemory === false/.test(agentEyes)) {
   fail('V2.4 anchor expectations must respect the current spatial-memory privacy policy');
 }
