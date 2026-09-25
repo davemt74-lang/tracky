@@ -1679,6 +1679,30 @@ window.TrackyAgentEyes = Object.freeze({
   getPendingAgentBriefings() {
     return copySerializable(pendingAgentBriefings(runtime.agentBriefings));
   },
+  getAgentDeliveryContext() {
+    return copySerializable(currentAgentDeliveryContext(Date.now()));
+  },
+  setAgentDeliveryContext(context = {}) {
+    return reevaluateAgentBriefingDelivery(context, 'agent-delivery-context');
+  },
+  getAgentBriefingQueue(limit = 50) {
+    return copySerializable(runtime.agentBriefings.slice(0, Math.max(1, Math.min(50, Number(limit || 50)))));
+  },
+  getReadyAgentBriefings() {
+    return copySerializable(readyBriefings(runtime.agentBriefings));
+  },
+  getNextAgentBriefing() {
+    return copySerializable(readyBriefings(runtime.agentBriefings)[0] || null);
+  },
+  getAgentBriefingDigest(limit = 8) {
+    return copySerializable(buildBriefingDigest(runtime.agentBriefings, limit, Date.now()));
+  },
+  markAgentBriefingSurfaced(id) {
+    return markPhysicalAgentBriefingSurfaced(id);
+  },
+  deferAgentBriefing(id, delayMs = 300000, reason = 'user-deferred') {
+    return deferPhysicalAgentBriefing(id, delayMs, reason);
+  },
   acknowledgeAgentBriefing(id) {
     return acknowledgePhysicalAgentBriefing(id);
   },
@@ -1786,6 +1810,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAgentBriefings(listener) {
     agentBriefingListeners.add(listener);
     return () => agentBriefingListeners.delete(listener);
+  },
+  subscribeAgentDelivery(listener) {
+    agentDeliveryListeners.add(listener);
+    return () => agentDeliveryListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
