@@ -46,7 +46,8 @@ Seeing a person is enough to prove a room is not empty.
 
 Claiming that a room **is** empty is harder. V2.4 requires:
 
-- visual observation allowed by the room privacy policy
+- visual observation and anonymous participant tracking allowed by the room privacy policy
+- no enabled participant `ignore` privacy region that creates an occupancy blind spot
 - live/starting calibrated cameras
 - combined configured camera coverage of at least 85% of the room
 
