@@ -445,6 +445,27 @@ export function expectedLocationFor(state, entityIdValue) {
   return candidates[0] || null;
 }
 
+export function confirmedExpectedLocationFor(state, entityIdValue) {
+  const proposal = (state.proposals || [])
+    .filter((item) => (
+      item.type === 'expected-location' &&
+      item.subjectId === entityIdValue &&
+      item.status === 'confirmed'
+    ))
+    .sort((a,b) => Number(b.resolvedAt || b.updatedAt || 0) - Number(a.resolvedAt || a.updatedAt || 0))[0];
+
+  if (!proposal) return null;
+  return {
+    targetId: proposal.targetId,
+    roomId: proposal.roomId || null,
+    anchorId: proposal.anchorId || null,
+    anchorLabel: proposal.anchorLabel || null,
+    confidence: proposal.confidence,
+    evidence: proposal.evidence || null,
+    confirmedAt: proposal.resolvedAt || proposal.updatedAt || null
+  };
+}
+
 export function entityHistory(state, entityIdValue, limit = 50) {
   return (state.entities[entityIdValue]?.history || []).slice(-Math.max(1, limit));
 }
