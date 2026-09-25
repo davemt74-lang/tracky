@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   appendEntityHistory,
   createSpatialMemoryState,
+  confirmedExpectedLocationFor,
   entityHistory,
   entityJourney,
   expectedLocationFor,
@@ -149,4 +150,18 @@ test('relationship evidence is time-gated rather than frame-rate counted',()=>{
   observeSpatialMemory(state,input,1500);
   const evidence=state.relationshipEvidence['WO1::on::L1'];
   assert.equal(evidence.observations,1);
+});
+
+
+test('authoritative expected location requires explicit proposal confirmation',()=>{
+  const state=createSpatialMemoryState();
+  state.proposals.push({
+    key:'expected-location::WO1::L1',
+    type:'expected-location',subjectId:'WO1',targetId:'L1',
+    roomId:'ROOM01',anchorId:'L1',anchorLabel:'Desk',
+    confidence:.88,status:'proposed'
+  });
+  assert.equal(confirmedExpectedLocationFor(state,'WO1'),null);
+  resolveMemoryProposal(state,'expected-location::WO1::L1','confirmed',5000);
+  assert.equal(confirmedExpectedLocationFor(state,'WO1').anchorId,'L1');
 });
