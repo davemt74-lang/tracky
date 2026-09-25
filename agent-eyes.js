@@ -2054,7 +2054,9 @@ function renderEvidenceInspector() {
 
 function openEvidenceInspector(trackId) {
   runtime.selectedObjectId = null;
+  runtime.selectedSceneRecord = null;
   ui.objectInspector.hidden = true;
+  ui.sceneInspector.hidden = true;
   runtime.selectedTrackId = trackId;
   renderEvidenceInspector();
   drawOverlay();
@@ -2198,7 +2200,9 @@ function renderObjectEvidenceInspector() {
 
 function openObjectEvidenceInspector(objectId) {
   runtime.selectedTrackId = null;
+  runtime.selectedSceneRecord = null;
   ui.inspector.hidden = true;
+  ui.sceneInspector.hidden = true;
   runtime.selectedObjectId = objectId;
   renderObjectEvidenceInspector();
   drawOverlay();
@@ -2852,7 +2856,11 @@ function renderActiveSpeaker() {
 
 function renderRoomState() {
   const snapshot = roomStateSnapshot(roomState);
-  ui.stateJson.textContent = JSON.stringify(snapshot, null, 2);
+  const world = {
+    room: snapshot,
+    scene: sceneStateSnapshot(sceneState)
+  };
+  ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
   ui.peopleCount.textContent = String(
     snapshot.participants.length + snapshot.unknownTracks.length
@@ -3181,12 +3189,15 @@ function stopRoomAudio() {
 }
 
 async function copySnapshot() {
-  const text = JSON.stringify(roomStateSnapshot(roomState), null, 2);
+  const text = JSON.stringify({
+    room: roomStateSnapshot(roomState),
+    scene: sceneStateSnapshot(sceneState)
+  }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
     ui.copyState.textContent = 'Copied';
     setTimeout(() => {
-      ui.copyState.textContent = 'Copy JSON';
+      ui.copyState.textContent = 'Copy world JSON';
     }, 1200);
   } catch (error) {
     console.error(error);
