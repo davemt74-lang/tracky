@@ -294,6 +294,142 @@ window.TrackyAgentEyes = Object.freeze({
   sceneChangeTypes: SCENE_CHANGE_TYPES
 });
 
+
+function sceneInputSnapshot() {
+  const room = roomStateSnapshot(roomState);
+  const unknownParticipants = (room.unknownTracks || []).map((track) => ({
+    id: null,
+    name: track.trackId,
+    trackId: track.trackId,
+    presence: track.presence,
+    position: track.position,
+    behavior: track.behavior,
+    attention: track.attention,
+    addressing: track.addressing,
+    conversationGroup: track.conversationGroup,
+    voiceStatus: 'quiet'
+  }));
+
+  return {
+    ...room,
+    participants: [
+      ...(room.participants || []),
+      ...unknownParticipants
+    ]
+  };
+}
+
+function publishSceneChanges(changes) {
+  for (const change of changes) {
+    for (const listener of sceneListeners) listener(change);
+    window.dispatchEvent(new CustomEvent('tracky:scene-change', {
+      detail: change
+    }));
+  }
+}
+
+function updateSceneIntelligence(now = Date.now()) {
+  const previousEpisodeIds = new Set(
+    sceneState.episodes.map((episode) => episode.id)
+  );
+
+  const changes = updateSceneState(
+    sceneState,
+    sceneInputSnapshot(),
+    now
+  );
+
+  const completedEpisodes = sceneState.episodes.filter(
+    (episode) => !previousEpisodeIds.has(episode.id)
+  );
+
+  if (changes.length) {
+    publishSceneChanges(changes);
+    void saveSceneChanges(changes).catch((error) => {
+      console.error('Could not persist scene changes', error);
+    });
+  }
+
+  if (completedEpisodes.length) {
+    void saveSceneEpisodes(completedEpisodes).catch((error) => {
+      console.error('Could not persist scene episodes', error);
+    });
+  }
+
+  renderSceneIntelligence();
+  return changes;
+}
+
+async function initializeSceneMemory() {
+  try {
+    const [zones, changes, episodes] = await Promise.all([
+      loadSceneZones(),
+      listSceneChanges(120),
+      listSceneEpisodes(120)
+    ]);
+
+    replaceSceneZones(sceneState, zones);
+    sceneState.changes = changes;
+    sceneState.episodes = episodes;
+    ui.sceneStatus.textContent = 'Memory online';
+  } catch (error) {
+    console.error('Could not load scene memory', error);
+    ui.sceneStatus.textContent = 'Memory unavailable';
+  }
+
+  renderSceneIntelligence();
+}
+
+async function replaceZonesAndPersist(zones) {
+  replaceSceneZones(sceneState, zones);
+  try {
+    await saveSceneZones(sceneState.zones);
+  } catch (error) {
+    console.error('Could not persist scene zones', error);
+  }
+  renderSceneIntelligence();
+  renderRadar();
+  drawOverlay();
+}
+
+async function addSceneZone(event) {
+  event.preventDefault();
+
+  const zone = normalizeZone({
+    name: ui.sceneZoneName.value.trim() || 'Zone',
+    x: Number(ui.sceneZoneX.value) / 100,
+    y: Number(ui.sceneZoneY.value) / 100,
+    width: Number(ui.sceneZoneWidth.value) / 100,
+    height: Number(ui.sceneZoneHeight.value) / 100
+  });
+
+  await replaceZonesAndPersist([...sceneState.zones, zone]);
+  ui.sceneZoneName.value = '';
+}
+
+async function deleteSceneZone(zoneId) {
+  await replaceZonesAndPersist(
+    sceneState.zones.filter((zone) => zone.id !== zoneId)
+  );
+}
+
+async function clearSavedSceneMemory() {
+  if (!window.confirm(
+    'Clear locally saved scene changes and completed episodes? Named room zones will be preserved.'
+  )) return;
+
+  try {
+    await clearSceneMemory({ preserveZones: true });
+    sceneState.changes = [];
+    sceneState.episodes = [];
+    runtime.selectedSceneRecord = null;
+    ui.sceneInspector.hidden = true;
+    renderSceneIntelligence();
+  } catch (error) {
+    console.error('Could not clear scene memory', error);
+  }
+}
+
 function nextTrackId() {
   runtime.trackCounter += 1;
   return 'T' + String(runtime.trackCounter).padStart(3, '0');
