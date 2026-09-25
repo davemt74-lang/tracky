@@ -38,6 +38,12 @@ import {
   createRoomState,
   roomStateSnapshot
 } from './src/perception-core.js';
+import {
+  POSE_CONNECTIONS,
+  buildBehaviorEvidence,
+  inferWave,
+  keypointMap
+} from './src/behavior-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -57,6 +63,7 @@ const ui = {
   voiceStatus: $('#eyesVoiceStatus'),
   transcriptStatus: $('#eyesTranscriptStatus'),
   healthStatus: $('#eyesHealthStatus'),
+  behaviorStatus: $('#eyesBehaviorStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -66,6 +73,10 @@ const ui = {
   noiseDb: $('#eyesNoiseDb'),
   vad: $('#eyesVad'),
   audioPath: $('#eyesAudioPath'),
+  poseCount: $('#eyesPoseCount'),
+  attentionCount: $('#eyesAttentionCount'),
+  poseOverlay: $('#eyesPoseOverlay'),
+  attentionOverlay: $('#eyesAttentionOverlay'),
   radarTracks: $('#agentRadarTracks'),
   participants: $('#eyesParticipants'),
   activeSpeaker: $('#agentActiveSpeaker'),
@@ -76,7 +87,23 @@ const ui = {
   events: $('#eyesEventFeed'),
   dialogue: $('#eyesDialogue'),
   dialogueStatus: $('#eyesDialogueStatus'),
-  eventBusStatus: $('#eventBusStatus')
+  eventBusStatus: $('#eventBusStatus'),
+  inspector: $('#evidenceInspector'),
+  inspectorName: $('#inspectorName'),
+  inspectorTrack: $('#inspectorTrack'),
+  inspectorIdentity: $('#inspectorIdentity'),
+  inspectorPose: $('#inspectorPose'),
+  inspectorOrientation: $('#inspectorOrientation'),
+  inspectorPosture: $('#inspectorPosture'),
+  inspectorMotion: $('#inspectorMotion'),
+  inspectorGesture: $('#inspectorGesture'),
+  inspectorAttention: $('#inspectorAttention'),
+  inspectorAddressing: $('#inspectorAddressing'),
+  inspectorSignals: $('#inspectorSignals'),
+  inspectorLandmarkCount: $('#inspectorLandmarkCount'),
+  inspectorLandmarks: $('#inspectorLandmarks'),
+  inspectorJson: $('#inspectorJson'),
+  closeInspector: $('#closeEvidenceInspector')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
@@ -118,12 +145,17 @@ const runtime = {
   audioPath: 'offline',
   ttsPending: 0,
   startedAt: null,
-  lastFrameAt: 0
+  lastFrameAt: 0,
+  behaviorByTrack: new Map(),
+  wristHistory: new Map(),
+  lastGestureAt: new Map(),
+  selectedTrackId: null
 };
 
 const SCAN_INTERVAL_MS = 550;
 const TRACK_GRACE_MS = BODY_OCCLUSION_GRACE_MS;
 const PHOTO_REFRESH_INTERVAL_MS = 5000;
+const GESTURE_COOLDOWN_MS = 2500;
 
 function emit(type, payload = {}) {
   return bus.emit(type, payload, {
