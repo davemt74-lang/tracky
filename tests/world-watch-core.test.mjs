@@ -26,6 +26,20 @@ test('generic room watch triggers when any person enters without preselecting id
  assert.equal(e.evidence.subjectId,'p2');
 });
 
+test('person-scoped generic room watch ignores object movement into the room',()=>{
+ const before=base(),after=base();
+ before.objects[0]={...before.objects[0],roomId:'ROOM01',room:'Office'};
+ after.objects[0]={...after.objects[0],roomId:'ROOM02',room:'Kitchen'};
+ const e=evaluateWorldWatch({id:'W-person',type:'entity-enters-room',subjectKind:'person',roomId:'ROOM02',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e,null);
+});
+test('object-scoped generic room watch ignores person entry',()=>{
+ const before=base(),after=base();
+ after.people.push({participantId:'p2',label:'Sarah',roomId:'ROOM02',room:'Kitchen',presence:'confirmed',confidence:.92});
+ const e=evaluateWorldWatch({id:'W-object',type:'entity-enters-room',subjectKind:'object',roomId:'ROOM02',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e,null);
+});
+
 test('ambiguous label-only watch does not guess between same-named objects',()=>{
  const before=base(),after=base();
  before.objects.push({objectId:'O2',label:'keys',roomId:'ROOM01',room:'Office',presence:'confirmed',confidence:.8});
