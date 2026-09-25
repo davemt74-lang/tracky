@@ -783,6 +783,8 @@ function analyzeBehaviors(now) {
     if (!liveIds.has(key)) runtime.behaviorByTrack.delete(key);
   }
 
+  drawObjectOverlays(width, height);
+
   for (const track of runtime.tracks) {
     if (track.status === 'occluded' || track.status === 'reacquiring') {
       track.behaviorEvidence = null;
@@ -1399,6 +1401,82 @@ function drawAttentionRay(track, width, height) {
   overlayCtx.restore();
 }
 
+
+function activeInteractionForObject(objectId) {
+  return [...runtime.activeInteractions.values()]
+    .filter((interaction) => interaction.objectTrackId === objectId)
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0] || null;
+}
+
+function drawObjectOverlays(width, height) {
+  if (!ui.objectOverlay.checked) return;
+
+  for (const object of runtime.objects) {
+    if (!object.stable || !object.box || object.status === 'reacquiring') continue;
+
+    const x = (1 - object.box.x - object.box.width) * width;
+    const y = object.box.y * height;
+    const w = object.box.width * width;
+    const h = object.box.height * height;
+    const selected = runtime.selectedObjectId === object.id;
+    const interaction = activeInteractionForObject(object.id);
+
+    overlayCtx.save();
+    overlayCtx.strokeStyle = interaction?.type === 'holding' ? '#ff9f43' : '#ffd166';
+    overlayCtx.fillStyle = overlayCtx.strokeStyle;
+    overlayCtx.lineWidth = selected
+      ? Math.max(3, width / 480)
+      : Math.max(1.5, width / 850);
+    overlayCtx.setLineDash(interaction ? [] : [6, 5]);
+    overlayCtx.strokeRect(x, y, w, h);
+    overlayCtx.setLineDash([]);
+
+    const label = [
+      object.id,
+      object.label,
+      interaction?.type
+    ].filter(Boolean).join(' · ');
+
+    overlayCtx.font = Math.max(10, width / 80) + 'px ui-monospace, monospace';
+    const labelWidth = overlayCtx.measureText(label).width + 12;
+    const labelHeight = Math.max(18, height / 30);
+    overlayCtx.globalAlpha = 0.9;
+    overlayCtx.fillRect(x, Math.max(0, y - labelHeight), labelWidth, labelHeight);
+    overlayCtx.globalAlpha = 1;
+    overlayCtx.fillStyle = '#161006';
+    overlayCtx.fillText(
+      label,
+      x + 6,
+      Math.max(13, y - labelHeight + labelHeight * 0.72)
+    );
+
+    if (interaction?.participantTrackId) {
+      const person = runtime.tracks.find(
+        (track) => track.id === interaction.participantTrackId
+      );
+      if (person) {
+        const from = {
+          x: (1 - Number(person.cx || 0.5)) * width,
+          y: Number(person.cy || 0.5) * height
+        };
+        const to = {
+          x: (1 - Number(object.cx || 0.5)) * width,
+          y: Number(object.cy || 0.5) * height
+        };
+        overlayCtx.strokeStyle = interaction.type === 'holding' ? '#ff9f43' : '#ffd166';
+        overlayCtx.globalAlpha = 0.62;
+        overlayCtx.lineWidth = Math.max(1, width / 950);
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(from.x, from.y);
+        overlayCtx.lineTo(to.x, to.y);
+        overlayCtx.stroke();
+      }
+    }
+
+    overlayCtx.restore();
+  }
+}
+
 function drawOverlay() {
   resizeOverlay();
   const width = ui.overlay.width;
@@ -1675,6 +1753,8 @@ function renderEvidenceInspector() {
 }
 
 function openEvidenceInspector(trackId) {
+  runtime.selectedObjectId = null;
+  ui.objectInspector.hidden = true;
   runtime.selectedTrackId = trackId;
   renderEvidenceInspector();
   drawOverlay();
@@ -1684,6 +1764,213 @@ function closeEvidenceInspector() {
   runtime.selectedTrackId = null;
   ui.inspector.hidden = true;
   drawOverlay();
+}
+
+
+function appendObjectInspectorSignal(label, value, confidence, detail = '') {
+  const row = document.createElement('div');
+  row.className = 'evidence-signal-row';
+
+  const top = document.createElement('div');
+  const key = document.createElement('span');
+  const val = document.createElement('b');
+  key.textContent = label;
+  val.textContent = value + (
+    Number.isFinite(Number(confidence))
+      ? ' · ' + confidenceText(confidence)
+      : ''
+  );
+  top.append(key, val);
+
+  const meter = document.createElement('div');
+  meter.className = 'evidence-confidence-meter';
+  const fill = document.createElement('i');
+  fill.style.width = Math.round(
+    Math.max(0, Math.min(1, Number(confidence || 0))) * 100
+  ) + '%';
+  meter.append(fill);
+  row.append(top, meter);
+
+  if (detail) {
+    const note = document.createElement('small');
+    note.textContent = detail;
+    row.append(note);
+  }
+
+  ui.objectInspectorSignals.append(row);
+}
+
+function renderObjectEvidenceInspector() {
+  if (!runtime.selectedObjectId) {
+    ui.objectInspector.hidden = true;
+    return;
+  }
+
+  const object = runtime.objects.find(
+    (candidate) => candidate.id === runtime.selectedObjectId
+  );
+
+  if (!object) {
+    runtime.selectedObjectId = null;
+    ui.objectInspector.hidden = true;
+    return;
+  }
+
+  const interactions = [...runtime.activeInteractions.values()]
+    .filter((interaction) => interaction.objectTrackId === object.id)
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+  const primary = interactions[0] || null;
+  const holder = object.holderTrackId
+    ? runtime.tracks.find((track) => track.id === object.holderTrackId)
+    : null;
+
+  ui.objectInspector.hidden = false;
+  ui.objectInspectorName.textContent = object.label;
+  ui.objectInspectorTrack.textContent = object.id + ' · ' + object.status;
+  ui.objectInspectorClass.textContent = object.label;
+  ui.objectInspectorConfidence.textContent = confidenceText(object.score);
+  ui.objectInspectorStatus.textContent = object.status;
+  ui.objectInspectorHolder.textContent =
+    holder?.participantName || holder?.id || 'none';
+  ui.objectInspectorMotion.textContent =
+    Math.hypot(Number(object.vx || 0), Number(object.vy || 0)) >= 0.08
+      ? 'moving'
+      : 'stable';
+  ui.objectInspectorInteraction.textContent = primary?.type || 'none';
+
+  ui.objectInspectorSignals.replaceChildren();
+
+  appendObjectInspectorSignal(
+    'OBJECT DETECTOR',
+    object.label,
+    object.score,
+    'Human object classification confidence. Tracky does not infer a unique real-world identity from the class label.'
+  );
+
+  appendObjectInspectorSignal(
+    'TRACK CONTINUITY',
+    object.status,
+    Math.min(1, Number(object.observations || 0) / 5),
+    object.observations + ' observations under persistent ' + object.id + '.'
+  );
+
+  if (primary) {
+    appendObjectInspectorSignal(
+      'PERSON RELATION',
+      primary.type + ' · ' + (primary.participantName || primary.participantTrackId || 'participant'),
+      primary.confidence,
+      primary.type === 'holding'
+        ? 'Uses wrist/object proximity with optional hand-detector reinforcement.'
+        : primary.type === 'pointing-at'
+          ? 'Uses elbow→wrist ray alignment toward the object.'
+          : 'Uses participant↔object distance change over time.'
+    );
+  } else {
+    appendObjectInspectorSignal(
+      'PERSON RELATION',
+      'none established',
+      0,
+      'No person↔object relationship currently passes its confidence threshold.'
+    );
+  }
+
+  ui.objectInspectorJson.textContent = JSON.stringify({
+    id: object.id,
+    label: object.label,
+    classId: object.classId,
+    detectorId: object.detectorId,
+    confidence: object.score,
+    status: object.status,
+    observations: object.observations,
+    position: objectRoomPosition(object),
+    velocity: {
+      x: object.vx || 0,
+      y: object.vy || 0
+    },
+    holder: holder ? {
+      trackId: holder.id,
+      participantId: holder.participantId || null,
+      participantName: holder.participantName || null
+    } : null,
+    interactions
+  }, null, 2);
+}
+
+function openObjectEvidenceInspector(objectId) {
+  runtime.selectedTrackId = null;
+  ui.inspector.hidden = true;
+  runtime.selectedObjectId = objectId;
+  renderObjectEvidenceInspector();
+  drawOverlay();
+}
+
+function closeObjectEvidenceInspector() {
+  runtime.selectedObjectId = null;
+  ui.objectInspector.hidden = true;
+  drawOverlay();
+}
+
+function renderObjects() {
+  ui.objects.replaceChildren();
+
+  const objects = runtime.objects
+    .filter((object) => object.stable && object.status !== 'reacquiring')
+    .slice(0, 16);
+
+  ui.objectRuntimeStatus.textContent = objects.length
+    ? objects.length + ' tracked'
+    : runtime.running ? 'Scanning' : 'Standby';
+
+  if (!objects.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No persistent objects are currently tracked.';
+    ui.objects.append(empty);
+    return;
+  }
+
+  for (const object of objects) {
+    const interactions = [...runtime.activeInteractions.values()]
+      .filter((interaction) => interaction.objectTrackId === object.id)
+      .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+    const primary = interactions[0] || null;
+    const holder = object.holderTrackId
+      ? runtime.tracks.find((track) => track.id === object.holderTrackId)
+      : null;
+
+    const card = document.createElement('article');
+    card.className = 'agent-object-card';
+    if (primary) card.classList.add('active');
+
+    const identity = document.createElement('div');
+    identity.className = 'agent-object-id';
+    identity.textContent = object.id;
+
+    const copy = document.createElement('div');
+    copy.className = 'agent-object-copy';
+
+    const name = document.createElement('strong');
+    name.textContent = object.label;
+
+    const meta = document.createElement('span');
+    meta.textContent = [
+      confidenceText(object.score),
+      object.status,
+      primary?.type,
+      holder ? 'holder ' + (holder.participantName || holder.id) : null
+    ].filter(Boolean).join(' · ');
+
+    copy.append(name, meta);
+
+    const inspect = document.createElement('button');
+    inspect.className = 'agent-entity-action';
+    inspect.type = 'button';
+    inspect.textContent = 'Inspect';
+    inspect.addEventListener('click', () => openObjectEvidenceInspector(object.id));
+
+    card.append(identity, copy, inspect);
+    ui.objects.append(card);
+  }
 }
 
 function renderParticipants() {
@@ -2003,10 +2290,12 @@ function renderSignals() {
 
 function renderAll() {
   renderParticipants();
+  renderObjects();
   renderRadar();
   renderSignals();
   renderRoomState();
   renderEvidenceInspector();
+  renderObjectEvidenceInspector();
 }
 
 function suppressMicForSpeech() {
@@ -2321,8 +2610,10 @@ ui.cameraSelect.addEventListener('change', () => {
 });
 ui.copyState.addEventListener('click', () => void copySnapshot());
 ui.closeInspector.addEventListener('click', closeEvidenceInspector);
+ui.closeObjectInspector.addEventListener('click', closeObjectEvidenceInspector);
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
+ui.objectOverlay.addEventListener('change', drawOverlay);
 window.addEventListener('resize', () => {
   resizeOverlay();
   drawOverlay();
