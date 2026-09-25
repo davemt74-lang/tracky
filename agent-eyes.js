@@ -663,6 +663,190 @@ function updateGroups() {
   runtime.previousGroups = nextGroups;
 }
 
+function behaviorSignature(behavior) {
+  if (!behavior) return '';
+  return [
+    behavior.orientation?.horizontal || 'unknown',
+    behavior.orientation?.vertical || 'unknown',
+    behavior.posture?.posture || 'unknown',
+    behavior.motion?.motion || 'unknown',
+    behavior.gesture?.type || 'none',
+    behavior.attention?.targetName || behavior.attention?.targetType || 'none',
+    behavior.addressing?.addressing ? behavior.addressing.targetName || 'target' : 'none'
+  ].join('|');
+}
+
+function compactBehavior(behavior) {
+  return {
+    orientation: behavior.orientation?.horizontal || 'unknown',
+    verticalOrientation: behavior.orientation?.vertical || 'unknown',
+    orientationConfidence: Number(behavior.orientation?.confidence || 0),
+    posture: behavior.posture?.posture || 'unknown',
+    postureConfidence: Number(behavior.posture?.confidence || 0),
+    motion: behavior.motion?.motion || 'unknown',
+    motionSpeed: Number(behavior.motion?.speed || 0),
+    gesture: behavior.gesture?.type || null,
+    gestureConfidence: Number(behavior.gesture?.confidence || 0),
+    poseConfidence: Number(behavior.poseConfidence || 0)
+  };
+}
+
+function gestureHistory(track, side, now) {
+  const points = keypointMap(track.keypoints || []);
+  const wrist = points.get(side + 'Wrist');
+  const shoulder = points.get(side + 'Shoulder');
+  const key = track.id + ':' + side;
+  const history = runtime.wristHistory.get(key) || [];
+
+  if (!wrist || !shoulder || wrist.y >= shoulder.y - 0.03) {
+    runtime.wristHistory.delete(key);
+    return null;
+  }
+
+  history.push({ x: wrist.x, y: wrist.y, at: now });
+  while (history.length > 8) history.shift();
+  runtime.wristHistory.set(key, history);
+  return inferWave(history);
+}
+
+function emitGestureIfReady(track, gesture, confidence, now) {
+  if (!gesture) return;
+  const key = track.id + ':' + gesture;
+  const last = Number(runtime.lastGestureAt.get(key) || 0);
+  if (now - last < GESTURE_COOLDOWN_MS) return;
+
+  runtime.lastGestureAt.set(key, now);
+  emit('gesture.detected', {
+    participantId: track.participantId || null,
+    participantName: track.participantName || null,
+    trackId: track.id,
+    confidence,
+    source: 'pose-landmarks',
+    roomPosition: roomPosition(track),
+    conversationGroup: track.conversationGroupId || null,
+    data: { gesture }
+  });
+}
+
+function analyzeBehaviors(now) {
+  const liveIds = new Set(runtime.tracks.map((track) => track.id));
+
+  for (const key of runtime.behaviorByTrack.keys()) {
+    if (!liveIds.has(key)) runtime.behaviorByTrack.delete(key);
+  }
+
+  for (const track of runtime.tracks) {
+    if (track.status === 'occluded' || track.status === 'reacquiring') {
+      track.behaviorEvidence = null;
+      continue;
+    }
+
+    const speaking = Boolean(
+      roomState.activeSpeaker &&
+      (
+        roomState.activeSpeaker.trackId === track.id ||
+        (
+          track.participantId &&
+          roomState.activeSpeaker.participantId === track.participantId
+        )
+      )
+    );
+
+    const behavior = buildBehaviorEvidence(
+      track,
+      runtime.tracks,
+      { speaking }
+    );
+    track.behaviorEvidence = behavior;
+
+    const previous = runtime.behaviorByTrack.get(track.id);
+    const signature = behaviorSignature(behavior);
+    const previousSignature = previous?.signature || '';
+
+    if (
+      signature !== previousSignature &&
+      behavior.poseConfidence >= 0.28
+    ) {
+      emit('behavior.changed', {
+        participantId: track.participantId || null,
+        participantName: track.participantName || null,
+        trackId: track.id,
+        confidence: Math.max(
+          behavior.poseConfidence,
+          behavior.orientation?.confidence || 0
+        ),
+        source: 'pose+face',
+        roomPosition: roomPosition(track),
+        conversationGroup: track.conversationGroupId || null,
+        evidence: behavior,
+        data: {
+          behavior: compactBehavior(behavior),
+          addressing: behavior.addressing
+        }
+      });
+    }
+
+    const attentionKey = [
+      behavior.attention?.targetType || 'unknown',
+      behavior.attention?.targetTrackId || '',
+      behavior.attention?.targetParticipantId || ''
+    ].join(':');
+
+    if (
+      attentionKey !== previous?.attentionKey &&
+      Number(behavior.attention?.confidence || 0) >= 0.32
+    ) {
+      emit('attention.changed', {
+        participantId: track.participantId || null,
+        participantName: track.participantName || null,
+        trackId: track.id,
+        confidence: behavior.attention.confidence,
+        source: 'head-orientation+spatial',
+        roomPosition: roomPosition(track),
+        conversationGroup: track.conversationGroupId || null,
+        evidence: behavior.attention.evidence,
+        data: { attention: behavior.attention }
+      });
+    }
+
+    if (
+      behavior.gesture?.type &&
+      behavior.gesture.confidence >= 0.55 &&
+      behavior.gesture.type !== previous?.gestureType
+    ) {
+      emitGestureIfReady(
+        track,
+        behavior.gesture.type,
+        behavior.gesture.confidence,
+        now
+      );
+    }
+
+    for (const side of ['left', 'right']) {
+      const wave = gestureHistory(track, side, now);
+      if (wave?.detected) {
+        emitGestureIfReady(
+          track,
+          side + '-hand-wave',
+          wave.confidence,
+          now
+        );
+      }
+    }
+
+    runtime.behaviorByTrack.set(track.id, {
+      signature,
+      attentionKey,
+      gestureType: behavior.gesture?.type || null
+    });
+  }
+
+  ui.behaviorStatus.textContent = runtime.tracks.some((track) => track.behaviorEvidence)
+    ? 'Analyzing ' + runtime.tracks.filter((track) => track.behaviorEvidence).length
+    : runtime.running ? 'Waiting for pose' : 'Standby';
+}
+
+
 async function scanRoom() {
   if (
     !runtime.running ||
@@ -797,6 +981,7 @@ async function scanRoom() {
     ]);
 
     updateGroups();
+    analyzeBehaviors(now);
     emitTrackTransitions(previousTracks, runtime.tracks, now);
     drawOverlay();
     renderAll();
