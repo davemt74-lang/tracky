@@ -4352,16 +4352,12 @@ function setSelectedGlobalRoom(roomId) {
   renderMultiRoomWorld();
 }
 
-async function confirmTopologyConnection(event) {
-  event.preventDefault();
-  const fromId = ui.topologyFromRoom.value;
-  const toId = ui.topologyToRoom.value;
-  const type = ui.topologyPortalType.value || 'doorway';
-  if (!fromId || !toId || fromId === toId) return;
+async function saveConfirmedTopologyConnection(fromId, toId, type = 'doorway') {
+  if (!fromId || !toId || fromId === toId) return false;
 
   const from = runtime.environmentRooms.find((room) => room.id === fromId);
   const to = runtime.environmentRooms.find((room) => room.id === toId);
-  if (!from || !to) return;
+  if (!from || !to) return false;
 
   const existingFrom = roomPortals(from).find((portal) => portal.connectsToRoomId === toId);
   const existingTo = roomPortals(to).find((portal) => portal.connectsToRoomId === fromId);
@@ -4419,14 +4415,63 @@ async function confirmTopologyConnection(event) {
     }
   });
 
+  runtime.multiRoomWorld.topologyProposals = runtime.multiRoomWorld.topologyProposals
+    .filter((proposal) => !(
+      new Set([proposal.fromRoomId, proposal.toRoomId]).has(fromId) &&
+      new Set([proposal.fromRoomId, proposal.toRoomId]).has(toId)
+    ));
+
+  await reloadEnvironmentRooms();
+  emit('world.topology_changed', {
+    source: 'user-confirmed-topology',
+    confidence: 1,
+    data: { fromRoomId: fromId, toRoomId: toId, type }
+  });
+  updateCameraFusion(Date.now(), false);
+  return true;
+}
+
+async function confirmTopologyConnection(event) {
+  event.preventDefault();
+  await saveConfirmedTopologyConnection(
+    ui.topologyFromRoom.value,
+    ui.topologyToRoom.value,
+    ui.topologyPortalType.value || 'doorway'
+  );
+}
+
+async function removeTopologyConnection(connection) {
+  const from = runtime.environmentRooms.find((room) => room.id === connection.roomA);
+  const to = runtime.environmentRooms.find((room) => room.id === connection.roomB);
+  if (!from || !to) return;
+
+  await saveEnvironmentRoom({
+    ...from,
+    topology: {
+      ...(from.topology || {}),
+      portals: roomPortals(from).filter(
+        (portal) => portal.connectsToRoomId !== to.id
+      )
+    }
+  });
+  await saveEnvironmentRoom({
+    ...to,
+    topology: {
+      ...(to.topology || {}),
+      portals: roomPortals(to).filter(
+        (portal) => portal.connectsToRoomId !== from.id
+      )
+    }
+  });
+
   await reloadEnvironmentRooms();
   emit('world.topology_changed', {
     source: 'user-confirmed-topology',
     confidence: 1,
     data: {
-      fromRoomId: fromId,
-      toRoomId: toId,
-      type
+      fromRoomId: from.id,
+      toRoomId: to.id,
+      removed: true
     }
   });
   updateCameraFusion(Date.now(), false);
@@ -4492,7 +4537,7 @@ function renderSelectedRoom(roomId) {
     const name = document.createElement('strong');
     const state = document.createElement('span');
     name.textContent = participant.participantName || participant.id;
-    const vis = visibility?.participants?.[participant.id];
+    const vis = visibility?.participants?.[participant.localRoomEntityId || participant.id];
     state.textContent = [
       participant.presence,
       Math.round(Number(participant.confidence || 0) * 100) + '%',
@@ -4508,7 +4553,7 @@ function renderSelectedRoom(roomId) {
     const name = document.createElement('strong');
     const state = document.createElement('span');
     name.textContent = object.label + ' · ' + object.id;
-    const vis = visibility?.objects?.[object.id];
+    const vis = visibility?.objects?.[object.localRoomObjectId || object.id];
     state.textContent = [
       object.presence,
       Math.round(Number(object.confidence || 0) * 100) + '%',
@@ -4606,9 +4651,52 @@ function renderMultiRoomWorld() {
         connection.userConfirmed ? 'CONFIRMED' : 'INFERRED',
         Math.round(Number(connection.confidence || 0) * 100) + '%'
       ].join(' · ');
-      row.append(names, meta);
+      const actions = document.createElement('div');
+      actions.className = 'topology-row-actions';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'agent-entity-action';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => void removeTopologyConnection(connection));
+      actions.append(remove);
+      row.append(names, meta, actions);
       ui.topologyConnectionList.append(row);
     }
+  }
+
+  for (const proposal of world.topologyProposals || []) {
+    const row = document.createElement('div');
+    row.className = 'topology-proposal-row';
+    const names = document.createElement('strong');
+    const meta = document.createElement('span');
+    const actions = document.createElement('div');
+    actions.className = 'topology-row-actions';
+    const from = runtime.environmentRooms.find((room) => room.id === proposal.fromRoomId);
+    const to = runtime.environmentRooms.find((room) => room.id === proposal.toRoomId);
+    names.textContent = 'Suggested: ' +
+      (from?.name || proposal.fromRoomId) + ' ↔ ' +
+      (to?.name || proposal.toRoomId);
+    meta.textContent = [
+      proposal.observedTransitionCount + ' observations',
+      Math.round(Number(proposal.confidence || 0) * 100) + '%',
+      proposal.readyForConfirmation ? 'READY TO CONFIRM' : 'LEARNING'
+    ].join(' · ');
+
+    if (proposal.readyForConfirmation) {
+      const confirm = document.createElement('button');
+      confirm.type = 'button';
+      confirm.className = 'agent-entity-action';
+      confirm.textContent = 'Confirm';
+      confirm.addEventListener('click', () => void saveConfirmedTopologyConnection(
+        proposal.fromRoomId,
+        proposal.toRoomId,
+        'passage'
+      ));
+      actions.append(confirm);
+    }
+
+    row.append(names, meta, actions);
+    ui.topologyConnectionList.append(row);
   }
 
   ui.multiRoomTransitionFeed.replaceChildren();
