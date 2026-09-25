@@ -53,6 +53,18 @@ test('user-deferred briefing stays deferred until retry time',()=>{
  assert.equal(q[0].deliveryState,'ready');
 });
 
+test('delivery lifecycle records a bounded transition history',()=>{
+ let q=enqueueBriefing([],b(),{agentConnected:false},1000).queue;
+ assert.equal(q[0].deliveryHistory.at(-1).state,'deferred');
+ q=reevaluateBriefingQueue(q,{agentConnected:true,activeRoomId:'ROOM01'},2000);
+ assert.equal(q[0].deliveryHistory.at(-1).state,'ready');
+ q=markBriefingSurfaced(q,'B1',3000);
+ assert.equal(q[0].deliveryHistory.at(-1).state,'surfaced');
+ q=acknowledgeQueuedBriefing(q,'B1',4000);
+ assert.equal(q[0].deliveryHistory.at(-1).state,'acknowledged');
+ assert.ok(q[0].deliveryHistory.length<=40);
+});
+
 test('ready selector only returns ready records',()=>{
  const q=[
   {...b('B1'),deliveryState:'ready',deliveryReady:true},
