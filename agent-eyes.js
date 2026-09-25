@@ -456,6 +456,7 @@ function stopCamera() {
   ui.startEyes.disabled = false;
   ui.cameraSelect.disabled = true;
   ui.cameraStatus.textContent = 'Offline';
+  ui.objectStatus.textContent = 'Standby';
   emitSensor('camera', 'offline');
 
   runtime.faces = [];
@@ -782,8 +783,6 @@ function analyzeBehaviors(now) {
   for (const key of runtime.behaviorByTrack.keys()) {
     if (!liveIds.has(key)) runtime.behaviorByTrack.delete(key);
   }
-
-  drawObjectOverlays(width, height);
 
   for (const track of runtime.tracks) {
     if (track.status === 'occluded' || track.status === 'reacquiring') {
@@ -1482,6 +1481,7 @@ function drawOverlay() {
   const width = ui.overlay.width;
   const height = ui.overlay.height;
   overlayCtx.clearRect(0, 0, width, height);
+  drawObjectOverlays(width, height);
 
   for (const track of runtime.tracks) {
     if (!track.box) continue;
@@ -2148,6 +2148,29 @@ function eventLabel(event) {
     case 'gesture.detected':
       return (event.participantName || event.trackId || 'Participant') + ' gesture → ' +
         String(event.data?.gesture || 'gesture');
+    case 'object.detected':
+      return (event.data?.objectId || 'Object') + ' detected · ' +
+        String(event.data?.label || 'object');
+    case 'object.reacquired':
+      return (event.data?.objectId || 'Object') + ' reacquired · ' +
+        String(event.data?.label || 'object');
+    case 'object.lost':
+      return (event.data?.objectId || 'Object') + ' lost · ' +
+        String(event.data?.label || 'object');
+    case 'object.picked_up':
+      return (event.participantName || event.trackId || 'Participant') +
+        ' picked up ' + String(event.data?.label || event.data?.objectLabel || 'object');
+    case 'object.put_down':
+      return (event.participantName || event.trackId || 'Participant') +
+        ' put down ' + String(event.data?.label || event.data?.objectLabel || 'object');
+    case 'interaction.started':
+      return (event.participantName || event.trackId || 'Participant') + ' · ' +
+        String(event.data?.type || 'interaction') + ' · ' +
+        String(event.data?.objectLabel || event.data?.objectId || 'object');
+    case 'interaction.ended':
+      return (event.participantName || event.trackId || 'Participant') + ' ended ' +
+        String(event.data?.type || 'interaction') + ' · ' +
+        String(event.data?.objectLabel || event.data?.objectId || 'object');
     case 'transcript.turn':
       return (event.participantName || 'Unknown speaker') + ': ' + String(event.data?.text || '');
     case 'sensor.status':
@@ -2286,6 +2309,11 @@ function renderSignals() {
   ui.attentionCount.textContent = String(
     runtime.tracks.filter((track) => Number(track.behaviorEvidence?.attention?.confidence || 0) >= 0.32).length
   );
+  ui.objectCount.textContent = String(
+    runtime.objects.filter((object) => object.stable && object.status !== 'reacquiring').length
+  );
+  ui.handCount.textContent = String(runtime.hands.length);
+  ui.interactionCount.textContent = String(runtime.activeInteractions.size);
 }
 
 function renderAll() {
