@@ -157,6 +157,7 @@ const ui = {
   fusionStatus: $('#eyesFusionStatus'),
   environmentStatus: $('#eyesEnvironmentStatus'),
   worldStatus: $('#eyesWorldStatus'),
+  multiRoomTopStatus: $('#eyesMultiRoomStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -216,6 +217,24 @@ const ui = {
   worldPersonCount: $('#worldPersonCount'),
   worldObjectCount: $('#worldObjectCount'),
   worldOverlapCount: $('#worldOverlapCount'),
+  multiRoomStatus: $('#multiRoomStatus'),
+  globalRoomMap: $('#globalRoomMap'),
+  globalRoomLinks: $('#globalRoomLinks'),
+  globalRoomNodes: $('#globalRoomNodes'),
+  multiRoomRoomCount: $('#multiRoomRoomCount'),
+  multiRoomPersonCount: $('#multiRoomPersonCount'),
+  multiRoomObjectCount: $('#multiRoomObjectCount'),
+  multiRoomTransitionCount: $('#multiRoomTransitionCount'),
+  multiRoomConversationCount: $('#multiRoomConversationCount'),
+  multiRoomUncertainCount: $('#multiRoomUncertainCount'),
+  multiRoomSelected: $('#multiRoomSelected'),
+  topologyStatus: $('#topologyStatus'),
+  topologyConnectForm: $('#topologyConnectForm'),
+  topologyFromRoom: $('#topologyFromRoom'),
+  topologyToRoom: $('#topologyToRoom'),
+  topologyPortalType: $('#topologyPortalType'),
+  topologyConnectionList: $('#topologyConnectionList'),
+  multiRoomTransitionFeed: $('#multiRoomTransitionFeed'),
   environmentMatchStatus: $('#environmentMatchStatus'),
   environmentPrimaryMeta: $('#environmentPrimaryMeta'),
   environmentPrimaryImage: $('#environmentPrimaryImage'),
@@ -402,7 +421,8 @@ const runtime = {
   multiRoomWorld: createMultiRoomWorld(),
   worldTopology: buildWorldTopology([]),
   roomVisibility: {},
-  multiRoomEvents: []
+  multiRoomEvents: [],
+  selectedGlobalRoomId: null
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -1194,9 +1214,18 @@ function roomCustodyMap() {
   const primary = primaryCameraConfig();
   if (!primary) return map;
 
+  const activeObjects = runtime.roomFusionStates[primary.roomId]?.objects || [];
   for (const interaction of roomStateSnapshot(roomState).interactions || []) {
     if (interaction.type !== 'holding') continue;
-    map[primary.roomId + ':' + interaction.objectId] = {
+    const worldObject = activeObjects.find((object) => (
+      (object.observations || []).some((observation) => (
+        observation.cameraId === primary.id &&
+        observation.localObjectId === interaction.objectId
+      ))
+    ));
+    if (!worldObject) continue;
+
+    map[primary.roomId + ':' + worldObject.id] = {
       participantId: interaction.participantId || null,
       participantName: interaction.participantName || null,
       confidence: interaction.confidence || 0
@@ -4296,6 +4325,352 @@ function renderPhysicalWorld() {
     sceneGraph: graph,
     physicalWorld: world
   }, null, 2);
+}
+
+
+function roomLayoutPositions() {
+  const rooms = [...runtime.environmentRooms]
+    .sort((a,b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+  const columns = Math.max(1, Math.ceil(Math.sqrt(rooms.length || 1)));
+  const rows = Math.max(1, Math.ceil(rooms.length / columns));
+  const positions = new Map();
+
+  rooms.forEach((room, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    positions.set(room.id, {
+      x: ((col + 0.5) / columns) * 1000,
+      y: ((row + 0.5) / rows) * 560
+    });
+  });
+
+  return positions;
+}
+
+function setSelectedGlobalRoom(roomId) {
+  runtime.selectedGlobalRoomId = roomId;
+  renderMultiRoomWorld();
+}
+
+async function confirmTopologyConnection(event) {
+  event.preventDefault();
+  const fromId = ui.topologyFromRoom.value;
+  const toId = ui.topologyToRoom.value;
+  const type = ui.topologyPortalType.value || 'doorway';
+  if (!fromId || !toId || fromId === toId) return;
+
+  const from = runtime.environmentRooms.find((room) => room.id === fromId);
+  const to = runtime.environmentRooms.find((room) => room.id === toId);
+  if (!from || !to) return;
+
+  const existingFrom = roomPortals(from).find((portal) => portal.connectsToRoomId === toId);
+  const existingTo = roomPortals(to).find((portal) => portal.connectsToRoomId === fromId);
+  const stamp = Date.now().toString(36);
+  const fromPortalId = existingFrom?.id || 'PORTAL-' + fromId + '-' + toId + '-' + stamp;
+  const toPortalId = existingTo?.id || 'PORTAL-' + toId + '-' + fromId + '-' + stamp;
+
+  const fromPortal = {
+    ...(existingFrom || {}),
+    id: fromPortalId,
+    roomId: fromId,
+    name: existingFrom?.name || (from.name + ' → ' + to.name),
+    type,
+    position: existingFrom?.position || null,
+    connectsToRoomId: toId,
+    connectsToPortalId: toPortalId,
+    confidence: 1,
+    userConfirmed: true,
+    enabled: true,
+    source: 'user-confirmed-topology'
+  };
+  const toPortal = {
+    ...(existingTo || {}),
+    id: toPortalId,
+    roomId: toId,
+    name: existingTo?.name || (to.name + ' → ' + from.name),
+    type,
+    position: existingTo?.position || null,
+    connectsToRoomId: fromId,
+    connectsToPortalId: fromPortalId,
+    confidence: 1,
+    userConfirmed: true,
+    enabled: true,
+    source: 'user-confirmed-topology'
+  };
+
+  await saveEnvironmentRoom({
+    ...from,
+    topology: {
+      ...(from.topology || {}),
+      portals: [
+        ...roomPortals(from).filter((portal) => portal.id !== fromPortal.id),
+        fromPortal
+      ]
+    }
+  });
+  await saveEnvironmentRoom({
+    ...to,
+    topology: {
+      ...(to.topology || {}),
+      portals: [
+        ...roomPortals(to).filter((portal) => portal.id !== toPortal.id),
+        toPortal
+      ]
+    }
+  });
+
+  await reloadEnvironmentRooms();
+  emit('world.topology_changed', {
+    source: 'user-confirmed-topology',
+    confidence: 1,
+    data: {
+      fromRoomId: fromId,
+      toRoomId: toId,
+      type
+    }
+  });
+  updateCameraFusion(Date.now(), false);
+}
+
+function populateTopologyRoomSelectors() {
+  const currentFrom = ui.topologyFromRoom.value;
+  const currentTo = ui.topologyToRoom.value;
+  for (const select of [ui.topologyFromRoom, ui.topologyToRoom]) {
+    select.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select room';
+    select.append(placeholder);
+    for (const room of runtime.environmentRooms) {
+      const option = document.createElement('option');
+      option.value = room.id;
+      option.textContent = room.name || room.id;
+      select.append(option);
+    }
+  }
+  if (runtime.environmentRooms.some((room) => room.id === currentFrom)) {
+    ui.topologyFromRoom.value = currentFrom;
+  }
+  if (runtime.environmentRooms.some((room) => room.id === currentTo)) {
+    ui.topologyToRoom.value = currentTo;
+  }
+}
+
+function renderSelectedRoom(roomId) {
+  ui.multiRoomSelected.replaceChildren();
+  const room = runtime.environmentRooms.find((candidate) => candidate.id === roomId);
+  const fusion = runtime.roomFusionStates[roomId];
+  const visibility = runtime.roomVisibility[roomId];
+  if (!room) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Select a room to inspect its world state.';
+    ui.multiRoomSelected.append(empty);
+    return;
+  }
+
+  const header = document.createElement('div');
+  header.className = 'multi-room-selected-head';
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  title.textContent = room.name || room.id;
+  meta.textContent = [
+    room.id,
+    ((fusion?.participants || []).filter((item) => item.status !== 'last-known').length) + ' people',
+    ((fusion?.objects || []).filter((item) => item.status !== 'last-known').length) + ' objects',
+    runtime.cameraConfigs.filter((camera) => camera.roomId === roomId && camera.enabled).length + ' cameras'
+  ].join(' · ');
+  header.append(title, meta);
+  ui.multiRoomSelected.append(header);
+
+  const entities = document.createElement('div');
+  entities.className = 'multi-room-entity-list';
+
+  for (const participant of Object.values(runtime.multiRoomWorld.participants)) {
+    if (participant.roomId !== roomId && participant.lastKnownRoomId !== roomId) continue;
+    const row = document.createElement('div');
+    const name = document.createElement('strong');
+    const state = document.createElement('span');
+    name.textContent = participant.participantName || participant.id;
+    const vis = visibility?.participants?.[participant.id];
+    state.textContent = [
+      participant.presence,
+      Math.round(Number(participant.confidence || 0) * 100) + '%',
+      vis?.state
+    ].filter(Boolean).join(' · ');
+    row.append(name, state);
+    entities.append(row);
+  }
+
+  for (const object of Object.values(runtime.multiRoomWorld.objects)) {
+    if (object.roomId !== roomId && object.lastKnownRoomId !== roomId) continue;
+    const row = document.createElement('div');
+    const name = document.createElement('strong');
+    const state = document.createElement('span');
+    name.textContent = object.label + ' · ' + object.id;
+    const vis = visibility?.objects?.[object.id];
+    state.textContent = [
+      object.presence,
+      Math.round(Number(object.confidence || 0) * 100) + '%',
+      vis?.state
+    ].filter(Boolean).join(' · ');
+    row.append(name, state);
+    entities.append(row);
+  }
+
+  if (!entities.childNodes.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No current or last-known entities in this room.';
+    entities.append(empty);
+  }
+
+  ui.multiRoomSelected.append(entities);
+}
+
+function renderMultiRoomWorld() {
+  const world = multiRoomSnapshot(runtime.multiRoomWorld);
+  const topology = runtime.worldTopology;
+  const positions = roomLayoutPositions();
+  populateTopologyRoomSelectors();
+
+  ui.globalRoomLinks.replaceChildren();
+  ui.globalRoomNodes.replaceChildren();
+  const ns = ['http:', '//www.w3.org/2000/svg'].join('');
+
+  for (const connection of topology.connections || []) {
+    const a = positions.get(connection.roomA);
+    const b = positions.get(connection.roomB);
+    if (!a || !b) continue;
+
+    const line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', a.x);
+    line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x);
+    line.setAttribute('y2', b.y);
+    line.setAttribute('class', connection.userConfirmed
+      ? 'global-room-link confirmed'
+      : 'global-room-link inferred');
+    ui.globalRoomLinks.append(line);
+  }
+
+  for (const room of runtime.environmentRooms) {
+    const pos = positions.get(room.id);
+    if (!pos) continue;
+    const fusion = runtime.roomFusionStates[room.id];
+    const people = Object.values(world.participants).filter((person) => (
+      person.roomId === room.id && person.presence !== 'absent'
+    ));
+    const objects = Object.values(world.objects).filter((object) => (
+      object.roomId === room.id && object.presence !== 'absent'
+    ));
+
+    const node = document.createElement('button');
+    node.type = 'button';
+    node.className = 'global-room-node';
+    if (runtime.selectedGlobalRoomId === room.id) node.classList.add('selected');
+    if (primaryCameraConfig()?.roomId === room.id) node.classList.add('active-room');
+    node.style.left = (pos.x / 10) + '%';
+    node.style.top = (pos.y / 5.6) + '%';
+
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = room.name || room.id;
+    meta.textContent = [
+      people.length + ' people',
+      objects.length + ' objects',
+      (fusion?.participants || []).some((entity) => entity.status === 'visible')
+        ? 'observed'
+        : 'quiet'
+    ].join(' · ');
+    node.append(name, meta);
+    node.addEventListener('click', () => setSelectedGlobalRoom(room.id));
+    ui.globalRoomNodes.append(node);
+  }
+
+  ui.topologyConnectionList.replaceChildren();
+  if (!(topology.connections || []).length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Confirmed portals connect rooms and permit evidence-backed room transitions.';
+    ui.topologyConnectionList.append(empty);
+  } else {
+    for (const connection of topology.connections) {
+      const row = document.createElement('div');
+      const names = document.createElement('strong');
+      const meta = document.createElement('span');
+      const a = runtime.environmentRooms.find((room) => room.id === connection.roomA);
+      const b = runtime.environmentRooms.find((room) => room.id === connection.roomB);
+      names.textContent = (a?.name || connection.roomA) + ' ↔ ' + (b?.name || connection.roomB);
+      meta.textContent = [
+        connection.userConfirmed ? 'CONFIRMED' : 'INFERRED',
+        Math.round(Number(connection.confidence || 0) * 100) + '%'
+      ].join(' · ');
+      row.append(names, meta);
+      ui.topologyConnectionList.append(row);
+    }
+  }
+
+  ui.multiRoomTransitionFeed.replaceChildren();
+  const transitions = (world.transitions || []).slice(-16).reverse();
+  if (!transitions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No cross-room transitions recorded.';
+    ui.multiRoomTransitionFeed.append(empty);
+  } else {
+    for (const transition of transitions) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'multi-room-transition-row';
+      const top = document.createElement('div');
+      const type = document.createElement('strong');
+      const time = document.createElement('span');
+      type.textContent = transition.type;
+      time.textContent = new Date(transition.timestamp).toLocaleTimeString([], {
+        hour:'2-digit', minute:'2-digit', second:'2-digit'
+      });
+      top.append(type, time);
+      const summary = document.createElement('p');
+      summary.textContent = [
+        transition.participantName || transition.objectLabel || transition.participantId || transition.objectId,
+        transition.fromRoomId + ' → ' + transition.toRoomId,
+        transition.portalId || null
+      ].filter(Boolean).join(' · ');
+      row.append(top, summary);
+      row.addEventListener('click', () => setSelectedGlobalRoom(transition.toRoomId));
+      ui.multiRoomTransitionFeed.append(row);
+    }
+  }
+
+  const uncertain = Object.values(world.participants).filter((person) => person.presence === 'uncertain').length +
+    Object.values(world.objects).filter((object) => object.presence === 'uncertain').length;
+  const confirmedPeople = Object.values(world.participants).filter((person) => person.presence === 'confirmed').length;
+
+  ui.multiRoomRoomCount.textContent = String(Object.keys(world.rooms || {}).length);
+  ui.multiRoomPersonCount.textContent = String(confirmedPeople);
+  ui.multiRoomObjectCount.textContent = String(
+    Object.values(world.objects).filter((object) => object.presence !== 'absent').length
+  );
+  ui.multiRoomTransitionCount.textContent = String(world.transitions?.length || 0);
+  ui.multiRoomConversationCount.textContent = String(Object.keys(world.conversations || {}).length);
+  ui.multiRoomUncertainCount.textContent = String(uncertain);
+  ui.multiRoomStatus.textContent = Object.keys(world.rooms || {}).length
+    ? Object.keys(world.rooms).length + ' rooms modeled'
+    : 'No rooms';
+  ui.multiRoomTopStatus.textContent = confirmedPeople
+    ? confirmedPeople + ' confirmed present'
+    : 'World ready';
+  ui.topologyStatus.textContent = (topology.connections || []).length
+    ? topology.connections.length + ' connections'
+    : 'No connections';
+
+  if (!runtime.selectedGlobalRoomId && runtime.environmentRooms.length) {
+    runtime.selectedGlobalRoomId =
+      primaryCameraConfig()?.roomId ||
+      runtime.environmentRooms[0].id;
+  }
+  renderSelectedRoom(runtime.selectedGlobalRoomId);
 }
 
 function renderCameraNetwork() {
