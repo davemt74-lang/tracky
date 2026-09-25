@@ -108,7 +108,11 @@ function resolveRoom(text,context={}){
 function resolveEntity(text,context={}){
   if(!text) return {status:'unscoped',matches:[]};
   const q=norm(text);
-  if(GENERIC_ENTITIES.has(q)) return {status:'unscoped',matches:[]};
+  if(GENERIC_ENTITIES.has(q)) return {
+    status:'unscoped',
+    matches:[],
+    subjectKind:GENERIC_PEOPLE.has(q)?'person':'object'
+  };
   const entities=[...arr(context.people),...arr(context.objects)];
   let matches=entities.filter((item)=>norm(entityLabel(item))===q||norm(entityId(item))===q);
   if(!matches.length) matches=entities.filter((item)=>norm(entityLabel(item)).includes(q)||q.includes(norm(entityLabel(item))));
@@ -163,6 +167,7 @@ export function resolveWorldWatchCommand(parsed,context={},watches=[],now=Date.n
     label:commandLabel(parsed,subject,resolvedRoom),
     subjectId:subject?entityId(subject):null,
     subjectLabel:subject?entityLabel(subject):(entity.status==='unscoped'?null:parsed.subjectText||null),
+    subjectKind:subject?(subject.participantId?'person':subject.objectId?'object':null):(entity.subjectKind||null),
     roomId:resolvedRoom?roomId(resolvedRoom):null,
     anomalyType:parsed.anomalyText||null,
     priorityThreshold:parsed.priorityThreshold,
