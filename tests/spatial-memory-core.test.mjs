@@ -4,7 +4,9 @@ import {
   appendEntityHistory,
   createSpatialMemoryState,
   entityHistory,
+  entityJourney,
   expectedLocationFor,
+  expectedLocationStatus,
   ignoreMemoryProposal,
   nearestAnchor,
   observeSpatialMemory,
@@ -87,4 +89,45 @@ test('proposal can be ignored or resolved explicitly',()=>{
   ignoreMemoryProposal(state,'k2',2000);
   assert.equal(state.proposals.some((item)=>item.key==='k2'),false);
   assert.equal(state.ignoredProposalKeys.k2,2000);
+});
+
+
+test('entity journey compresses repeated same-place observations',()=>{
+  const state=createSpatialMemoryState();
+  appendEntityHistory(state,'WO1',{timestamp:1,label:'phone',type:'object',roomId:'ROOM01',anchorId:'L1',event:'observed',confidence:.8});
+  appendEntityHistory(state,'WO1',{timestamp:2,label:'phone',type:'object',roomId:'ROOM01',anchorId:'L1',event:'observed',confidence:.9});
+  appendEntityHistory(state,'WO1',{timestamp:3,label:'phone',type:'object',roomId:'ROOM02',anchorId:'L2',event:'observed',confidence:.9});
+  const journey=entityJourney(state,'WO1');
+  assert.equal(journey.length,2);
+  assert.equal(journey[0].observations,2);
+});
+
+test('expected location status distinguishes at-home from away',()=>{
+  const state=createSpatialMemoryState();
+  state.expectedLocations.WO1={entityId:'WO1',candidates:{
+    L1:{targetId:'L1',roomId:'ROOM01',anchorId:'L1',anchorLabel:'Desk',observations:8,sessions:{s1:true,s2:true,s3:true},confidenceSum:7}
+  }};
+  const at=expectedLocationStatus(state,{id:'WO1',roomId:'ROOM01',roomPosition:{x:.3,y:.4}},[
+    {id:'L1',name:'Desk',position:{x:.3,y:.4}}
+  ]);
+  const away=expectedLocationStatus(state,{id:'WO1',roomId:'ROOM02',roomPosition:{x:.5,y:.5}},[]);
+  assert.equal(at.state,'at-expected');
+  assert.equal(away.state,'away-from-expected');
+});
+
+test('ownership relationships are never learned from observation evidence',()=>{
+  const state=createSpatialMemoryState();
+  for(let i=0;i<10;i++){
+    observeSpatialMemory(state,{
+      sessionId:'s'+(i%3),
+      multiRoom:{objects:{},participants:{}},
+      landmarksByRoom:{},
+      sceneGraph:{edges:[{
+        subjectId:'WO1',predicate:'owned-by',objectId:'PERSON:p1',
+        state:'inferred',confidence:.95
+      }]},
+      transitions:[]
+    },1000+i*16000);
+  }
+  assert.equal(state.proposals.some((item)=>item.predicate==='owned-by'),false);
 });
