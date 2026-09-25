@@ -87,6 +87,20 @@ test('unchanged contexts do not emit a changed delta when only freshness advance
   const after=buildAgentContext(context(),{},11000);
   assert.equal(diffAgentContext(before,after).changed,false);
 });
+test('semantic delta ignores observation timestamp and small confidence jitter',()=>{
+  const beforeContext=context();
+  const afterContext=context();
+  afterContext.multiRoom.participants.P1.lastObservedAt=10950;
+  afterContext.multiRoom.participants.P1.confidence=.93;
+  afterContext.multiRoom.objects.O1.lastObservedAt=10980;
+  afterContext.multiRoom.objects.O1.confidence=.89;
+  afterContext.anomalies.active.A1.lastSeenAt=10990;
+  afterContext.anomalies.active.A1.confidence=.91;
+  const before=buildAgentContext(beforeContext,{},10000);
+  const after=buildAgentContext(afterContext,{},11000);
+  assert.equal(diffAgentContext(before,after).changed,false);
+});
+
 test('delta captures object anomaly task and privacy changes',()=>{
   const before=buildAgentContext(context(),{},10000);
   const next=context();
