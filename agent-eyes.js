@@ -144,6 +144,25 @@ import {
   loadSpatialMemory,
   saveSpatialMemory
 } from './src/spatial-memory-store.js';
+import {
+  acknowledgeIncident,
+  activeAwareness,
+  awarenessSnapshot,
+  collectAwarenessCandidates,
+  confirmedAlerts,
+  createAwarenessState,
+  defaultAwarenessPolicy,
+  dismissIncident,
+  processAwareness,
+  verificationRequests
+} from './src/awareness-core.js';
+import {
+  clearAwarenessHistory as clearAwarenessStoreHistory,
+  loadAwarenessPolicy,
+  loadAwarenessState,
+  saveAwarenessPolicy,
+  saveAwarenessState
+} from './src/awareness-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -175,6 +194,7 @@ const ui = {
   worldStatus: $('#eyesWorldStatus'),
   multiRoomTopStatus: $('#eyesMultiRoomStatus'),
   spatialMemoryTopStatus: $('#eyesSpatialMemoryStatus'),
+  awarenessTopStatus: $('#eyesAwarenessStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -263,6 +283,18 @@ const ui = {
   spatialJourneyStatus: $('#spatialJourneyStatus'),
   spatialJourneyList: $('#spatialJourneyList'),
   clearSpatialMemory: $('#clearSpatialMemory'),
+  awarenessStatus: $('#awarenessStatus'),
+  awarenessEnabled: $('#awarenessEnabled'),
+  awarenessSpeakHigh: $('#awarenessSpeakHigh'),
+  verifyAwarenessNow: $('#verifyAwarenessNow'),
+  clearAwarenessHistory: $('#clearAwarenessHistory'),
+  awarenessActiveCount: $('#awarenessActiveCount'),
+  awarenessConfirmedCount: $('#awarenessConfirmedCount'),
+  awarenessVerifyingCount: $('#awarenessVerifyingCount'),
+  awarenessHighCount: $('#awarenessHighCount'),
+  awarenessActiveList: $('#awarenessActiveList'),
+  awarenessRecentStatus: $('#awarenessRecentStatus'),
+  awarenessRecentList: $('#awarenessRecentList'),
   environmentMatchStatus: $('#environmentMatchStatus'),
   environmentPrimaryMeta: $('#environmentPrimaryMeta'),
   environmentPrimaryImage: $('#environmentPrimaryImage'),
@@ -371,6 +403,7 @@ const cameraFusionListeners = new Set();
 const worldListeners = new Set();
 const roomListeners = new Map();
 const spatialMemoryListeners = new Set();
+const awarenessListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -453,7 +486,10 @@ const runtime = {
   multiRoomEvents: [],
   selectedGlobalRoomId: null,
   spatialMemory: createSpatialMemoryState(),
-  spatialMemoryLastSavedAt: 0
+  spatialMemoryLastSavedAt: 0,
+  awarenessState: createAwarenessState(),
+  awarenessPolicy: defaultAwarenessPolicy(),
+  awarenessLastSavedAt: 0
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -496,7 +532,8 @@ window.TrackyAgentEyes = Object.freeze({
       physicalWorld: worldStateSnapshot(runtime.physicalWorld),
       topology: copySerializable(runtime.worldTopology),
       multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-      spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
+      spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+      awareness: awarenessSnapshot(runtime.awarenessState)
     };
   },
   getEnvironmentState() {
@@ -565,6 +602,15 @@ window.TrackyAgentEyes = Object.freeze({
   getEntityJourney(entityId, limit = 30) {
     return copySerializable(entityJourney(runtime.spatialMemory, entityId, limit));
   },
+  getAwarenessState() {
+    return awarenessSnapshot(runtime.awarenessState);
+  },
+  getAwarenessPolicy() {
+    return copySerializable(runtime.awarenessPolicy);
+  },
+  getActiveAlerts() {
+    return copySerializable(confirmedAlerts(runtime.awarenessState));
+  },
   getChanges() {
     return sceneState.changes.slice();
   },
@@ -594,6 +640,33 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeSpatialMemory(listener) {
     spatialMemoryListeners.add(listener);
     return () => spatialMemoryListeners.delete(listener);
+  },
+  subscribeAwareness(listener) {
+    awarenessListeners.add(listener);
+    return () => awarenessListeners.delete(listener);
+  },
+  setAwarenessPolicy(patch = {}) {
+    return updateAwarenessPolicy(patch);
+  },
+  watchEntity(entityId) {
+    const watched = new Set(runtime.awarenessPolicy.watchedEntityIds || []);
+    watched.add(entityId);
+    return updateAwarenessPolicy({ watchedEntityIds: [...watched] });
+  },
+  unwatchEntity(entityId) {
+    return updateAwarenessPolicy({
+      watchedEntityIds: (runtime.awarenessPolicy.watchedEntityIds || [])
+        .filter((id) => id !== entityId)
+    });
+  },
+  acknowledgeAlert(key) {
+    return acknowledgeAwarenessAlert(key);
+  },
+  dismissAlert(key, suppressMs) {
+    return dismissAwarenessAlert(key, suppressMs);
+  },
+  verifyAwareness() {
+    return verifyAwarenessNow();
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
