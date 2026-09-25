@@ -1366,6 +1366,242 @@ async function clearLearnedSpatialMemory() {
   }
 }
 
+
+async function initializeAwareness() {
+  try {
+    const [savedState, savedPolicy] = await Promise.all([
+      loadAwarenessState(),
+      loadAwarenessPolicy()
+    ]);
+    runtime.awarenessState = {
+      ...createAwarenessState(),
+      ...(savedState || {}),
+      lastVerificationRequestAt: {}
+    };
+    runtime.awarenessPolicy = {
+      ...defaultAwarenessPolicy(),
+      ...(savedPolicy || {})
+    };
+    runtime.awarenessLastSavedAt = 0;
+  } catch (error) {
+    console.error('Could not load proactive awareness state', error);
+    runtime.awarenessState = createAwarenessState();
+    runtime.awarenessPolicy = defaultAwarenessPolicy();
+  }
+
+  syncAwarenessControls();
+  renderAwareness();
+}
+
+function syncAwarenessControls() {
+  ui.awarenessEnabled.checked = runtime.awarenessPolicy.enabled !== false;
+  ui.awarenessSpeakHigh.checked = runtime.awarenessPolicy.speakHighSeverity === true;
+}
+
+async function persistAwareness(force = false) {
+  const now = Date.now();
+  if (
+    !force &&
+    now - Number(runtime.awarenessLastSavedAt || 0) < 10000
+  ) return;
+
+  runtime.awarenessLastSavedAt = now;
+  try {
+    await Promise.all([
+      saveAwarenessState(runtime.awarenessState),
+      saveAwarenessPolicy(runtime.awarenessPolicy)
+    ]);
+  } catch (error) {
+    console.error('Could not persist proactive awareness', error);
+  }
+}
+
+async function updateAwarenessPolicy(patch = {}) {
+  runtime.awarenessPolicy = {
+    ...defaultAwarenessPolicy(),
+    ...runtime.awarenessPolicy,
+    ...patch
+  };
+  syncAwarenessControls();
+  await persistAwareness(true);
+  updateProactiveAwareness(Date.now());
+  return copySerializable(runtime.awarenessPolicy);
+}
+
+function publishAwarenessLifecycle(event) {
+  const record = event.record;
+  if (!record || !PERCEPTION_EVENT_TYPES.includes(event.type)) return;
+
+  emit(event.type, {
+    source: 'awareness-engine',
+    confidence: record.confidence,
+    data: {
+      key: record.key,
+      incidentId: record.id,
+      incidentType: record.type,
+      state: record.state,
+      severity: record.severity,
+      subjectId: record.subjectId,
+      subjectLabel: record.subjectLabel,
+      roomId: record.roomId,
+      summary: record.summary,
+      confirmations: record.confirmations,
+      firstSeenAt: record.firstSeenAt,
+      confirmedAt: record.confirmedAt || null,
+      clearedAt: record.clearedAt || null
+    }
+  });
+
+  if (
+    event.type === 'awareness.confirmed' &&
+    runtime.awarenessPolicy.speakHighSeverity === true &&
+    ['high','critical'].includes(record.severity)
+  ) {
+    speak('Awareness alert. ' + record.summary);
+  }
+}
+
+function awarenessInput() {
+  return {
+    environment: runtime.physicalWorld.environment || {
+      classification: runtime.environmentAnalysis?.classification || 'unknown',
+      best: runtime.environmentAnalysis?.best || null,
+      drift: runtime.environmentAnalysis?.drift || null
+    },
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    landmarksByRoom: spatialLandmarksByRoom(),
+    roomVisibility: runtime.roomVisibility,
+    cameras: runtime.cameraConfigs,
+    cameraStatuses: Object.fromEntries(runtime.cameraStatuses.entries()),
+    policy: runtime.awarenessPolicy
+  };
+}
+
+function handleVerificationRequests(requests) {
+  for (const request of requests) {
+    if (
+      request.type === 'environment-refresh' &&
+      runtime.running &&
+      !runtime.environmentCheckPending
+    ) {
+      void refreshEnvironmentObservation({
+        reason: 'awareness-verification',
+        persistHistory: true
+      });
+    }
+  }
+}
+
+function updateProactiveAwareness(now = Date.now()) {
+  if (!runtime.awarenessPolicy.enabled || !runtime.running) {
+    renderAwareness();
+    return awarenessSnapshot(runtime.awarenessState);
+  }
+
+  const candidates = collectAwarenessCandidates(awarenessInput(), now);
+  const events = processAwareness(
+    runtime.awarenessState,
+    candidates,
+    runtime.awarenessPolicy,
+    now
+  );
+
+  for (const event of events) {
+    publishAwarenessLifecycle(event);
+  }
+
+  handleVerificationRequests(
+    verificationRequests(
+      runtime.awarenessState,
+      runtime.awarenessPolicy,
+      now
+    )
+  );
+
+  const snapshot = awarenessSnapshot(runtime.awarenessState);
+  for (const listener of awarenessListeners) listener(snapshot);
+  window.dispatchEvent(new CustomEvent('tracky:awareness', {
+    detail: snapshot
+  }));
+
+  void persistAwareness(false);
+  renderAwareness();
+  return snapshot;
+}
+
+async function acknowledgeAwarenessAlert(key) {
+  const record = acknowledgeIncident(runtime.awarenessState, key, Date.now());
+  if (!record) return null;
+
+  emit('awareness.acknowledged', {
+    source: 'awareness-engine',
+    confidence: record.confidence,
+    data: {
+      key: record.key,
+      incidentId: record.id,
+      incidentType: record.type,
+      summary: record.summary
+    }
+  });
+  await persistAwareness(true);
+  renderAwareness();
+  return copySerializable(record);
+}
+
+async function dismissAwarenessAlert(key, suppressMs = 10 * 60 * 1000) {
+  const record = dismissIncident(
+    runtime.awarenessState,
+    key,
+    { suppressMs },
+    Date.now()
+  );
+  if (!record) return null;
+
+  emit('awareness.dismissed', {
+    source: 'awareness-engine',
+    confidence: record.confidence,
+    data: {
+      key: record.key,
+      incidentId: record.id,
+      incidentType: record.type,
+      summary: record.summary,
+      suppressMs
+    }
+  });
+  await persistAwareness(true);
+  renderAwareness();
+  return copySerializable(record);
+}
+
+async function verifyAwarenessNow() {
+  if (!runtime.running) return false;
+  await refreshEnvironmentObservation({
+    reason: 'manual-awareness-verification',
+    persistHistory: true
+  });
+  updateProactiveAwareness(Date.now());
+  return true;
+}
+
+async function clearAwarenessRuntimeHistory() {
+  if (!window.confirm(
+    'Clear awareness incidents and verification history? Awareness policy and physical/spatial memory will be preserved.'
+  )) return false;
+
+  try {
+    await clearAwarenessStoreHistory();
+    runtime.awarenessState = createAwarenessState();
+    runtime.awarenessLastSavedAt = 0;
+    renderAwareness();
+    return true;
+  } catch (error) {
+    console.error('Could not clear awareness history', error);
+    return false;
+  }
+}
+
 function nextWorldObjectId() {
   runtime.worldObjectCounter += 1;
   return 'WO' + String(runtime.worldObjectCounter).padStart(3, '0');
@@ -1819,7 +2055,10 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
 
   if (updateScene) updateSceneIntelligence(now);
   updatePhysicalWorldModel(now);
-  if (runtime.running) updateSpatialMemory(now);
+  if (runtime.running) {
+    updateSpatialMemory(now);
+    updateProactiveAwareness(now);
+  }
 }
 
 function sceneInputSnapshot() {
