@@ -176,6 +176,19 @@ import {
   loadAttentionState,
   saveAttentionState
 } from './src/attention-store.js';
+import {
+  acknowledgeAnomaly,
+  anomalySnapshot,
+  createAnomalyState,
+  deriveAnomalySignals,
+  dismissAnomaly,
+  observeAnomalySignals,
+  proactiveAwarenessSummary
+} from './src/anomaly-core.js';
+import {
+  loadAnomalyState,
+  saveAnomalyState
+} from './src/anomaly-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -452,6 +465,7 @@ const worldListeners = new Set();
 const roomListeners = new Map();
 const spatialMemoryListeners = new Set();
 const attentionListeners = new Set();
+const anomalyListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -544,7 +558,10 @@ const runtime = {
   attentionLastSavedAt: 0,
   attentionTopKey: null,
   perceptionBudget: null,
-  perceptionBudgetSignature: null
+  perceptionBudgetSignature: null,
+  anomalyState: createAnomalyState(),
+  anomalyLastSavedAt: 0,
+  anomalyTopSignature: null
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -888,7 +905,8 @@ window.TrackyAgentEyes = Object.freeze({
       observationPolicies: copySerializable(runtime.roomPolicies),
       privacyStats: copySerializable(runtime.privacyStats),
       attentionController: attentionSnapshot(runtime.attention),
-      perceptionBudget: copySerializable(currentPerceptionBudget())
+      perceptionBudget: copySerializable(currentPerceptionBudget()),
+      proactiveAwareness: anomalySnapshot(runtime.anomalyState)
     };
   },
   getEnvironmentState() {
@@ -961,6 +979,18 @@ window.TrackyAgentEyes = Object.freeze({
   getPerceptionBudget() {
     return copySerializable(currentPerceptionBudget());
   },
+  getAnomalyState() {
+    return anomalySnapshot(runtime.anomalyState);
+  },
+  getProactiveAwareness() {
+    return copySerializable(proactiveAwarenessSummary(runtime.anomalyState));
+  },
+  acknowledgeAnomaly(signature) {
+    return acknowledgeActiveAnomaly(signature);
+  },
+  dismissAnomaly(signature, suppressMs) {
+    return dismissActiveAnomaly(signature, suppressMs);
+  },
   setTask(task = {}) {
     return startAttentionTask(task);
   },
@@ -1020,6 +1050,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAttention(listener) {
     attentionListeners.add(listener);
     return () => attentionListeners.delete(listener);
+  },
+  subscribeAnomalies(listener) {
+    anomalyListeners.add(listener);
+    return () => anomalyListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
