@@ -1056,6 +1056,196 @@ function updatePhysicalWorldModel(now = Date.now()) {
   renderPhysicalWorld();
 }
 
+
+function spatialLandmarksByRoom() {
+  const result = {};
+
+  for (const room of runtime.environmentRooms) {
+    const view = room.views?.find((candidate) => candidate.id === room.primaryViewId) ||
+      room.views?.find((candidate) => candidate.primary) ||
+      room.views?.[0] ||
+      null;
+    result[room.id] = (view?.landmarks || []).map((landmark) => ({
+      ...landmark,
+      position: landmark.position || landmark.roomPosition || null
+    }));
+  }
+
+  const activeRoomId = runtime.sceneGraph.roomId;
+  if (activeRoomId) {
+    const active = sceneGraphSnapshot(runtime.sceneGraph).nodes
+      .filter((node) => (
+        node.position &&
+        ['landmark','portal-landmark','portal'].includes(node.type) &&
+        node.state !== 'expired'
+      ))
+      .map((node) => ({
+        id: node.id,
+        name: node.label,
+        label: node.properties?.detectorLabel || node.label,
+        position: node.position,
+        confidence: node.confidence,
+        userConfirmed: node.state === 'user-confirmed'
+      }));
+
+    const byId = new Map([
+      ...(result[activeRoomId] || []),
+      ...active
+    ].map((landmark) => [landmark.id, landmark]));
+    result[activeRoomId] = [...byId.values()];
+  }
+
+  return result;
+}
+
+async function initializeSpatialMemory() {
+  try {
+    const saved = await loadSpatialMemory();
+    runtime.spatialMemory = {
+      ...createSpatialMemoryState(),
+      ...(saved || {}),
+      sessionId: null,
+      lastEvidenceAt: {}
+    };
+    ui.spatialMemoryTopStatus.textContent = saved ? 'Memory loaded' : 'Learning';
+  } catch (error) {
+    console.error('Could not load spatial memory', error);
+    runtime.spatialMemory = createSpatialMemoryState();
+    ui.spatialMemoryTopStatus.textContent = 'Memory unavailable';
+  }
+  renderSpatialMemory();
+}
+
+async function persistSpatialMemory(force = false) {
+  const now = Date.now();
+  if (
+    !force &&
+    now - Number(runtime.spatialMemoryLastSavedAt || 0) < 10000
+  ) return;
+
+  runtime.spatialMemoryLastSavedAt = now;
+  try {
+    await saveSpatialMemory(runtime.spatialMemory);
+  } catch (error) {
+    console.error('Could not persist spatial memory', error);
+  }
+}
+
+function updateSpatialMemory(now = Date.now()) {
+  const sessionId = runtime.startedAt
+    ? 'session-' + runtime.startedAt
+    : 'session-' + Math.floor(now / 60000);
+
+  observeSpatialMemory(runtime.spatialMemory, {
+    sessionId,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    landmarksByRoom: spatialLandmarksByRoom(),
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    transitions: runtime.multiRoomEvents || []
+  }, now);
+
+  const snapshot = spatialMemorySnapshot(runtime.spatialMemory);
+  for (const listener of spatialMemoryListeners) listener(snapshot);
+  window.dispatchEvent(new CustomEvent('tracky:spatial-memory', {
+    detail: snapshot
+  }));
+
+  void persistSpatialMemory(false);
+  renderSpatialMemory();
+  return snapshot;
+}
+
+function confirmedMemoryGraphEdge(proposal) {
+  const activeRoomId = runtime.sceneGraph.roomId;
+  if (!activeRoomId) return null;
+
+  if (proposal.type === 'expected-location') {
+    const appliesToActiveRoom = (
+      proposal.roomId === activeRoomId ||
+      runtime.sceneGraph.nodes?.[proposal.targetId]
+    );
+    if (!appliesToActiveRoom) return null;
+
+    const objectId = proposal.anchorId || proposal.roomId;
+    if (!objectId) return null;
+
+    return confirmGraphEdge(runtime.sceneGraph, {
+      subjectId: proposal.subjectId,
+      predicate: proposal.anchorId ? 'expected-at' : 'expected-in',
+      objectId,
+      confidence: proposal.confidence,
+      source: 'spatial-memory-confirmation',
+      properties: {
+        learnedFromObservations: proposal.evidence?.observations || 0,
+        learnedAcrossSessions: proposal.evidence?.sessions || 0
+      }
+    });
+  }
+
+  if (proposal.type === 'stable-relationship') {
+    const subjectExists = Boolean(runtime.sceneGraph.nodes?.[proposal.subjectId]);
+    const targetExists = Boolean(runtime.sceneGraph.nodes?.[proposal.targetId]);
+    if (!subjectExists || !targetExists) return null;
+
+    return confirmGraphEdge(runtime.sceneGraph, {
+      subjectId: proposal.subjectId,
+      predicate: proposal.predicate,
+      objectId: proposal.targetId,
+      confidence: proposal.confidence,
+      source: 'spatial-memory-confirmation',
+      properties: {
+        learnedFromObservations: proposal.evidence?.observations || 0,
+        learnedAcrossSessions: proposal.evidence?.sessions || 0
+      }
+    });
+  }
+
+  return null;
+}
+
+async function confirmSpatialMemoryProposal(key) {
+  const proposal = runtime.spatialMemory.proposals.find(
+    (item) => item.key === key
+  );
+  if (!proposal || proposal.status === 'confirmed') return proposal || null;
+
+  const resolved = resolveMemoryProposal(
+    runtime.spatialMemory,
+    key,
+    'confirmed',
+    Date.now()
+  );
+  confirmedMemoryGraphEdge(resolved);
+  await persistSpatialMemory(true);
+  updatePhysicalWorldModel(Date.now());
+  renderSpatialMemory();
+  return copySerializable(resolved);
+}
+
+async function ignoreSpatialMemoryProposal(key) {
+  ignoreMemoryProposal(runtime.spatialMemory, key, Date.now());
+  await persistSpatialMemory(true);
+  renderSpatialMemory();
+  return true;
+}
+
+async function clearLearnedSpatialMemory() {
+  if (!window.confirm(
+    'Clear learned spatial evidence, journeys, routes, and unconfirmed proposals? User-confirmed scene-graph facts will remain.'
+  )) return false;
+
+  try {
+    await clearSpatialMemoryStore();
+    runtime.spatialMemory = createSpatialMemoryState();
+    runtime.spatialMemoryLastSavedAt = 0;
+    renderSpatialMemory();
+    return true;
+  } catch (error) {
+    console.error('Could not clear spatial memory', error);
+    return false;
+  }
+}
+
 function nextWorldObjectId() {
   runtime.worldObjectCounter += 1;
   return 'WO' + String(runtime.worldObjectCounter).padStart(3, '0');
