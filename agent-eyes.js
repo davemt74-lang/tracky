@@ -215,6 +215,19 @@ import {
   saveWorldWatch,
   saveWorldWatchTrigger
 } from './src/world-watch-store.js';
+import {
+  interpretWorldWatchCommand
+} from './src/world-watch-language-core.js';
+import {
+  acknowledgeAgentBriefing,
+  buildAgentBriefing,
+  pendingAgentBriefings
+} from './src/agent-briefing-core.js';
+import {
+  clearAgentBriefings as clearAgentBriefingsStore,
+  listAgentBriefings,
+  saveAgentBriefing
+} from './src/agent-briefing-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -515,6 +528,7 @@ const anomalyListeners = new Set();
 const worldQueryListeners = new Set();
 const agentContextListeners = new Set();
 const worldWatchListeners = new Set();
+const agentBriefingListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -615,7 +629,8 @@ const runtime = {
   recentWorldQueries: [],
   agentContext: null,
   worldWatches: [],
-  worldWatchHistory: []
+  worldWatchHistory: [],
+  agentBriefings: []
 };
 
 const SCAN_INTERVAL_MS = 550;
