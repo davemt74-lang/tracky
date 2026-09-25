@@ -156,6 +156,7 @@ import {
   normalizePrivacyRegion,
   privacySummary,
   sanitizeEventPayload,
+  spatialMemoryRetentionAllowed,
   transcriptRetentionAllowed
 } from './src/privacy-policy-core.js';
 
@@ -719,9 +720,31 @@ async function reloadEnvironmentRooms() {
     console.error('Could not load environment rooms', error);
     runtime.environmentRooms = [];
   }
+
+  const policyRoomIds = new Set([
+    ...runtime.environmentRooms.map((room) => room.id),
+    ...runtime.cameraConfigs.map((camera) => camera.roomId),
+    primaryCameraConfig()?.roomId || 'ROOM01'
+  ]);
+  const policies = await Promise.all(
+    [...policyRoomIds].map(async (roomId) => {
+      try {
+        return [roomId, normalizeObservationPolicy(
+          await loadEnvironmentPolicy(roomId),
+          roomId
+        )];
+      } catch (error) {
+        console.error('Could not load room privacy policy', roomId, error);
+        return [roomId, defaultObservationPolicy(roomId)];
+      }
+    })
+  );
+  runtime.roomPolicies = Object.fromEntries(policies);
+
   runtime.worldTopology = buildWorldTopology(runtime.environmentRooms);
   renderEnvironmentPanel();
   renderMultiRoomWorld();
+  renderPrivacyPolicy();
   return runtime.environmentRooms;
 }
 
@@ -759,13 +782,19 @@ async function captureCurrentEnvironmentFrame() {
   }
 
   const camera = primaryCameraConfig();
+  const policy = policyForRoom(camera?.roomId);
+  if (!policy.allowEnvironmentComparison) {
+    throw new Error('Environment comparison is disabled by room privacy policy.');
+  }
+
   const frame = await captureBestEnvironmentFrame(ui.video, {
     count: 4,
     intervalMs: 100,
     maxWidth: 720,
     quality: 0.84,
     obstructionRatio: currentObstructionRatio(),
-    landmarkCoverage: Math.min(1, (runtime.fusionState.objects?.length || 0) / 5)
+    landmarkCoverage: Math.min(1, (runtime.fusionState.objects?.length || 0) / 5),
+    maskRegions: imageMaskRegions(policy)
   });
 
   return buildEnvironmentObservation({
@@ -855,7 +884,10 @@ async function refreshEnvironmentObservation(options = {}) {
         score: analysis.best?.score || 0,
         drift: analysis.drift,
         imageDataUrl: observation.imageDataUrl,
-        retainImage: false
+        retainImage: imageRetentionAllowed(
+          policyForRoom(analysis.best?.roomId || observation.roomHint || roomState.roomId),
+          'comparison'
+        )
       }).catch((error) => {
         console.error('Could not save environment history', error);
       });
@@ -885,7 +917,10 @@ function viewRecordFromCurrent(roomId, viewId, primary, overrides = {}) {
     primary,
     cameraId: camera?.id || current?.cameraId || null,
     capturedAt: current?.capturedAt || Date.now(),
-    imageDataUrl: current?.imageDataUrl || null,
+    imageDataUrl: imageRetentionAllowed(
+      policyForRoom(roomId),
+      primary ? 'primary' : 'alternate'
+    ) ? (current?.imageDataUrl || null) : null,
     fingerprint: current?.fingerprint || null,
     quality: current?.quality || null,
     floor: mapping?.floor || current?.floor || null,
@@ -1399,12 +1434,23 @@ function onSecondaryCameraStatus(cameraId, status) {
 }
 
 function onSecondaryCameraObservation(cameraId, observation) {
-  runtime.cameraObservations.set(cameraId, observation);
+  const roomId = observation.camera?.roomId || cameraById(cameraId)?.roomId;
+  const policy = policyForRoom(roomId);
+  runtime.cameraObservations.set(cameraId, {
+    ...observation,
+    participants: (observation.participants || [])
+      .map((item) => applyParticipantObservationPolicy(item, policy))
+      .filter(Boolean),
+    objects: (observation.objects || [])
+      .map((item) => applyObjectObservationPolicy(item, policy))
+      .filter(Boolean)
+  });
   updateCameraFusion(observation.timestamp || Date.now(), true);
 }
 
 function primaryParticipantObservations(camera) {
   if (!camera) return [];
+  const policy = policyForRoom(camera.roomId);
 
   return runtime.tracks
     .filter((track) => track.presenceAnnounced && track.status !== 'reacquiring')
@@ -1437,11 +1483,14 @@ function primaryParticipantObservations(camera) {
         behavior: track.behaviorEvidence || null,
         identitySource: track.identitySource || null
       };
-    });
+    })
+    .map((observation) => applyParticipantObservationPolicy(observation, policy))
+    .filter(Boolean);
 }
 
 function primaryObjectObservations(camera) {
   if (!camera) return [];
+  const policy = policyForRoom(camera.roomId);
 
   return runtime.objects
     .filter((object) => object.stable && object.status !== 'reacquiring')
@@ -1462,7 +1511,9 @@ function primaryObjectObservations(camera) {
       confidence: Number(object.score || 0),
       stable: true,
       status: object.status
-    }));
+    }))
+    .map((observation) => applyObjectObservationPolicy(observation, policy))
+    .filter(Boolean);
 }
 
 function publishPrimaryCameraObservation(timestamp = Date.now()) {
@@ -2130,8 +2181,10 @@ function createSecondaryRuntime() {
         return detectRoomSerial(input);
       }
     },
-    getParticipants() {
-      return runtime.participants;
+    getParticipants(camera) {
+      return policyForRoom(camera?.roomId).allowParticipantIdentity
+        ? runtime.participants
+        : [];
     },
     onObservation: onSecondaryCameraObservation,
     onStatus: onSecondaryCameraStatus,
