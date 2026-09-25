@@ -64,6 +64,11 @@ export function reevaluateBriefingQueue(queue=[],context={},now=Date.now()){
   const updated=arr(queue).map((item)=>{
     if(['acknowledged','expired','surfaced'].includes(item.deliveryState)) return {...item};
     if(Number(item.expiresAt||Infinity)<=now) return {...item,deliveryState:'expired',deliveryReady:false,expiredAt:now};
+    if(
+      item.deliveryState==='deferred' &&
+      String(item.deliveryReason||'').startsWith('user-') &&
+      Number(item.retryAt||0)>now
+    ) return {...item};
     const plan=planBriefingDelivery(item,context,now);
     return {...item,deliveryState:plan.state,deliveryReason:plan.reason,deliveryReady:plan.ready===true,interrupt:plan.interrupt===true,voiceEligible:plan.voiceEligible===true,retryAt:plan.retryAt==null?null:Number(plan.retryAt)};
   });
