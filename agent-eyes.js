@@ -3969,6 +3969,55 @@ function renderEnvironmentMapping() {
   ui.discardEnvironmentMap.disabled = false;
 }
 
+
+function renderPhysicalWorld() {
+  const graph = sceneGraphSnapshot(runtime.sceneGraph);
+  const world = worldStateSnapshot(runtime.physicalWorld);
+  const attention = world.attention || [];
+
+  ui.physicalGraphNodes.textContent = String(graph.nodes.length);
+  ui.physicalGraphEdges.textContent = String(graph.edges.length);
+  ui.physicalContradictions.textContent = String(world.contradictions?.length || 0);
+  ui.physicalAttentionCount.textContent = String(attention.length);
+  ui.physicalWorldStatus.textContent = world.activeRoomId
+    ? world.activeRoomId + ' · ' + (world.environment?.classification || 'unknown')
+    : 'Standby';
+  ui.worldStatus.textContent = world.contradictions?.length
+    ? 'Evidence conflict'
+    : world.activeRoomId
+      ? 'World state online'
+      : 'Standby';
+
+  ui.physicalAttentionFeed.replaceChildren();
+  if (!attention.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No high-priority physical-world issues.';
+    ui.physicalAttentionFeed.append(empty);
+  } else {
+    for (const item of attention) {
+      const row = document.createElement('div');
+      row.className = 'physical-attention-row';
+      const top = document.createElement('div');
+      const type = document.createElement('strong');
+      const score = document.createElement('span');
+      type.textContent = item.type;
+      score.textContent = percent(item.priority);
+      top.append(type, score);
+      const summary = document.createElement('p');
+      summary.textContent = item.summary;
+      row.append(top, summary);
+      ui.physicalAttentionFeed.append(row);
+    }
+  }
+
+  ui.physicalWorldJson.textContent = JSON.stringify({
+    environment: runtime.environmentAnalysis,
+    sceneGraph: graph,
+    physicalWorld: world
+  }, null, 2);
+}
+
 function renderCameraNetwork() {
   ui.cameraRegistryList.replaceChildren();
 
@@ -4585,6 +4634,9 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderEnvironmentPanel();
+  renderEnvironmentMapping();
+  renderPhysicalWorld();
   renderCameraNetwork();
   renderWorldMap();
   renderParticipants();
