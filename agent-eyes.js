@@ -6104,6 +6104,187 @@ function renderSpatialJourneys() {
   ui.spatialJourneyStatus.textContent = entities.length + ' recent entities';
 }
 
+
+function renderProactiveAwareness() {
+  const snapshot = anomalySnapshot(runtime.anomalyState);
+  const summary = proactiveAwarenessSummary(runtime.anomalyState);
+  const active = snapshot.active || [];
+  const candidates = snapshot.candidates || [];
+  const history = [...(snapshot.history || [])].reverse();
+
+  ui.proactiveActiveCount.textContent = String(summary.activeCount || 0);
+  ui.proactiveCriticalCount.textContent = String(summary.critical || 0);
+  ui.proactiveHighCount.textContent = String(summary.high || 0);
+  ui.proactiveMediumCount.textContent = String(summary.medium || 0);
+  ui.proactiveCandidateStatus.textContent =
+    candidates.length + ' verifying';
+  ui.proactiveHistoryStatus.textContent =
+    history.length ? history.length + ' outcomes' : 'No history';
+
+  const top = summary.top || null;
+  const statusText = top
+    ? String(top.severity || 'active').toUpperCase() + ' · ' +
+      String(top.type || 'anomaly')
+    : candidates.length
+      ? candidates.length + ' verifying'
+      : 'Quiet';
+  ui.proactiveStatus.textContent = statusText;
+  ui.anomalyTopStatus.textContent = top
+    ? String(top.severity || 'active').toUpperCase()
+    : candidates.length
+      ? 'Verifying'
+      : 'Quiet';
+
+  ui.proactiveActiveList.replaceChildren();
+  if (!active.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No persistent physical-world anomalies.';
+    ui.proactiveActiveList.append(empty);
+  } else {
+    for (const anomaly of active) {
+      const row = document.createElement('article');
+      row.className = 'proactive-anomaly-row severity-' +
+        String(anomaly.severity || 'medium');
+
+      const copy = document.createElement('div');
+      copy.className = 'proactive-anomaly-copy';
+
+      const head = document.createElement('div');
+      head.className = 'proactive-anomaly-head';
+
+      const type = document.createElement('strong');
+      type.textContent = String(anomaly.type || 'anomaly');
+
+      const severity = document.createElement('span');
+      severity.className = 'proactive-severity';
+      severity.textContent = String(anomaly.severity || 'medium').toUpperCase();
+
+      head.append(type, severity);
+
+      const summaryText = document.createElement('p');
+      summaryText.textContent = anomaly.summary || 'Physical-world anomaly';
+
+      const meta = document.createElement('span');
+      meta.className = 'proactive-anomaly-meta';
+      meta.textContent = [
+        Math.round(Number(anomaly.confidence || 0) * 100) + '% confidence',
+        anomaly.roomId || null,
+        anomaly.observations ? anomaly.observations + ' observations' : null,
+        anomaly.status === 'acknowledged' ? 'ACKNOWLEDGED' : null
+      ].filter(Boolean).join(' · ');
+
+      copy.append(head, summaryText, meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'proactive-anomaly-actions';
+
+      if (anomaly.status !== 'acknowledged') {
+        const acknowledge = document.createElement('button');
+        acknowledge.type = 'button';
+        acknowledge.className = 'agent-entity-action';
+        acknowledge.textContent = 'Acknowledge';
+        acknowledge.addEventListener('click', () => {
+          acknowledgeActiveAnomaly(anomaly.signature);
+        });
+        actions.append(acknowledge);
+      }
+
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'agent-entity-action';
+      dismiss.textContent = 'Dismiss 1h';
+      dismiss.addEventListener('click', () => {
+        dismissActiveAnomaly(anomaly.signature, 60 * 60 * 1000);
+      });
+      actions.append(dismiss);
+
+      row.append(copy, actions);
+      ui.proactiveActiveList.append(row);
+    }
+  }
+
+  ui.proactiveCandidateList.replaceChildren();
+  if (!candidates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No anomaly candidates are currently being verified.';
+    ui.proactiveCandidateList.append(empty);
+  } else {
+    for (const candidate of candidates) {
+      const row = document.createElement('article');
+      row.className = 'proactive-candidate-row';
+
+      const type = document.createElement('strong');
+      type.textContent = candidate.type || 'anomaly candidate';
+
+      const summaryText = document.createElement('p');
+      summaryText.textContent =
+        candidate.summary || 'Accumulating evidence before confirmation.';
+
+      const required = Number(candidate.rule?.minimumObservations || 1);
+      const elapsed = Math.max(
+        0,
+        Date.now() - Number(candidate.firstSeenAt || Date.now())
+      );
+      const persistence = Number(candidate.rule?.persistenceMs || 0);
+
+      const meta = document.createElement('span');
+      meta.textContent = [
+        'VERIFYING',
+        String(candidate.observations || 0) + '/' + required + ' observations',
+        persistence
+          ? Math.min(100, Math.round(elapsed / persistence * 100)) + '% persistence'
+          : 'persistence ready',
+        Math.round(Number(candidate.confidence || 0) * 100) + '% confidence'
+      ].join(' · ');
+
+      row.append(type, summaryText, meta);
+      ui.proactiveCandidateList.append(row);
+    }
+  }
+
+  ui.proactiveHistoryList.replaceChildren();
+  if (!history.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Cleared and dismissed anomalies will appear here.';
+    ui.proactiveHistoryList.append(empty);
+  } else {
+    for (const item of history.slice(0, 24)) {
+      const row = document.createElement('article');
+      row.className = 'proactive-history-row';
+
+      const head = document.createElement('div');
+      const type = document.createElement('strong');
+      const status = document.createElement('span');
+      type.textContent = item.type || 'anomaly';
+      status.textContent = String(item.status || 'resolved').toUpperCase();
+      head.append(type, status);
+
+      const summaryText = document.createElement('p');
+      summaryText.textContent = item.summary || 'Physical-world anomaly';
+
+      const timestamp =
+        item.clearedAt || item.dismissedAt || item.lastSeenAt || item.confirmedAt;
+      const meta = document.createElement('small');
+      meta.textContent = [
+        item.severity ? String(item.severity).toUpperCase() : null,
+        timestamp
+          ? new Date(timestamp).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })
+          : null
+      ].filter(Boolean).join(' · ');
+
+      row.append(head, summaryText, meta);
+      ui.proactiveHistoryList.append(row);
+    }
+  }
+}
+
 function renderSpatialMemory() {
   const snapshot = spatialMemorySnapshot(runtime.spatialMemory);
   const pending = snapshot.proposals.filter((proposal) => proposal.status === 'proposed');
