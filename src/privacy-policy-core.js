@@ -48,10 +48,17 @@ export function normalizePrivacyRegion(region = {}, index = 0) {
     ? [...new Set(region.appliesTo.map(String))]
     : ['participant','object','behavior','voice','transcript','environment','spatial-memory'];
 
-  const x = clamp01(region.x ?? 0);
-  const y = clamp01(region.y ?? 0);
-  const width = Math.max(0.01, Math.min(1 - x, Number(region.width ?? 0.2)));
-  const height = Math.max(0.01, Math.min(1 - y, Number(region.height ?? 0.2)));
+  const round = (value) => Number(Number(value).toFixed(6));
+  const x = round(clamp01(region.x ?? 0));
+  const y = round(clamp01(region.y ?? 0));
+  const width = round(Math.max(
+    0.01,
+    Math.min(round(1 - x), Number(region.width ?? 0.2))
+  ));
+  const height = round(Math.max(
+    0.01,
+    Math.min(round(1 - y), Number(region.height ?? 0.2))
+  ));
 
   return {
     id: String(region.id || 'PRIV-' + String(index + 1).padStart(3, '0')),
