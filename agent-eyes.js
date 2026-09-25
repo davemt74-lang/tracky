@@ -1117,7 +1117,7 @@ async function initializePhysicalGoals() {
   }
 }
 
-async function addPhysicalGoal(input = {}) {
+async function addPhysicalGoalDefinition(input = {}) {
   const goal = normalizePhysicalGoal(input, Date.now());
   await savePhysicalGoal(goal);
   runtime.physicalGoals = [
@@ -1127,13 +1127,13 @@ async function addPhysicalGoal(input = {}) {
   return copySerializable(goal);
 }
 
-async function removePhysicalGoal(id) {
+async function removePhysicalGoalDefinition(id) {
   await deletePhysicalGoal(id);
   runtime.physicalGoals = runtime.physicalGoals.filter((item) => item.id !== id);
   return true;
 }
 
-async function clearPhysicalGoalHistory() {
+async function clearPhysicalGoalEventHistory() {
   await clearPhysicalGoalEvents();
   runtime.physicalGoalHistory = [];
   return true;
@@ -1190,7 +1190,7 @@ async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Dat
   return copySerializable(result);
 }
 
-async function runPhysicalRoutine(id, now = Date.now()) {
+async function runPhysicalRoutineNow(id, now = Date.now()) {
   const goal = runtime.physicalGoals.find((item) => item.id === id);
   if (!goal) return { status:'not-found', message:'Physical routine not found.' };
   if (goal.type !== 'routine') return { status:'invalid', message:'Only routines can be run manually.' };
@@ -1204,7 +1204,7 @@ async function runPhysicalRoutine(id, now = Date.now()) {
   return copySerializable({ status:'ready', goal:result.goal, events:result.events });
 }
 
-async function processPhysicalGoalCommand(input, options = {}) {
+async function processPhysicalGoalCommandRuntime(input, options = {}) {
   const interpreted = interpretPhysicalGoalCommand(
     input,
     physicalGoalCommandContext(options, Date.now()),
@@ -1214,7 +1214,7 @@ async function processPhysicalGoalCommand(input, options = {}) {
   if (interpreted.status !== 'ready') return copySerializable(interpreted);
 
   if (interpreted.intent === 'create') {
-    const goal = await addPhysicalGoal(interpreted.goal);
+    const goal = await addPhysicalGoalDefinition(interpreted.goal);
     return copySerializable({ ...interpreted, goal, message:'Physical goal created: ' + goal.label + '.' });
   }
   if (interpreted.intent === 'list') {
@@ -1227,16 +1227,19 @@ async function processPhysicalGoalCommand(input, options = {}) {
     });
   }
   if (interpreted.intent === 'remove') {
-    await removePhysicalGoal(interpreted.goal.id);
+    await removePhysicalGoalDefinition(interpreted.goal.id);
     return copySerializable({ ...interpreted, message:'Physical goal removed: ' + interpreted.goal.label + '.' });
   }
   if (interpreted.intent === 'pause' || interpreted.intent === 'resume') {
     const enabled = interpreted.intent === 'resume';
-    const goal = await addPhysicalGoal({ ...interpreted.goal, enabled });
+    const goal = await addPhysicalGoalDefinition({ ...interpreted.goal, enabled });
     return copySerializable({ ...interpreted, goal, message:(enabled ? 'Physical goal resumed: ' : 'Physical goal paused: ') + goal.label + '.' });
   }
+  if (interpreted.intent === 'run') {
+    return runPhysicalRoutineNow(interpreted.goal.id, Date.now());
+  }
   if (interpreted.intent === 'clear-history') {
-    await clearPhysicalGoalHistory();
+    await clearPhysicalGoalEventHistory();
     return copySerializable({ ...interpreted, message:'Physical goal history cleared.' });
   }
   return copySerializable(interpreted);
@@ -1899,10 +1902,10 @@ window.TrackyAgentEyes = Object.freeze({
     return clearPhysicalWorldWatchHistory();
   },
   addPhysicalGoal(input = {}) {
-    return addPhysicalGoal(input);
+    return addPhysicalGoalDefinition(input);
   },
   removePhysicalGoal(id) {
-    return removePhysicalGoal(id);
+    return removePhysicalGoalDefinition(id);
   },
   getPhysicalGoals() {
     return copySerializable(runtime.physicalGoals);
@@ -1911,7 +1914,7 @@ window.TrackyAgentEyes = Object.freeze({
     return copySerializable(runtime.physicalGoalHistory.slice(0, Math.max(1, Math.min(50, Number(limit || 50)))));
   },
   clearPhysicalGoalHistory() {
-    return clearPhysicalGoalHistory();
+    return clearPhysicalGoalEventHistory();
   },
   interpretPhysicalGoal(input, options = {}) {
     return copySerializable(interpretPhysicalGoalCommand(
@@ -1922,10 +1925,10 @@ window.TrackyAgentEyes = Object.freeze({
     ));
   },
   processPhysicalGoalCommand(input, options = {}) {
-    return processPhysicalGoalCommand(input, options);
+    return processPhysicalGoalCommandRuntime(input, options);
   },
   runPhysicalRoutine(id) {
-    return runPhysicalRoutine(id);
+    return runPhysicalRoutineNow(id);
   },
   interpretWorldWatch(input) {
     return copySerializable(interpretWorldWatchCommand(
