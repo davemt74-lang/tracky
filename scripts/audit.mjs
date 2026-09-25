@@ -897,6 +897,10 @@ for (const symbol of [
   }
 }
 
+if (!briefingQueueCore.includes('deliveryHistory')) {
+  fail('Briefing queue core must retain a bounded V2.3 delivery transition history');
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -1012,6 +1016,10 @@ for (const modulePath of [
 }
 if (!/delivery-timer/.test(agentEyes)) {
   fail('Agent Eyes must reevaluate due V2.3 delivery windows');
+}
+
+if (!/await persistAgentBriefingQueue\(\)/.test(agentEyes)) {
+  fail('Agent Eyes must persist V2.3 queue migration/recovery state');
 }
 for (const modulePath of [
   './src/world-watch-language-core.js',
