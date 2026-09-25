@@ -3,6 +3,159 @@
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
 
+## V2.4 — Goals, Expectations & Physical-World Routines
+
+V2.4 adds durable physical-world goals above Tracky's governed semantic context.
+
+The goal layer is observational and cognitive. It can remember what should normally be true, check recurring physical-world routines, and brief the Agent when a verified condition needs attention. It still cannot execute physical actions.
+
+Examples:
+
+- `Expect the keys to stay in the office.`
+- `The keys normally stay by the door.`
+- `Make sure the office is empty.`
+- `Make sure the office is empty when Dave leaves the office.`
+- `Make sure the office is empty when I leave.`
+- `List my goals.`
+- `Pause goal G1.`
+- `Run routine Office exit check.`
+
+### Standing expectations
+
+A standing expectation is continuously checked against privacy-governed semantic state.
+
+V2.4 supports:
+
+- entity in a known room
+- entity at a known semantic anchor/place
+- room empty
+
+Expectation state is explicit:
+
+- `met`
+- `violated`
+- `unknown`
+
+Unknown is important. Tracky does not turn missing evidence into a violation or a success.
+
+For example, an object with only stale/last-known evidence cannot satisfy or violate a current-location expectation with certainty.
+
+### Conservative room-empty verification
+
+Seeing a person is enough to prove a room is not empty.
+
+Claiming that a room **is** empty is harder. V2.4 requires:
+
+- visual observation allowed by the room privacy policy
+- live/starting calibrated cameras
+- combined configured camera coverage of at least 85% of the room
+
+If those requirements are not met, the result is `unknown`, not `met`.
+
+This prevents “nobody was detected” from being treated as “nobody is there.”
+
+### Place/anchor expectations
+
+Anchor expectations reuse Tracky's semantic spatial memory and scene landmarks.
+
+Current anchor evidence is accepted only when:
+
+- the entity is currently confirmed
+- the evidence is recent
+- spatial memory is permitted by the current room policy
+- the remembered room also permits spatial memory
+
+If any of those conditions fail, the anchor expectation becomes `unknown`.
+
+### Recurring physical-world routines
+
+A routine has:
+
+- a physical trigger
+- one or more ordered semantic checks
+- a cooldown
+- an optional success notification policy
+
+Supported triggers currently include:
+
+- manual
+- entity enters room
+- entity leaves room
+
+A routine can evaluate up to 12 semantic checks. The checks are verification steps, not physical commands.
+
+For example:
+
+```text
+Dave leaves Office
+  → verify Office is empty
+  → routine complete / needs attention / unknown
+```
+
+Routines do not fire simply because Tracky rebuilt its first state after startup. Startup evaluates standing expectations while suppressing event-driven routine triggers.
+
+### Natural-language identity safety
+
+First-person requests such as:
+
+```text
+Make sure the office is empty when I leave.
+```
+
+require the downstream Agent to supply the user's already-resolved physical identity as `selfSubjectId`.
+
+Tracky does not guess who “I” refers to.
+
+Ambiguous entities, rooms, or anchors are likewise returned as candidates rather than silently selected.
+
+### Agent briefing integration
+
+Goal events are stored locally and emitted as:
+
+```text
+tracky:physical-goal
+```
+
+Briefing-eligible violations flow into the existing V2.3 Agent briefing queue, so delivery still obeys connection state, conversation state, DND, urgency, voice handoff rules, defer windows, digests, and acknowledgement.
+
+Different physical goals use distinct briefing coalescing keys even when they refer to the same room or object.
+
+### V2.4 Agent APIs
+
+```js
+TrackyAgentEyes.addPhysicalGoal(input)
+TrackyAgentEyes.removePhysicalGoal(id)
+TrackyAgentEyes.getPhysicalGoals()
+TrackyAgentEyes.getPhysicalGoalHistory(limit)
+TrackyAgentEyes.clearPhysicalGoalHistory()
+
+TrackyAgentEyes.interpretPhysicalGoal(text, options)
+TrackyAgentEyes.processPhysicalGoalCommand(text, options)
+TrackyAgentEyes.runPhysicalRoutine(id)
+
+TrackyAgentEyes.subscribePhysicalGoals(handler)
+```
+
+For first-person language:
+
+```js
+TrackyAgentEyes.processPhysicalGoalCommand(
+  'Make sure the office is empty when I leave',
+  { selfSubjectId: 'resolved-participant-id' }
+)
+```
+
+### Authority boundary
+
+Every V2.4 physical-goal event declares:
+
+- `semantic-goal-only`
+- `privacy-governed-context`
+- `no-autonomous-physical-control`
+
+Goals and routines can observe, remember, verify, and brief. They cannot move objects, unlock doors, operate devices, or otherwise execute physical-world actions.
+
+
 ## V2.3 — Proactive Agent Briefing Queue & Delivery Policy
 
 V2.3 adds a governed delivery layer above V2.2 Agent briefings. Tracky now decides when a briefing is ready to hand off, when it should wait, when it belongs in a digest, and how it should recover after disconnects.
