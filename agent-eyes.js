@@ -856,6 +856,10 @@ function emit(type, payload = {}) {
 
 bus.subscribe('*', (event) => {
   applyPerceptionEvent(roomState, event);
+  if (meaningfulAttentionEvent(event.type)) {
+    markMeaningfulActivity(runtime.attention, event.timestamp || Date.now());
+    updateAttentionController(event.timestamp || Date.now());
+  }
   window.dispatchEvent(new CustomEvent('tracky:perception', {
     detail: event
   }));
@@ -1512,6 +1516,7 @@ function updatePhysicalWorldModel(now = Date.now()) {
   }));
 
   renderPhysicalWorld();
+  updateAttentionController(now);
 }
 
 
@@ -2594,7 +2599,7 @@ function createSecondaryRuntime() {
     },
     onObservation: onSecondaryCameraObservation,
     onStatus: onSecondaryCameraStatus,
-    scanIntervalMs: 850
+    scanIntervalMs: currentPerceptionBudget().secondaryIntervalMs
   });
 
   return runtime.secondaryCameras;
@@ -3015,10 +3020,13 @@ function stopPerception() {
   setHealth('standby');
 }
 
-function scheduleScan(delay = SCAN_INTERVAL_MS) {
+function scheduleScan(delay = null) {
   clearTimeout(runtime.scanTimer);
   if (!runtime.running || !runtime.identityReady) return;
-  runtime.scanTimer = setTimeout(() => void scanRoom(), delay);
+  const effectiveDelay = delay == null
+    ? currentPerceptionBudget().scanIntervalMs
+    : delay;
+  runtime.scanTimer = setTimeout(() => void scanRoom(), effectiveDelay);
 }
 
 function facePhoto(track) {
@@ -3904,7 +3912,8 @@ async function scanRoom() {
     } else if (
       runtime.environmentStartupChecked &&
       !runtime.environmentCheckPending &&
-      fusionNow - Number(runtime.environmentLastCheckedAt || 0) >= 60000
+      fusionNow - Number(runtime.environmentLastCheckedAt || 0) >=
+        currentPerceptionBudget(fusionNow).environmentCheckMs
     ) {
       void refreshEnvironmentObservation({
         reason: 'periodic-environment-check',
