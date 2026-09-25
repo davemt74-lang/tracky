@@ -1954,3 +1954,238 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
   .environment-photo-grid{grid-template-columns:1fr}
   .environment-metrics{grid-template-columns:1fr 1fr}
 }
+
+/* V1.4 — multi-room world + topology */
+.multi-room-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(330px,.65fr);
+  gap:12px;
+  margin-top:12px;
+  align-items:start;
+}
+.global-room-map{
+  position:relative;
+  min-height:360px;
+  overflow:hidden;
+  border:1px solid rgba(78,232,255,.18);
+  border-radius:11px;
+  background:
+    radial-gradient(circle at 50% 50%,rgba(78,232,255,.04),transparent 48%),
+    linear-gradient(rgba(78,232,255,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(78,232,255,.025) 1px,transparent 1px),
+    rgba(1,7,10,.94);
+  background-size:auto,10% 10%,10% 10%,auto;
+}
+.global-room-links{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  pointer-events:none;
+}
+.global-room-link{
+  stroke-width:4;
+  vector-effect:non-scaling-stroke;
+}
+.global-room-link.confirmed{stroke:rgba(92,255,157,.45)}
+.global-room-link.inferred{
+  stroke:rgba(255,209,102,.45);
+  stroke-dasharray:12 8;
+}
+.global-room-nodes{
+  position:absolute;
+  inset:0;
+}
+.global-room-node{
+  position:absolute;
+  transform:translate(-50%,-50%);
+  min-width:145px;
+  max-width:220px;
+  padding:10px;
+  border:1px solid rgba(78,232,255,.25);
+  border-radius:10px;
+  text-align:left;
+  color:var(--text);
+  background:rgba(2,13,18,.93);
+  box-shadow:0 0 24px rgba(78,232,255,.05);
+}
+.global-room-node strong,
+.global-room-node span{display:block}
+.global-room-node strong{font-size:.68rem}
+.global-room-node span{
+  margin-top:3px;
+  color:var(--muted);
+  font-size:.47rem;
+}
+.global-room-node.active-room{
+  border-color:rgba(92,255,157,.55);
+  box-shadow:0 0 22px rgba(92,255,157,.1);
+}
+.global-room-node.selected{
+  outline:2px solid rgba(255,209,102,.5);
+  outline-offset:3px;
+}
+.global-room-label{
+  position:absolute;
+  left:8px;
+  bottom:6px;
+  color:rgba(78,232,255,.5);
+  font-size:.43rem;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.multi-room-summary{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:1px;
+  margin-top:7px;
+  border:1px solid rgba(78,232,255,.09);
+  background:rgba(78,232,255,.09);
+}
+.multi-room-summary>div{
+  padding:7px;
+  background:rgba(1,9,13,.96);
+}
+.multi-room-summary span,
+.multi-room-summary b{display:block}
+.multi-room-summary span{
+  color:var(--muted);
+  font-size:.42rem;
+  font-weight:900;
+}
+.multi-room-summary b{
+  margin-top:2px;
+  color:var(--cyan);
+  font-size:.65rem;
+}
+.multi-room-selected{
+  margin-top:8px;
+  border-top:1px solid rgba(78,232,255,.09);
+  padding-top:8px;
+}
+.multi-room-selected-head{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:6px;
+}
+.multi-room-selected-head strong{font-size:.68rem}
+.multi-room-selected-head span{
+  color:var(--muted);
+  font-size:.48rem;
+  text-align:right;
+}
+.multi-room-entity-list{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:5px;
+}
+.multi-room-entity-list>div{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  padding:7px;
+  border:1px solid rgba(78,232,255,.1);
+  border-radius:7px;
+  background:rgba(2,11,15,.5);
+}
+.multi-room-entity-list strong{font-size:.56rem}
+.multi-room-entity-list span{
+  color:var(--muted);
+  font-size:.47rem;
+  text-align:right;
+}
+.topology-connect-form{
+  display:grid;
+  grid-template-columns:1fr 1fr .8fr;
+  gap:6px;
+}
+.topology-connect-form label{
+  display:grid;
+  gap:4px;
+  color:var(--muted);
+  font-size:.48rem;
+  font-weight:900;
+}
+.topology-connect-form select{
+  min-width:0;
+  min-height:36px;
+  padding:0 7px;
+  border:1px solid var(--line);
+  border-radius:7px;
+  color:var(--text);
+  background:rgba(3,13,18,.88);
+}
+.topology-connect-form button{grid-column:1/-1}
+.topology-connection-list,
+.multi-room-transition-feed{
+  display:grid;
+  gap:5px;
+  margin-top:8px;
+  max-height:250px;
+  overflow:auto;
+}
+.topology-connection-list>div{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:8px;
+  padding:7px;
+  border:1px solid rgba(92,255,157,.12);
+  border-radius:7px;
+  background:rgba(7,25,18,.22);
+}
+.topology-connection-list strong{font-size:.56rem}
+.topology-connection-list span{
+  color:var(--muted);
+  font-size:.46rem;
+}
+.topology-proposal-row{
+  border-color:rgba(255,209,102,.2)!important;
+  background:rgba(25,19,5,.25)!important;
+}
+.topology-row-actions{
+  display:flex;
+  gap:4px;
+}
+.compact-world-head{margin-top:12px}
+.multi-room-transition-row{
+  width:100%;
+  display:grid;
+  gap:4px;
+  padding:7px;
+  border:1px solid rgba(184,120,255,.12);
+  border-left:2px solid rgba(184,120,255,.48);
+  border-radius:7px;
+  text-align:left;
+  color:var(--text);
+  background:rgba(18,8,26,.25);
+}
+.multi-room-transition-row>div{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+}
+.multi-room-transition-row strong{
+  color:#cfa4ff;
+  font-size:.48rem;
+}
+.multi-room-transition-row span{
+  color:var(--muted);
+  font-size:.46rem;
+}
+.multi-room-transition-row p{
+  margin:0;
+  font-size:.56rem;
+}
+@media(max-width:1180px){
+  .multi-room-grid{grid-template-columns:1fr}
+  .multi-room-summary{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:700px){
+  .multi-room-summary{grid-template-columns:1fr 1fr}
+  .multi-room-entity-list{grid-template-columns:1fr}
+  .topology-connect-form{grid-template-columns:1fr}
+  .topology-connect-form button{grid-column:auto}
+  .global-room-map{min-height:420px}
+}
