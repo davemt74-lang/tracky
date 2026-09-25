@@ -41,6 +41,38 @@ function appendTransition(state, transition, limit = 200) {
   return transition;
 }
 
+
+function recordTopologyProposal(state, input) {
+  const key = [input.fromRoomId, input.toRoomId].sort().join('::');
+  let proposal = state.topologyProposals.find((item) => item.key === key);
+  if (!proposal) {
+    proposal = {
+      key,
+      fromRoomId: input.fromRoomId,
+      toRoomId: input.toRoomId,
+      observedTransitionCount: 0,
+      confidence: 0,
+      lastObservedAt: 0,
+      userConfirmed: false
+    };
+    state.topologyProposals.push(proposal);
+  }
+
+  proposal.observedTransitionCount += 1;
+  proposal.confidence = Math.min(
+    0.92,
+    Math.max(
+      proposal.confidence,
+      Number(input.confidence || 0) * Math.min(1, proposal.observedTransitionCount / 3)
+    )
+  );
+  proposal.lastObservedAt = input.timestamp;
+  proposal.readyForConfirmation =
+    proposal.observedTransitionCount >= 3 &&
+    proposal.confidence >= 0.72;
+  return proposal;
+}
+
 export function reconcileParticipantLocations(state, roomStates, topology, now = Date.now()) {
   const observations = new Map();
 
@@ -138,6 +170,14 @@ export function reconcileParticipantLocations(state, roomStates, topology, now =
       } else {
         presence = 'uncertain';
         confidence = Math.min(0.58, confidence);
+        if (known && age <= TRANSITION_WINDOW_MS && !path.length) {
+          recordTopologyProposal(state, {
+            fromRoomId: previousRoomId,
+            toRoomId: roomId,
+            confidence: best.entity.confidence,
+            timestamp: now
+          });
+        }
         events.push({
           type: 'participant.location_uncertain',
           participantId: best.entity.participantId || null,
