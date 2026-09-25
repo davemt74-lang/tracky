@@ -53,7 +53,13 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'visibility.changed',
   'spatial_memory.proposed',
   'spatial_memory.confirmed',
-  'spatial_memory.ignored'
+  'spatial_memory.ignored',
+  'awareness.candidate',
+  'awareness.verifying',
+  'awareness.confirmed',
+  'awareness.cleared',
+  'awareness.acknowledged',
+  'awareness.dismissed'
 ]);
 
 const KNOWN_TYPES = new Set(PERCEPTION_EVENT_TYPES);
