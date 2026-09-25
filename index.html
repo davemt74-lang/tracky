@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V0.9 — Agent Eyes</title>
+  <title>Tracky V1.0 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,9 +13,9 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V0.9 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.0 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
-        <p>Live visual, spatial, behavioral, attention, voice, and conversation awareness for the Agent system.</p>
+        <p>Live visual, spatial, behavioral, object, interaction, voice, and conversation awareness for the Agent system.</p>
       </div>
     </div>
     <nav class="jarvis-nav">
@@ -32,6 +32,7 @@
     <div><span>VOICE PROFILE</span><b id="eyesVoiceStatus">Standby</b></div>
     <div><span>TRANSCRIPTION</span><b id="eyesTranscriptStatus">Standby</b></div>
     <div><span>BEHAVIOR</span><b id="eyesBehaviorStatus">Standby</b></div>
+    <div><span>OBJECTS</span><b id="eyesObjectStatus">Standby</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -55,6 +56,10 @@
     <label class="switch-row compact-switch">
       <input id="eyesAttentionOverlay" type="checkbox" checked>
       Attention rays
+    </label>
+    <label class="switch-row compact-switch">
+      <input id="eyesObjectOverlay" type="checkbox" checked>
+      Object overlay
     </label>
     <span class="agent-runtime-clock" id="agentRuntimeClock">ROOM STANDBY</span>
   </section>
@@ -98,6 +103,9 @@
         <div><span>AUDIO PATH</span><b id="eyesAudioPath">Offline</b></div>
         <div><span>POSE TRACKS</span><b id="eyesPoseCount">0</b></div>
         <div><span>ATTENTION</span><b id="eyesAttentionCount">0</b></div>
+        <div><span>OBJECTS</span><b id="eyesObjectCount">0</b></div>
+        <div><span>HANDS</span><b id="eyesHandCount">0</b></div>
+        <div><span>INTERACTIONS</span><b id="eyesInteractionCount">0</b></div>
       </div>
 
       <div class="agent-room-radar">
@@ -121,6 +129,16 @@
         </div>
         <div id="eyesParticipants" class="agent-participant-list">
           <div class="agent-empty">No participants are currently tracked.</div>
+        </div>
+      </section>
+
+      <section class="hud-panel">
+        <div class="hud-panel-head">
+          <div><small>ROOM OBJECTS</small><h2>Objects + interactions</h2></div>
+          <span id="objectRuntimeStatus" class="status-chip">Standby</span>
+        </div>
+        <div id="eyesObjects" class="agent-object-list">
+          <div class="agent-empty">No persistent objects are currently tracked.</div>
         </div>
       </section>
 
@@ -205,6 +223,42 @@
       <strong>Agent-readable</strong>
     </div>
     <pre id="inspectorJson" class="room-state-json">{}</pre>
+  </section>
+</aside>
+
+<aside id="objectEvidenceInspector" class="evidence-inspector" hidden aria-label="Object evidence inspector">
+  <div class="evidence-inspector-head">
+    <div>
+      <small>OBJECT EVIDENCE</small>
+      <strong id="objectInspectorName">Object</strong>
+      <span id="objectInspectorTrack">—</span>
+    </div>
+    <button id="closeObjectEvidenceInspector" class="hud-button" type="button">Close</button>
+  </div>
+
+  <div class="evidence-inspector-summary">
+    <div><span>CLASS</span><b id="objectInspectorClass">—</b></div>
+    <div><span>CONFIDENCE</span><b id="objectInspectorConfidence">—</b></div>
+    <div><span>STATUS</span><b id="objectInspectorStatus">—</b></div>
+    <div><span>HOLDER</span><b id="objectInspectorHolder">—</b></div>
+    <div><span>MOTION</span><b id="objectInspectorMotion">—</b></div>
+    <div><span>INTERACTION</span><b id="objectInspectorInteraction">—</b></div>
+  </div>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>RELATIONSHIP SIGNALS</small>
+      <strong>Confidence + evidence</strong>
+    </div>
+    <div id="objectInspectorSignals" class="evidence-signal-list"></div>
+  </section>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>RAW OBJECT SNAPSHOT</small>
+      <strong>Agent-readable</strong>
+    </div>
+    <pre id="objectInspectorJson" class="room-state-json">{}</pre>
   </section>
 </aside>
 

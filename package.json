@@ -1,11 +1,11 @@
 {
   "name": "tracky",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local-first visual, spatial, behavioral, voice, and conversation perception runtime for Agent systems.",
+  "description": "Local-first visual, spatial, behavioral, object, voice, and conversation perception runtime for Agent systems.",
   "scripts": {
-    "test": "node --test && node --check agent-eyes.js && node --check tracker-experiment.js && node --check vertical-motion.js && node --check participants.js && node --check participant-voice.js && node --check src/tracker-core.js && node --check src/movement-core.js && node --check src/gameplay-core.js && node --check src/participant-core.js && node --check src/participant-store.js && node --check src/identity-engine.js && node --check src/room-tracking-core.js && node --check src/voice-core.js && node --check src/voice-engine.js && node --check src/room-audio-engine.js && node --check src/room-audio-worklet.js && node --check src/model-config.js && node --check src/perception-core.js && node --check src/behavior-core.js",
+    "test": "node --test && node --check agent-eyes.js && node --check tracker-experiment.js && node --check vertical-motion.js && node --check participants.js && node --check participant-voice.js && node --check src/tracker-core.js && node --check src/movement-core.js && node --check src/gameplay-core.js && node --check src/participant-core.js && node --check src/participant-store.js && node --check src/identity-engine.js && node --check src/room-tracking-core.js && node --check src/voice-core.js && node --check src/voice-engine.js && node --check src/room-audio-engine.js && node --check src/room-audio-worklet.js && node --check src/model-config.js && node --check src/perception-core.js && node --check src/behavior-core.js && node --check src/object-core.js",
     "audit": "node scripts/audit.mjs",
     "validate": "npm test && npm run audit",
     "serve": "python -m http.server 8080"

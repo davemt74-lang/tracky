@@ -543,7 +543,7 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
 }
 .agent-status-strip{
   display:grid;
-  grid-template-columns:repeat(6,minmax(120px,1fr));
+  grid-template-columns:repeat(8,minmax(105px,1fr));
   gap:1px;
   margin-bottom:12px;
   border:1px solid var(--line);
@@ -718,7 +718,7 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
 .agent-active-speaker span{margin-top:3px;color:var(--muted);font-size:.58rem}
 .agent-signal-strip{
   display:grid;
-  grid-template-columns:repeat(6,1fr);
+  grid-template-columns:repeat(11,minmax(70px,1fr));
   gap:1px;
   margin-top:8px;
   border:1px solid rgba(78,232,255,.12);
@@ -1122,4 +1122,80 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
 @media(max-width:640px){
   .evidence-inspector{width:100vw}
   .evidence-inspector-summary{grid-template-columns:1fr}
+}
+
+/* V1.0 — objects + interactions */
+.agent-object-list{
+  display:grid;
+  gap:6px;
+  max-height:360px;
+  overflow:auto;
+}
+.agent-object-card{
+  display:grid;
+  grid-template-columns:54px minmax(0,1fr) auto;
+  gap:8px;
+  align-items:center;
+  padding:8px;
+  border:1px solid rgba(255,209,102,.13);
+  border-radius:9px;
+  background:rgba(18,12,3,.35);
+}
+.agent-object-card.active{
+  border-color:rgba(255,159,67,.35);
+  box-shadow:inset 2px 0 0 rgba(255,159,67,.7);
+}
+.agent-object-id{
+  display:grid;
+  place-items:center;
+  min-height:42px;
+  border:1px solid rgba(255,209,102,.18);
+  border-radius:7px;
+  color:var(--amber);
+  background:rgba(255,209,102,.04);
+  font-size:.62rem;
+  font-weight:900;
+  letter-spacing:.05em;
+}
+.agent-object-copy{min-width:0}
+.agent-object-copy strong{
+  display:block;
+  text-transform:capitalize;
+  font-size:.7rem;
+}
+.agent-object-copy span{
+  display:block;
+  margin-top:3px;
+  color:var(--muted);
+  font-size:.52rem;
+  line-height:1.35;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+@media(max-width:1180px){
+  .agent-status-strip{grid-template-columns:repeat(4,1fr)}
+  .agent-signal-strip{grid-template-columns:repeat(6,1fr)}
+}
+@media(max-width:820px){
+  .agent-signal-strip{grid-template-columns:repeat(4,1fr)}
+}
+@media(max-width:560px){
+  .agent-signal-strip{grid-template-columns:1fr 1fr}
+}
+
+.radar-track.object{
+  width:9px;
+  height:9px;
+  border-radius:2px;
+  border-color:rgba(255,209,102,.75);
+  background:rgba(255,209,102,.3);
+  box-shadow:0 0 14px rgba(255,209,102,.22);
+}
+.radar-track.object.interacting{
+  border-color:rgba(255,159,67,.95);
+  background:rgba(255,159,67,.42);
+  box-shadow:0 0 18px rgba(255,159,67,.35);
+}
+.radar-track.object span{
+  color:var(--amber);
 }

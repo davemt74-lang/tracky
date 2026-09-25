@@ -1,6 +1,105 @@
 # Tracky
 
-Tracky turns real-world movement into browser-game input.
+Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
+
+## V1.0 — Objects & Interactions
+
+V1.0 adds persistent room objects and conservative person↔object interaction inference to Agent Eyes.
+
+### Object perception
+
+Tracky now enables the pinned Human object and hand providers in the same browser perception pass used for faces and bodies.
+
+- Human object detections are normalized into Tracky object observations
+- `person` detections are excluded because people already use the stronger face/body pipeline
+- persistent object IDs use `O001`, `O002`, etc.
+- same-label position, overlap, and size continuity preserve object identity across scans
+- an object must be observed repeatedly before Agent Eyes announces it
+- brief detector loss enters reacquisition grace instead of immediately declaring the object gone
+- stale lost objects are eventually removed from the long-running room state
+
+### Person ↔ object interactions
+
+Tracky fuses body pose, wrist landmarks, optional hand detections, persistent object tracks, and relative movement.
+
+Current conservative relationships:
+
+- `holding`
+- `pointing-at`
+- `approaching`
+- `moving-away`
+
+Semantic transitions also produce:
+
+- `object.picked_up`
+- `object.put_down`
+
+A relationship must be confirmed on consecutive scans before it becomes an Agent event. Missing evidence receives a short grace period before the relationship ends.
+
+#### Holding
+
+Holding is inferred from:
+
+- a tracked object near a confident left/right wrist
+- distance threshold scaled against the participant body box
+- optional independent hand-detector confidence as reinforcement
+
+Holding is not inferred from object proximity to the body alone.
+
+#### Pointing at
+
+Pointing is inferred from:
+
+- confident elbow and wrist landmarks
+- elbow → wrist arm direction
+- object center in front of that arm direction
+- bounded angular error
+- participant/object distance
+
+This is a geometric pointing estimate, not semantic intent recognition.
+
+#### Approach / retreat
+
+Approach and moving-away relationships use changes in normalized participant↔object distance across consecutive room scans. Small changes remain `stable` and do not become events.
+
+### Agent Eyes UI
+
+The JARVIS display now includes:
+
+- object count
+- hand count
+- active interaction count
+- object-provider health
+- amber persistent object boxes on the camera overlay
+- participant↔object relationship lines
+- persistent room object cards
+- amber object entities on the room radar
+- participant inspectors showing current object relationships
+- a dedicated Object Evidence Inspector
+
+The Object Evidence Inspector shows detector confidence, persistent object ID, continuity, holder, motion, active relationship, relationship evidence, and a privacy-safe JSON snapshot.
+
+### Current Room State
+
+The Agent-facing room schema is now version 2 and adds:
+
+- `objects[]`
+- `interactions[]`
+- object provider health
+- hand provider health
+
+High-frequency `object.updated` events update Current Room State but are intentionally excluded from the recent semantic event history.
+
+### V1.0 perception events
+
+- `object.detected`
+- `object.updated`
+- `object.lost`
+- `object.reacquired`
+- `object.picked_up`
+- `object.put_down`
+- `interaction.started`
+- `interaction.ended`
 
 ## V0.9 — Attention, Behavior & Perception Inspector
 

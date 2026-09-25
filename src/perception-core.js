@@ -14,6 +14,14 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'behavior.changed',
   'attention.changed',
   'gesture.detected',
+  'object.detected',
+  'object.updated',
+  'object.lost',
+  'object.reacquired',
+  'object.picked_up',
+  'object.put_down',
+  'interaction.started',
+  'interaction.ended',
   'voice.activity_started',
   'voice.activity_stopped',
   'voice.matched',
@@ -82,12 +90,14 @@ export class PerceptionEventBus {
 
 export function createRoomState(roomId = 'default-room') {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     roomId,
     status: 'standby',
     updatedAt: Date.now(),
     participants: {},
     unknownTracks: {},
+    objects: {},
+    interactions: {},
     activeSpeaker: null,
     conversationGroups: {},
     recentEvents: [],
@@ -96,6 +106,8 @@ export function createRoomState(roomId = 'default-room') {
       camera: 'offline',
       microphone: 'offline',
       identity: 'standby',
+      objects: 'standby',
+      hands: 'standby',
       voice: 'standby',
       transcription: 'standby'
     },
@@ -159,6 +171,8 @@ function ensureUnknownTrack(state, trackId, event) {
 }
 
 function rememberEvent(state, event, maxEvents = 80) {
+  if (event.type === 'object.updated') return;
+
   state.recentEvents.push(event);
   if (state.recentEvents.length > maxEvents) {
     state.recentEvents.splice(0, state.recentEvents.length - maxEvents);
@@ -174,10 +188,22 @@ function updateLocation(entity, event) {
   }
 }
 
+function pruneLostObjects(state, now, ttlMs = 60000) {
+  for (const [objectId, object] of Object.entries(state.objects || {})) {
+    if (
+      object.status === 'lost' &&
+      now - Number(object.lastSeenAt || 0) > ttlMs
+    ) {
+      delete state.objects[objectId];
+    }
+  }
+}
+
 export function applyPerceptionEvent(state, event) {
   if (!state || !event) return state;
 
   state.updatedAt = event.timestamp;
+  pruneLostObjects(state, event.timestamp);
   state.status = 'active';
   rememberEvent(state, event);
 
@@ -275,6 +301,83 @@ export function applyPerceptionEvent(state, event) {
           timestamp: event.timestamp
         };
       }
+      break;
+    }
+
+    case 'object.detected':
+    case 'object.updated':
+    case 'object.reacquired': {
+      const objectId = event.data?.objectId;
+      if (!objectId) break;
+      const current = state.objects[objectId] || {
+        id: objectId,
+        label: event.data?.label || 'object',
+        firstSeenAt: event.timestamp,
+        lastSeenAt: event.timestamp,
+        status: 'tracked',
+        score: 0,
+        position: null,
+        holderParticipantId: null,
+        holderTrackId: null
+      };
+      current.label = event.data?.label || current.label;
+      current.score = Number(event.confidence || current.score || 0);
+      current.status = event.type === 'object.reacquired' ? 'tracked' : (event.data?.status || 'tracked');
+      current.position = event.roomPosition || current.position;
+      current.lastSeenAt = event.timestamp;
+      state.objects[objectId] = current;
+      break;
+    }
+
+    case 'object.lost': {
+      const objectId = event.data?.objectId;
+      if (objectId && state.objects[objectId]) {
+        state.objects[objectId].status = 'lost';
+        state.objects[objectId].lastSeenAt = event.timestamp;
+      }
+      break;
+    }
+
+    case 'object.picked_up': {
+      const objectId = event.data?.objectId;
+      if (objectId && state.objects[objectId]) {
+        state.objects[objectId].holderParticipantId = event.participantId || null;
+        state.objects[objectId].holderTrackId = event.trackId || null;
+      }
+      break;
+    }
+
+    case 'object.put_down': {
+      const objectId = event.data?.objectId;
+      if (objectId && state.objects[objectId]) {
+        state.objects[objectId].holderParticipantId = null;
+        state.objects[objectId].holderTrackId = null;
+      }
+      break;
+    }
+
+    case 'interaction.started': {
+      const interactionId = event.data?.interactionId;
+      if (!interactionId) break;
+      state.interactions[interactionId] = {
+        id: interactionId,
+        type: event.data?.type || 'interaction',
+        participantId: event.participantId || null,
+        participantName: event.participantName || null,
+        trackId: event.trackId || null,
+        objectId: event.data?.objectId || null,
+        objectLabel: event.data?.objectLabel || null,
+        confidence: event.confidence,
+        startedAt: event.timestamp,
+        updatedAt: event.timestamp,
+        evidence: event.evidence || null
+      };
+      break;
+    }
+
+    case 'interaction.ended': {
+      const interactionId = event.data?.interactionId;
+      if (interactionId) delete state.interactions[interactionId];
       break;
     }
 
@@ -415,7 +518,7 @@ export function applyPerceptionEvent(state, event) {
 
 export function roomStateSnapshot(state) {
   return {
-    schemaVersion: state.schemaVersion || 1,
+    schemaVersion: state.schemaVersion || 2,
     roomId: state.roomId,
     status: state.status,
     updatedAt: state.updatedAt,
@@ -425,6 +528,11 @@ export function roomStateSnapshot(state) {
     unknownTracks: Object.values(state.unknownTracks)
       .filter((track) => track.presence !== 'left')
       .sort((a, b) => String(a.trackId).localeCompare(String(b.trackId))),
+    objects: Object.values(state.objects)
+      .filter((object) => object.status !== 'lost')
+      .sort((a, b) => String(a.id).localeCompare(String(b.id))),
+    interactions: Object.values(state.interactions)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id))),
     activeSpeaker: state.activeSpeaker,
     conversationGroups: Object.values(state.conversationGroups),
     recentEvents: state.recentEvents.slice(-30),

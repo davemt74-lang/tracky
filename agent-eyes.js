@@ -44,6 +44,13 @@ import {
   inferWave,
   keypointMap
 } from './src/behavior-core.js';
+import {
+  OBJECT_TRACK_GRACE_MS,
+  assignObjectTracks,
+  bestObjectInteractions,
+  carryLostObjectTracks,
+  interactionKey
+} from './src/object-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -64,6 +71,7 @@ const ui = {
   transcriptStatus: $('#eyesTranscriptStatus'),
   healthStatus: $('#eyesHealthStatus'),
   behaviorStatus: $('#eyesBehaviorStatus'),
+  objectStatus: $('#eyesObjectStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -75,10 +83,16 @@ const ui = {
   audioPath: $('#eyesAudioPath'),
   poseCount: $('#eyesPoseCount'),
   attentionCount: $('#eyesAttentionCount'),
+  objectCount: $('#eyesObjectCount'),
+  handCount: $('#eyesHandCount'),
+  interactionCount: $('#eyesInteractionCount'),
   poseOverlay: $('#eyesPoseOverlay'),
   attentionOverlay: $('#eyesAttentionOverlay'),
+  objectOverlay: $('#eyesObjectOverlay'),
   radarTracks: $('#agentRadarTracks'),
   participants: $('#eyesParticipants'),
+  objects: $('#eyesObjects'),
+  objectRuntimeStatus: $('#objectRuntimeStatus'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -103,7 +117,19 @@ const ui = {
   inspectorLandmarkCount: $('#inspectorLandmarkCount'),
   inspectorLandmarks: $('#inspectorLandmarks'),
   inspectorJson: $('#inspectorJson'),
-  closeInspector: $('#closeEvidenceInspector')
+  closeInspector: $('#closeEvidenceInspector'),
+  objectInspector: $('#objectEvidenceInspector'),
+  objectInspectorName: $('#objectInspectorName'),
+  objectInspectorTrack: $('#objectInspectorTrack'),
+  objectInspectorClass: $('#objectInspectorClass'),
+  objectInspectorConfidence: $('#objectInspectorConfidence'),
+  objectInspectorStatus: $('#objectInspectorStatus'),
+  objectInspectorHolder: $('#objectInspectorHolder'),
+  objectInspectorMotion: $('#objectInspectorMotion'),
+  objectInspectorInteraction: $('#objectInspectorInteraction'),
+  objectInspectorSignals: $('#objectInspectorSignals'),
+  objectInspectorJson: $('#objectInspectorJson'),
+  closeObjectInspector: $('#closeObjectEvidenceInspector')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
@@ -128,6 +154,15 @@ const runtime = {
   previousGroups: new Map(),
   faces: [],
   bodies: [],
+  objects: [],
+  rawObjects: [],
+  hands: [],
+  gestures: [],
+  objectCounter: 0,
+  activeInteractions: new Map(),
+  interactionCandidates: new Map(),
+  relationDistances: new Map(),
+  selectedObjectId: null,
   audio: null,
   audioActive: false,
   voiceEngine: new VoiceIdentityEngine(),
@@ -156,6 +191,8 @@ const SCAN_INTERVAL_MS = 550;
 const TRACK_GRACE_MS = BODY_OCCLUSION_GRACE_MS;
 const PHOTO_REFRESH_INTERVAL_MS = 5000;
 const GESTURE_COOLDOWN_MS = 2500;
+const OBJECT_GRACE_MS = OBJECT_TRACK_GRACE_MS;
+const INTERACTION_COOLDOWN_MS = 900;
 
 function emit(type, payload = {}) {
   return bus.emit(type, payload, {
@@ -186,6 +223,11 @@ window.TrackyAgentEyes = Object.freeze({
 function nextTrackId() {
   runtime.trackCounter += 1;
   return 'T' + String(runtime.trackCounter).padStart(3, '0');
+}
+
+function nextObjectId() {
+  runtime.objectCounter += 1;
+  return 'O' + String(runtime.objectCounter).padStart(3, '0');
 }
 
 function participantById(id) {
@@ -271,11 +313,15 @@ async function ensureIdentity() {
     runtime.identityReady = true;
     ui.identityStatus.textContent = 'Online';
     emitSensor('identity', 'online');
+    emitSensor('objects', 'online');
+    emitSensor('hands', 'online');
     return true;
   } catch (error) {
     console.error(error);
     ui.identityStatus.textContent = 'Unavailable';
     emitSensor('identity', 'error');
+    emitSensor('objects', 'error');
+    emitSensor('hands', 'error');
     setHealth('degraded', 'Identity model unavailable');
     return false;
   } finally {
@@ -415,11 +461,20 @@ function stopCamera() {
   ui.startEyes.disabled = false;
   ui.cameraSelect.disabled = true;
   ui.cameraStatus.textContent = 'Offline';
+  ui.objectStatus.textContent = 'Standby';
   emitSensor('camera', 'offline');
 
   runtime.faces = [];
   runtime.bodies = [];
   runtime.tracks = [];
+  runtime.objects = [];
+  runtime.rawObjects = [];
+  runtime.hands = [];
+  runtime.gestures = [];
+  runtime.activeInteractions.clear();
+  runtime.interactionCandidates.clear();
+  runtime.relationDistances.clear();
+  runtime.selectedObjectId = null;
   runtime.previousTrackIds.clear();
   runtime.previousKnownByTrack.clear();
   runtime.previousStatuses.clear();
@@ -849,6 +904,251 @@ function analyzeBehaviors(now) {
 }
 
 
+
+function objectRoomPosition(objectTrack) {
+  return {
+    x: Number(objectTrack.cx || 0.5),
+    y: Number(objectTrack.cy || 0.5),
+    box: objectTrack.box ? {
+      x: objectTrack.box.x,
+      y: objectTrack.box.y,
+      width: objectTrack.box.width,
+      height: objectTrack.box.height
+    } : null
+  };
+}
+
+function emitObjectTransitions(previousObjects, currentObjects) {
+  const previousById = new Map(previousObjects.map((object) => [object.id, object]));
+  const currentById = new Map(currentObjects.map((object) => [object.id, object]));
+
+  for (const object of currentObjects) {
+    const previous = previousById.get(object.id);
+
+    if (object.stable && !previous?.stable) {
+      emit('object.detected', {
+        confidence: object.score,
+        source: 'object-detector',
+        roomPosition: objectRoomPosition(object),
+        evidence: {
+          detectorId: object.detectorId,
+          classId: object.classId,
+          observations: object.observations
+        },
+        data: {
+          objectId: object.id,
+          label: object.label,
+          status: object.status
+        }
+      });
+    } else if (
+      object.stable &&
+      previous?.status === 'reacquiring' &&
+      object.status !== 'reacquiring'
+    ) {
+      emit('object.reacquired', {
+        confidence: object.score,
+        source: 'object-continuity',
+        roomPosition: objectRoomPosition(object),
+        data: {
+          objectId: object.id,
+          label: object.label,
+          status: object.status
+        }
+      });
+    }
+
+    if (object.stable && object.status !== 'reacquiring') {
+      emit('object.updated', {
+        confidence: object.score,
+        source: 'object-detector',
+        roomPosition: objectRoomPosition(object),
+        data: {
+          objectId: object.id,
+          label: object.label,
+          status: object.status
+        }
+      });
+    }
+  }
+
+  for (const previous of previousObjects) {
+    if (!previous.stable || currentById.has(previous.id)) continue;
+    emit('object.lost', {
+      confidence: previous.score,
+      source: 'object-continuity',
+      roomPosition: objectRoomPosition(previous),
+      data: {
+        objectId: previous.id,
+        label: previous.label,
+        status: 'lost'
+      }
+    });
+  }
+}
+
+function interactionPayload(interaction, interactionId) {
+  const object = runtime.objects.find(
+    (candidate) => candidate.id === interaction.objectTrackId
+  );
+
+  return {
+    participantId: interaction.participantId || null,
+    participantName: interaction.participantName || null,
+    trackId: interaction.participantTrackId || null,
+    confidence: interaction.confidence,
+    source: 'person-object-fusion',
+    roomPosition: object ? objectRoomPosition(object) : null,
+    evidence: interaction.evidence || null,
+    data: {
+      interactionId,
+      type: interaction.type,
+      objectId: interaction.objectTrackId,
+      objectLabel: interaction.objectLabel
+    }
+  };
+}
+
+function synchronizeObjectInteractions(now) {
+  const observations = bestObjectInteractions(
+    runtime.tracks.filter((track) => track.presenceAnnounced),
+    runtime.objects.filter(
+      (object) => object.stable && object.status !== 'reacquiring'
+    ),
+    runtime.hands,
+    runtime.relationDistances
+  );
+
+  const seen = new Set();
+
+  for (const interaction of observations) {
+    const key = interactionKey(interaction);
+    seen.add(key);
+
+    const existing = runtime.activeInteractions.get(key);
+    if (existing) {
+      runtime.activeInteractions.set(key, {
+        ...existing,
+        ...interaction,
+        lastSeenAt: now
+      });
+      runtime.interactionCandidates.delete(key);
+      continue;
+    }
+
+    const candidate = runtime.interactionCandidates.get(key);
+    const nextCandidate = candidate
+      ? {
+          ...candidate,
+          ...interaction,
+          count: Number(candidate.count || 1) + 1,
+          lastSeenAt: now
+        }
+      : {
+          ...interaction,
+          count: 1,
+          firstSeenAt: now,
+          lastSeenAt: now
+        };
+
+    runtime.interactionCandidates.set(key, nextCandidate);
+
+    if (nextCandidate.count < 2) continue;
+
+    runtime.interactionCandidates.delete(key);
+    const entry = {
+      ...interaction,
+      startedAt: now,
+      lastSeenAt: now
+    };
+    runtime.activeInteractions.set(key, entry);
+
+    const payload = interactionPayload(interaction, key);
+    emit('interaction.started', payload);
+
+    if (interaction.type === 'holding') {
+      const object = runtime.objects.find(
+        (candidateObject) => candidateObject.id === interaction.objectTrackId
+      );
+      if (object) {
+        object.holderTrackId = interaction.participantTrackId || null;
+        object.holderParticipantId = interaction.participantId || null;
+        object.interaction = 'holding';
+      }
+
+      emit('object.picked_up', {
+        ...payload,
+        data: {
+          ...payload.data,
+          objectId: interaction.objectTrackId,
+          label: interaction.objectLabel
+        }
+      });
+    }
+  }
+
+  for (const [key, candidate] of [...runtime.interactionCandidates.entries()]) {
+    if (seen.has(key)) continue;
+    if (now - Number(candidate.lastSeenAt || now) >= SCAN_INTERVAL_MS * 1.6) {
+      runtime.interactionCandidates.delete(key);
+    }
+  }
+
+  for (const [key, interaction] of [...runtime.activeInteractions.entries()]) {
+    if (seen.has(key)) continue;
+    if (now - Number(interaction.lastSeenAt || now) < INTERACTION_COOLDOWN_MS) continue;
+
+    runtime.activeInteractions.delete(key);
+    emit('interaction.ended', interactionPayload(interaction, key));
+
+    if (interaction.type === 'holding') {
+      const object = runtime.objects.find(
+        (candidate) => candidate.id === interaction.objectTrackId
+      );
+      if (object) {
+        object.holderTrackId = null;
+        object.holderParticipantId = null;
+        object.interaction = null;
+      }
+
+      emit('object.put_down', {
+        ...interactionPayload(interaction, key),
+        data: {
+          ...interactionPayload(interaction, key).data,
+          objectId: interaction.objectTrackId,
+          label: interaction.objectLabel
+        }
+      });
+    }
+  }
+
+  const activePersonIds = new Set(runtime.tracks.map((track) => track.id));
+  const activeObjectIds = new Set(runtime.objects.map((object) => object.id));
+  for (const key of [...runtime.relationDistances.keys()]) {
+    const [personId, objectId] = key.split(':');
+    if (!activePersonIds.has(personId) || !activeObjectIds.has(objectId)) {
+      runtime.relationDistances.delete(key);
+    }
+  }
+
+  const holdingByObject = new Map(
+    [...runtime.activeInteractions.values()]
+      .filter((interaction) => interaction.type === 'holding')
+      .map((interaction) => [interaction.objectTrackId, interaction])
+  );
+
+  for (const object of runtime.objects) {
+    const holding = holdingByObject.get(object.id);
+    if (holding) {
+      object.holderTrackId = holding.participantTrackId || null;
+      object.holderParticipantId = holding.participantId || null;
+      object.interaction = 'holding';
+    } else if (object.interaction === 'holding') {
+      object.interaction = null;
+    }
+  }
+}
+
 async function scanRoom() {
   if (
     !runtime.running ||
@@ -863,6 +1163,7 @@ async function scanRoom() {
   runtime.scanBusy = true;
   const now = performance.now();
   const previousTracks = runtime.tracks;
+  const previousObjects = runtime.objects;
 
   try {
     const room = await runtime.identity.detectRoom(ui.video);
@@ -871,6 +1172,23 @@ async function scanRoom() {
       runtime.faces,
       room.bodies || []
     );
+    runtime.rawObjects = room.objects || [];
+    runtime.hands = room.hands || [];
+    runtime.gestures = room.gestures || [];
+
+    const liveObjects = assignObjectTracks(
+      previousObjects,
+      runtime.rawObjects,
+      now,
+      { nextId: nextObjectId }
+    );
+    const carriedObjects = carryLostObjectTracks(
+      previousObjects,
+      liveObjects,
+      now,
+      OBJECT_GRACE_MS
+    );
+    runtime.objects = [...liveObjects, ...carriedObjects];
 
     let liveTracks = assignBodyTracks(
       previousTracks,
@@ -985,12 +1303,17 @@ async function scanRoom() {
     updateGroups();
     analyzeBehaviors(now);
     emitTrackTransitions(previousTracks, runtime.tracks, now);
+    emitObjectTransitions(previousObjects, runtime.objects);
+    synchronizeObjectInteractions(now);
     drawOverlay();
     renderAll();
 
     ui.identityStatus.textContent =
       runtime.tracks.length + ' tracked · ' +
       runtime.tracks.filter((track) => track.participantId).length + ' known';
+    ui.objectStatus.textContent = runtime.objects.length
+      ? runtime.objects.filter((object) => object.stable).length + ' persistent'
+      : 'Scanning';
     setHealth('online');
   } catch (error) {
     console.error(error);
@@ -1121,11 +1444,88 @@ function drawAttentionRay(track, width, height) {
   overlayCtx.restore();
 }
 
+
+function activeInteractionForObject(objectId) {
+  return [...runtime.activeInteractions.values()]
+    .filter((interaction) => interaction.objectTrackId === objectId)
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0] || null;
+}
+
+function drawObjectOverlays(width, height) {
+  if (!ui.objectOverlay.checked) return;
+
+  for (const object of runtime.objects) {
+    if (!object.stable || !object.box || object.status === 'reacquiring') continue;
+
+    const x = (1 - object.box.x - object.box.width) * width;
+    const y = object.box.y * height;
+    const w = object.box.width * width;
+    const h = object.box.height * height;
+    const selected = runtime.selectedObjectId === object.id;
+    const interaction = activeInteractionForObject(object.id);
+
+    overlayCtx.save();
+    overlayCtx.strokeStyle = interaction?.type === 'holding' ? '#ff9f43' : '#ffd166';
+    overlayCtx.fillStyle = overlayCtx.strokeStyle;
+    overlayCtx.lineWidth = selected
+      ? Math.max(3, width / 480)
+      : Math.max(1.5, width / 850);
+    overlayCtx.setLineDash(interaction ? [] : [6, 5]);
+    overlayCtx.strokeRect(x, y, w, h);
+    overlayCtx.setLineDash([]);
+
+    const label = [
+      object.id,
+      object.label,
+      interaction?.type
+    ].filter(Boolean).join(' · ');
+
+    overlayCtx.font = Math.max(10, width / 80) + 'px ui-monospace, monospace';
+    const labelWidth = overlayCtx.measureText(label).width + 12;
+    const labelHeight = Math.max(18, height / 30);
+    overlayCtx.globalAlpha = 0.9;
+    overlayCtx.fillRect(x, Math.max(0, y - labelHeight), labelWidth, labelHeight);
+    overlayCtx.globalAlpha = 1;
+    overlayCtx.fillStyle = '#161006';
+    overlayCtx.fillText(
+      label,
+      x + 6,
+      Math.max(13, y - labelHeight + labelHeight * 0.72)
+    );
+
+    if (interaction?.participantTrackId) {
+      const person = runtime.tracks.find(
+        (track) => track.id === interaction.participantTrackId
+      );
+      if (person) {
+        const from = {
+          x: (1 - Number(person.cx || 0.5)) * width,
+          y: Number(person.cy || 0.5) * height
+        };
+        const to = {
+          x: (1 - Number(object.cx || 0.5)) * width,
+          y: Number(object.cy || 0.5) * height
+        };
+        overlayCtx.strokeStyle = interaction.type === 'holding' ? '#ff9f43' : '#ffd166';
+        overlayCtx.globalAlpha = 0.62;
+        overlayCtx.lineWidth = Math.max(1, width / 950);
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(from.x, from.y);
+        overlayCtx.lineTo(to.x, to.y);
+        overlayCtx.stroke();
+      }
+    }
+
+    overlayCtx.restore();
+  }
+}
+
 function drawOverlay() {
   resizeOverlay();
   const width = ui.overlay.width;
   const height = ui.overlay.height;
   overlayCtx.clearRect(0, 0, width, height);
+  drawObjectOverlays(width, height);
 
   for (const track of runtime.tracks) {
     if (!track.box) continue;
@@ -1359,6 +1759,24 @@ function renderEvidenceInspector() {
     'Requires speaking + likely attention target + shared conversation group.'
   );
 
+  const objectInteractions = [...runtime.activeInteractions.values()]
+    .filter((interaction) => interaction.participantTrackId === track.id)
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+
+  appendInspectorSignal(
+    'OBJECT INTERACTIONS',
+    objectInteractions.length
+      ? objectInteractions
+          .slice(0, 3)
+          .map((interaction) => interaction.type + ' ' + interaction.objectLabel)
+          .join(' · ')
+      : 'none established',
+    objectInteractions[0]?.confidence || 0,
+    objectInteractions.length
+      ? 'Person↔object conclusions are fused from persistent object tracks, pose landmarks, hand evidence, and relative motion.'
+      : 'No current person↔object relationship passes the semantic confidence gates.'
+  );
+
   const points = keypointMap(track.keypoints || []);
   ui.inspectorLandmarks.replaceChildren();
   ui.inspectorLandmarkCount.textContent = points.size + ' visible';
@@ -1390,6 +1808,7 @@ function renderEvidenceInspector() {
       totalSeconds: voice.totalSeconds
     },
     behavior,
+    objectInteractions,
     conversationGroup: track.conversationGroupId || null,
     roomPosition: roomPosition(track),
     landmarkCount: points.size
@@ -1397,6 +1816,8 @@ function renderEvidenceInspector() {
 }
 
 function openEvidenceInspector(trackId) {
+  runtime.selectedObjectId = null;
+  ui.objectInspector.hidden = true;
   runtime.selectedTrackId = trackId;
   renderEvidenceInspector();
   drawOverlay();
@@ -1406,6 +1827,213 @@ function closeEvidenceInspector() {
   runtime.selectedTrackId = null;
   ui.inspector.hidden = true;
   drawOverlay();
+}
+
+
+function appendObjectInspectorSignal(label, value, confidence, detail = '') {
+  const row = document.createElement('div');
+  row.className = 'evidence-signal-row';
+
+  const top = document.createElement('div');
+  const key = document.createElement('span');
+  const val = document.createElement('b');
+  key.textContent = label;
+  val.textContent = value + (
+    Number.isFinite(Number(confidence))
+      ? ' · ' + confidenceText(confidence)
+      : ''
+  );
+  top.append(key, val);
+
+  const meter = document.createElement('div');
+  meter.className = 'evidence-confidence-meter';
+  const fill = document.createElement('i');
+  fill.style.width = Math.round(
+    Math.max(0, Math.min(1, Number(confidence || 0))) * 100
+  ) + '%';
+  meter.append(fill);
+  row.append(top, meter);
+
+  if (detail) {
+    const note = document.createElement('small');
+    note.textContent = detail;
+    row.append(note);
+  }
+
+  ui.objectInspectorSignals.append(row);
+}
+
+function renderObjectEvidenceInspector() {
+  if (!runtime.selectedObjectId) {
+    ui.objectInspector.hidden = true;
+    return;
+  }
+
+  const object = runtime.objects.find(
+    (candidate) => candidate.id === runtime.selectedObjectId
+  );
+
+  if (!object) {
+    runtime.selectedObjectId = null;
+    ui.objectInspector.hidden = true;
+    return;
+  }
+
+  const interactions = [...runtime.activeInteractions.values()]
+    .filter((interaction) => interaction.objectTrackId === object.id)
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+  const primary = interactions[0] || null;
+  const holder = object.holderTrackId
+    ? runtime.tracks.find((track) => track.id === object.holderTrackId)
+    : null;
+
+  ui.objectInspector.hidden = false;
+  ui.objectInspectorName.textContent = object.label;
+  ui.objectInspectorTrack.textContent = object.id + ' · ' + object.status;
+  ui.objectInspectorClass.textContent = object.label;
+  ui.objectInspectorConfidence.textContent = confidenceText(object.score);
+  ui.objectInspectorStatus.textContent = object.status;
+  ui.objectInspectorHolder.textContent =
+    holder?.participantName || holder?.id || 'none';
+  ui.objectInspectorMotion.textContent =
+    Math.hypot(Number(object.vx || 0), Number(object.vy || 0)) >= 0.08
+      ? 'moving'
+      : 'stable';
+  ui.objectInspectorInteraction.textContent = primary?.type || 'none';
+
+  ui.objectInspectorSignals.replaceChildren();
+
+  appendObjectInspectorSignal(
+    'OBJECT DETECTOR',
+    object.label,
+    object.score,
+    'Human object classification confidence. Tracky does not infer a unique real-world identity from the class label.'
+  );
+
+  appendObjectInspectorSignal(
+    'TRACK CONTINUITY',
+    object.status,
+    Math.min(1, Number(object.observations || 0) / 5),
+    object.observations + ' observations under persistent ' + object.id + '.'
+  );
+
+  if (primary) {
+    appendObjectInspectorSignal(
+      'PERSON RELATION',
+      primary.type + ' · ' + (primary.participantName || primary.participantTrackId || 'participant'),
+      primary.confidence,
+      primary.type === 'holding'
+        ? 'Uses wrist/object proximity with optional hand-detector reinforcement.'
+        : primary.type === 'pointing-at'
+          ? 'Uses elbow→wrist ray alignment toward the object.'
+          : 'Uses participant↔object distance change over time.'
+    );
+  } else {
+    appendObjectInspectorSignal(
+      'PERSON RELATION',
+      'none established',
+      0,
+      'No person↔object relationship currently passes its confidence threshold.'
+    );
+  }
+
+  ui.objectInspectorJson.textContent = JSON.stringify({
+    id: object.id,
+    label: object.label,
+    classId: object.classId,
+    detectorId: object.detectorId,
+    confidence: object.score,
+    status: object.status,
+    observations: object.observations,
+    position: objectRoomPosition(object),
+    velocity: {
+      x: object.vx || 0,
+      y: object.vy || 0
+    },
+    holder: holder ? {
+      trackId: holder.id,
+      participantId: holder.participantId || null,
+      participantName: holder.participantName || null
+    } : null,
+    interactions
+  }, null, 2);
+}
+
+function openObjectEvidenceInspector(objectId) {
+  runtime.selectedTrackId = null;
+  ui.inspector.hidden = true;
+  runtime.selectedObjectId = objectId;
+  renderObjectEvidenceInspector();
+  drawOverlay();
+}
+
+function closeObjectEvidenceInspector() {
+  runtime.selectedObjectId = null;
+  ui.objectInspector.hidden = true;
+  drawOverlay();
+}
+
+function renderObjects() {
+  ui.objects.replaceChildren();
+
+  const objects = runtime.objects
+    .filter((object) => object.stable && object.status !== 'reacquiring')
+    .slice(0, 16);
+
+  ui.objectRuntimeStatus.textContent = objects.length
+    ? objects.length + ' tracked'
+    : runtime.running ? 'Scanning' : 'Standby';
+
+  if (!objects.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No persistent objects are currently tracked.';
+    ui.objects.append(empty);
+    return;
+  }
+
+  for (const object of objects) {
+    const interactions = [...runtime.activeInteractions.values()]
+      .filter((interaction) => interaction.objectTrackId === object.id)
+      .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+    const primary = interactions[0] || null;
+    const holder = object.holderTrackId
+      ? runtime.tracks.find((track) => track.id === object.holderTrackId)
+      : null;
+
+    const card = document.createElement('article');
+    card.className = 'agent-object-card';
+    if (primary) card.classList.add('active');
+
+    const identity = document.createElement('div');
+    identity.className = 'agent-object-id';
+    identity.textContent = object.id;
+
+    const copy = document.createElement('div');
+    copy.className = 'agent-object-copy';
+
+    const name = document.createElement('strong');
+    name.textContent = object.label;
+
+    const meta = document.createElement('span');
+    meta.textContent = [
+      confidenceText(object.score),
+      object.status,
+      primary?.type,
+      holder ? 'holder ' + (holder.participantName || holder.id) : null
+    ].filter(Boolean).join(' · ');
+
+    copy.append(name, meta);
+
+    const inspect = document.createElement('button');
+    inspect.className = 'agent-entity-action';
+    inspect.type = 'button';
+    inspect.textContent = 'Inspect';
+    inspect.addEventListener('click', () => openObjectEvidenceInspector(object.id));
+
+    card.append(identity, copy, inspect);
+    ui.objects.append(card);
+  }
 }
 
 function renderParticipants() {
@@ -1544,6 +2172,32 @@ function renderRadar() {
     });
     ui.radarTracks.append(dot);
   }
+
+  for (const object of runtime.objects) {
+    if (!object.stable || object.status === 'reacquiring') continue;
+
+    const dot = document.createElement('div');
+    dot.className = 'radar-track object';
+    if (activeInteractionForObject(object.id)) dot.classList.add('interacting');
+    dot.style.left = (Number(object.cx || 0.5) * 100) + '%';
+    dot.style.top = (Number(object.cy || 0.5) * 100) + '%';
+    dot.tabIndex = 0;
+    dot.setAttribute('role', 'button');
+
+    const label = document.createElement('span');
+    label.textContent = object.id + ' · ' + object.label;
+    dot.append(label);
+
+    dot.addEventListener('click', () => openObjectEvidenceInspector(object.id));
+    dot.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openObjectEvidenceInspector(object.id);
+      }
+    });
+
+    ui.radarTracks.append(dot);
+  }
 }
 
 function eventLabel(event) {
@@ -1583,6 +2237,29 @@ function eventLabel(event) {
     case 'gesture.detected':
       return (event.participantName || event.trackId || 'Participant') + ' gesture → ' +
         String(event.data?.gesture || 'gesture');
+    case 'object.detected':
+      return (event.data?.objectId || 'Object') + ' detected · ' +
+        String(event.data?.label || 'object');
+    case 'object.reacquired':
+      return (event.data?.objectId || 'Object') + ' reacquired · ' +
+        String(event.data?.label || 'object');
+    case 'object.lost':
+      return (event.data?.objectId || 'Object') + ' lost · ' +
+        String(event.data?.label || 'object');
+    case 'object.picked_up':
+      return (event.participantName || event.trackId || 'Participant') +
+        ' picked up ' + String(event.data?.label || event.data?.objectLabel || 'object');
+    case 'object.put_down':
+      return (event.participantName || event.trackId || 'Participant') +
+        ' put down ' + String(event.data?.label || event.data?.objectLabel || 'object');
+    case 'interaction.started':
+      return (event.participantName || event.trackId || 'Participant') + ' · ' +
+        String(event.data?.type || 'interaction') + ' · ' +
+        String(event.data?.objectLabel || event.data?.objectId || 'object');
+    case 'interaction.ended':
+      return (event.participantName || event.trackId || 'Participant') + ' ended ' +
+        String(event.data?.type || 'interaction') + ' · ' +
+        String(event.data?.objectLabel || event.data?.objectId || 'object');
     case 'transcript.turn':
       return (event.participantName || 'Unknown speaker') + ': ' + String(event.data?.text || '');
     case 'sensor.status':
@@ -1721,14 +2398,21 @@ function renderSignals() {
   ui.attentionCount.textContent = String(
     runtime.tracks.filter((track) => Number(track.behaviorEvidence?.attention?.confidence || 0) >= 0.32).length
   );
+  ui.objectCount.textContent = String(
+    runtime.objects.filter((object) => object.stable && object.status !== 'reacquiring').length
+  );
+  ui.handCount.textContent = String(runtime.hands.length);
+  ui.interactionCount.textContent = String(runtime.activeInteractions.size);
 }
 
 function renderAll() {
   renderParticipants();
+  renderObjects();
   renderRadar();
   renderSignals();
   renderRoomState();
   renderEvidenceInspector();
+  renderObjectEvidenceInspector();
 }
 
 function suppressMicForSpeech() {
@@ -2043,8 +2727,10 @@ ui.cameraSelect.addEventListener('change', () => {
 });
 ui.copyState.addEventListener('click', () => void copySnapshot());
 ui.closeInspector.addEventListener('click', closeEvidenceInspector);
+ui.closeObjectInspector.addEventListener('click', closeObjectEvidenceInspector);
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
+ui.objectOverlay.addEventListener('change', drawOverlay);
 window.addEventListener('resize', () => {
   resizeOverlay();
   drawOverlay();
