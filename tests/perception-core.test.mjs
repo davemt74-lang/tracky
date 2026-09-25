@@ -327,3 +327,36 @@ test('interaction lifecycle is represented in room snapshot', () => {
   ));
   assert.equal(roomStateSnapshot(state).interactions.length,0);
 });
+
+
+test('lost objects are pruned from long-running room state after retention', () => {
+  const state = createRoomState();
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'object.detected',
+    {
+      confidence:0.9,
+      data:{objectId:'O001',label:'cup',status:'tracked'}
+    },
+    { timestamp:1 }
+  ));
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'object.lost',
+    {
+      confidence:0.9,
+      data:{objectId:'O001',label:'cup',status:'lost'}
+    },
+    { timestamp:1000 }
+  ));
+
+  assert.ok(state.objects.O001);
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'sensor.status',
+    { data:{sensor:'camera',status:'online'} },
+    { timestamp:62001 }
+  ));
+
+  assert.equal(state.objects.O001, undefined);
+});
