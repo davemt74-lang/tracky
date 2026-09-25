@@ -376,49 +376,274 @@ window.TrackyAgentEyes = Object.freeze({
 });
 
 
-function sceneInputSnapshot() {
-  const room = roomStateSnapshot(roomState);
-  const acceptedTrackIds = new Set(
-    runtime.tracks
-      .filter((track) => track.presenceAnnounced)
-      .map((track) => track.id)
+
+function nextWorldObjectId() {
+  runtime.worldObjectCounter += 1;
+  return 'WO' + String(runtime.worldObjectCounter).padStart(3, '0');
+}
+
+function cameraById(cameraId) {
+  return runtime.cameraConfigs.find((camera) => camera.id === cameraId) || null;
+}
+
+function primaryCameraConfig() {
+  return runtime.cameraConfigs.find((camera) => camera.primary) || null;
+}
+
+function cameraDeviceLabel(deviceId) {
+  return runtime.cameraDevices.find((device) => device.deviceId === deviceId)?.label || 'Camera';
+}
+
+async function detectRoomSerial(input) {
+  const task = runtime.identityInference.then(
+    () => runtime.identity.detectRoom(input),
+    () => runtime.identity.detectRoom(input)
+  );
+  runtime.identityInference = task.catch(() => {});
+  return task;
+}
+
+function emitCameraStatus(cameraId, status) {
+  const previous = runtime.cameraStatuses.get(cameraId);
+  runtime.cameraStatuses.set(cameraId, status);
+  if (previous === status) return;
+
+  const camera = cameraById(cameraId);
+  emit('camera.status', {
+    source: 'camera-network',
+    confidence: status === 'online' ? 1 : 0,
+    data: {
+      cameraId,
+      cameraName: camera?.name || cameraId,
+      status
+    }
+  });
+}
+
+function onSecondaryCameraStatus(cameraId, status) {
+  emitCameraStatus(cameraId, status);
+  if (status === 'offline') runtime.cameraObservations.delete(cameraId);
+  renderCameraNetwork();
+  updateCameraFusion(Date.now(), false);
+}
+
+function onSecondaryCameraObservation(cameraId, observation) {
+  runtime.cameraObservations.set(cameraId, observation);
+  updateCameraFusion(observation.timestamp || Date.now(), true);
+}
+
+function primaryParticipantObservations(camera) {
+  if (!camera) return [];
+
+  return runtime.tracks
+    .filter((track) => track.presenceAnnounced && track.status !== 'reacquiring')
+    .map((track) => {
+      const mapped = mapCameraPoint(camera, {
+        x: Number(track.cx || 0.5),
+        y: Number(track.cy || 0.5)
+      });
+      return {
+        kind: 'participant',
+        cameraId: camera.id,
+        roomId: camera.roomId,
+        localTrackId: track.id,
+        participantId: track.participantId || null,
+        participantName: track.participantName || null,
+        roomPosition: mapped,
+        localPosition: {
+          x: Number(track.cx || 0.5),
+          y: Number(track.cy || 0.5)
+        },
+        faceConfidence: Number(track.similarity || track.quality || 0),
+        bodyConfidence: Number(track.bodyScore || 0),
+        poseConfidence: Number(track.behaviorEvidence?.poseConfidence || 0),
+        continuityConfidence: track.status === 'matched' || track.status === 'body-lock'
+          ? 0.94
+          : track.status === 'occluded'
+            ? 0.45
+            : 0.68,
+        status: track.status,
+        behavior: track.behaviorEvidence || null,
+        identitySource: track.identitySource || null
+      };
+    });
+}
+
+function primaryObjectObservations(camera) {
+  if (!camera) return [];
+
+  return runtime.objects
+    .filter((object) => object.stable && object.status !== 'reacquiring')
+    .map((object) => ({
+      kind: 'object',
+      cameraId: camera.id,
+      roomId: camera.roomId,
+      localObjectId: object.id,
+      label: object.label,
+      roomPosition: mapCameraPoint(camera, {
+        x: Number(object.cx || 0.5),
+        y: Number(object.cy || 0.5)
+      }),
+      localPosition: {
+        x: Number(object.cx || 0.5),
+        y: Number(object.cy || 0.5)
+      },
+      confidence: Number(object.score || 0),
+      stable: true,
+      status: object.status
+    }));
+}
+
+function publishPrimaryCameraObservation(timestamp = Date.now()) {
+  const camera = primaryCameraConfig();
+  if (!camera || !runtime.running) return;
+
+  runtime.cameraObservations.set(camera.id, {
+    camera,
+    timestamp,
+    participants: primaryParticipantObservations(camera),
+    objects: primaryObjectObservations(camera),
+    counts: {
+      faces: runtime.faces.length,
+      bodies: runtime.bodies.length,
+      objects: runtime.rawObjects.length,
+      hands: runtime.hands.length
+    }
+  });
+  emitCameraStatus(camera.id, 'online');
+}
+
+function publishFusionEvent(event) {
+  if (event.type === 'camera.handoff') {
+    emit('camera.handoff', {
+      participantId: event.participantId,
+      participantName: event.participantName,
+      confidence: event.confidence,
+      source: 'multi-camera-fusion',
+      roomPosition: event.roomPosition,
+      data: {
+        fromCameraId: event.fromCameraId,
+        toCameraId: event.toCameraId
+      }
+    });
+  }
+
+  if (event.type === 'camera.overlap_fused') {
+    emit('camera.overlap_fused', {
+      participantId: event.participantId,
+      participantName: event.participantName,
+      confidence: event.confidence,
+      source: 'multi-camera-fusion',
+      roomPosition: event.roomPosition,
+      data: {
+        cameraIds: event.cameraIds
+      }
+    });
+  }
+}
+
+function updateCameraFusion(now = Date.now(), updateScene = false) {
+  const activeObservations = [...runtime.cameraObservations.values()]
+    .filter((observation) => now - Number(observation.timestamp || 0) <= 3000);
+
+  const participantObservations = activeObservations.flatMap(
+    (observation) => observation.participants || []
+  );
+  const objectObservations = activeObservations.flatMap(
+    (observation) => observation.objects || []
   );
 
-  const knownParticipants = (room.participants || [])
-    .filter((participant) => acceptedTrackIds.has(participant.trackId));
+  const result = updateWorldFusion(
+    runtime.fusionState,
+    participantObservations,
+    objectObservations,
+    now,
+    {
+      roomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || 'ROOM01',
+      nextId: nextWorldObjectId
+    }
+  );
 
-  const unknownParticipants = (room.unknownTracks || [])
-    .filter((track) => acceptedTrackIds.has(track.trackId))
-    .map((track) => ({
-      id: null,
-      name: track.trackId,
-      trackId: track.trackId,
-      presence: track.presence,
-      position: track.position,
-      behavior: track.behavior,
-      attention: track.attention,
-      addressing: track.addressing,
-      conversationGroup: track.conversationGroup,
-      voiceStatus: 'quiet'
-    }));
+  runtime.fusionState = result.state;
+  for (const event of result.events) publishFusionEvent(event);
 
-  const conversationGroups = (room.conversationGroups || [])
-    .map((group) => ({
-      ...group,
-      trackIds: (group.trackIds || []).filter((id) => acceptedTrackIds.has(id)),
-      participantIds: (group.participantIds || []).filter((participantId) => (
-        knownParticipants.some((participant) => participant.id === participantId)
-      ))
-    }))
-    .filter((group) => group.trackIds.length >= 2);
+  const detail = structuredClone(runtime.fusionState);
+  for (const listener of cameraFusionListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:camera-fusion', {
+    detail
+  }));
+
+  renderCameraNetwork();
+  renderWorldMap();
+  renderRoomState();
+
+  if (updateScene) updateSceneIntelligence(now);
+}
+
+function sceneInputSnapshot() {
+  const room = roomStateSnapshot(roomState);
+  const fused = runtime.fusionState;
+  const roomKnown = new Map(
+    (room.participants || []).map((participant) => [participant.id, participant])
+  );
+
+  const participants = (fused.participants || []).map((entity) => {
+    const local = entity.participantId
+      ? roomKnown.get(entity.participantId)
+      : null;
+    const bestObservation = entity.observations?.[0] || null;
+
+    return {
+      id: entity.participantId || null,
+      name: entity.participantName || entity.id,
+      trackId: entity.id,
+      presence: entity.status === 'last-known' ? 'active' : 'active',
+      position: entity.roomPosition,
+      behavior: bestObservation?.behavior || local?.behavior || null,
+      attention: local?.attention || null,
+      addressing: local?.addressing || null,
+      conversationGroup: local?.conversationGroup || null,
+      voiceStatus: local?.voiceStatus || 'quiet',
+      cameraIds: entity.cameraIds,
+      primaryCameraId: entity.primaryCameraId,
+      fusionConfidence: entity.confidence
+    };
+  });
+
+  const primaryId = primaryCameraConfig()?.id;
+  const objectIdMap = new Map();
+  for (const object of fused.objects || []) {
+    for (const observation of object.observations || []) {
+      objectIdMap.set(
+        observation.cameraId + ':' + observation.localObjectId,
+        object.id
+      );
+    }
+  }
+
+  const interactions = (room.interactions || []).map((interaction) => ({
+    ...interaction,
+    objectId: objectIdMap.get(
+      (primaryId || '') + ':' + interaction.objectId
+    ) || interaction.objectId
+  }));
 
   return {
     ...room,
-    participants: [
-      ...knownParticipants,
-      ...unknownParticipants
-    ],
-    conversationGroups
+    participants,
+    objects: (fused.objects || [])
+      .filter((object) => object.status === 'visible')
+      .map((object) => ({
+        id: object.id,
+        label: object.label,
+        score: object.confidence,
+        position: object.roomPosition,
+        holderParticipantId: null,
+        cameraIds: object.cameraIds,
+        primaryCameraId: object.primaryCameraId
+      })),
+    interactions,
+    conversationGroups: room.conversationGroups || []
   };
 }
 
