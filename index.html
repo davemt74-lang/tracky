@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.8 — Agent Eyes</title>
+  <title>Tracky V1.9 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.8 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.9 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -42,6 +42,7 @@
     <div><span>PRIVACY</span><b id="eyesPrivacyStatus">Policy ready</b></div>
     <div><span>TASK / ATTENTION</span><b id="eyesTaskStatus">General awareness</b></div>
     <div><span>PROACTIVE</span><b id="eyesAnomalyStatus">Quiet</b></div>
+    <div><span>VERIFY</span><b id="eyesVerificationStatus">Idle</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -504,6 +505,29 @@
       <div id="proactiveCandidateList" class="proactive-candidate-list">
         <div class="agent-empty">No anomaly candidates are currently being verified.</div>
       </div>
+    </article>
+
+    <article class="hud-panel proactive-verification-panel">
+      <div class="hud-panel-head">
+        <div><small>ACTIVE LOOK-AGAIN</small><h2>Evidence quorum</h2></div>
+        <span id="verificationStatus" class="status-chip">Idle</span>
+      </div>
+      <div class="verification-summary">
+        <div><span>GATHERING</span><b id="verificationActiveCount">0</b></div>
+        <div><span>VERIFIED</span><b id="verificationVerifiedCount">0</b></div>
+        <div><span>CLEARED</span><b id="verificationClearedCount">0</b></div>
+        <div><span>UNCERTAIN</span><b id="verificationUncertainCount">0</b></div>
+      </div>
+      <div id="verificationList" class="verification-list">
+        <div class="agent-empty">No active evidence-verification request.</div>
+      </div>
+      <div class="hud-panel-head verification-history-head">
+        <div><small>VERIFICATION HISTORY</small><h2>Recent conclusions</h2></div>
+      </div>
+      <div id="verificationHistoryList" class="verification-history-list">
+        <div class="agent-empty">Verified, cleared, uncertain, blocked, and cancelled outcomes will appear here.</div>
+      </div>
+      <p class="privacy-note">Verification only reuses currently permitted perception capabilities. It cannot enable a camera, identity, environment-comparison, or object-observation capability that room policy has disabled.</p>
     </article>
 
     <article class="hud-panel">
