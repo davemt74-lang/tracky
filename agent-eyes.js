@@ -51,6 +51,23 @@ import {
   carryLostObjectTracks,
   interactionKey
 } from './src/object-core.js';
+import {
+  SCENE_CHANGE_TYPES,
+  createSceneState,
+  normalizeZone,
+  replaceSceneZones,
+  sceneStateSnapshot,
+  updateSceneState
+} from './src/scene-core.js';
+import {
+  clearSceneMemory,
+  listSceneChanges,
+  listSceneEpisodes,
+  loadSceneZones,
+  saveSceneChanges,
+  saveSceneEpisodes,
+  saveSceneZones
+} from './src/scene-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -72,6 +89,7 @@ const ui = {
   healthStatus: $('#eyesHealthStatus'),
   behaviorStatus: $('#eyesBehaviorStatus'),
   objectStatus: $('#eyesObjectStatus'),
+  sceneStatus: $('#eyesSceneStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -89,10 +107,30 @@ const ui = {
   poseOverlay: $('#eyesPoseOverlay'),
   attentionOverlay: $('#eyesAttentionOverlay'),
   objectOverlay: $('#eyesObjectOverlay'),
+  sceneOverlay: $('#eyesSceneOverlay'),
+  radarZones: $('#agentRadarZones'),
   radarTracks: $('#agentRadarTracks'),
   participants: $('#eyesParticipants'),
   objects: $('#eyesObjects'),
   objectRuntimeStatus: $('#objectRuntimeStatus'),
+  sceneRuntimeStatus: $('#sceneRuntimeStatus'),
+  sceneActivityCount: $('#sceneActivityCount'),
+  sceneMemoryObjectCount: $('#sceneMemoryObjectCount'),
+  sceneEpisodeCount: $('#sceneEpisodeCount'),
+  sceneChangeCount: $('#sceneChangeCount'),
+  clearSceneMemory: $('#clearSceneMemory'),
+  sceneChangeFeed: $('#sceneChangeFeed'),
+  sceneEpisodeFeed: $('#sceneEpisodeFeed'),
+  sceneChangeStatus: $('#sceneChangeStatus'),
+  sceneEpisodeStatus: $('#sceneEpisodeStatus'),
+  sceneZoneStatus: $('#sceneZoneStatus'),
+  sceneZoneForm: $('#sceneZoneForm'),
+  sceneZoneName: $('#sceneZoneName'),
+  sceneZoneX: $('#sceneZoneX'),
+  sceneZoneY: $('#sceneZoneY'),
+  sceneZoneWidth: $('#sceneZoneWidth'),
+  sceneZoneHeight: $('#sceneZoneHeight'),
+  sceneZoneList: $('#sceneZoneList'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -129,13 +167,28 @@ const ui = {
   objectInspectorInteraction: $('#objectInspectorInteraction'),
   objectInspectorSignals: $('#objectInspectorSignals'),
   objectInspectorJson: $('#objectInspectorJson'),
-  closeObjectInspector: $('#closeObjectEvidenceInspector')
+  closeObjectInspector: $('#closeObjectEvidenceInspector'),
+  sceneInspector: $('#sceneEvidenceInspector'),
+  sceneInspectorTitle: $('#sceneInspectorTitle'),
+  sceneInspectorMeta: $('#sceneInspectorMeta'),
+  sceneInspectorType: $('#sceneInspectorType'),
+  sceneInspectorConfidence: $('#sceneInspectorConfidence'),
+  sceneInspectorParticipant: $('#sceneInspectorParticipant'),
+  sceneInspectorObject: $('#sceneInspectorObject'),
+  sceneInspectorZone: $('#sceneInspectorZone'),
+  sceneInspectorDuration: $('#sceneInspectorDuration'),
+  sceneInspectorSummary: $('#sceneInspectorSummary'),
+  sceneInspectorEvidence: $('#sceneInspectorEvidence'),
+  sceneInspectorJson: $('#sceneInspectorJson'),
+  closeSceneInspector: $('#closeSceneEvidenceInspector')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
 
 const bus = new PerceptionEventBus();
 const roomState = createRoomState('agent-eyes-room');
+const sceneState = createSceneState(roomState.roomId);
+const sceneListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -184,7 +237,8 @@ const runtime = {
   behaviorByTrack: new Map(),
   wristHistory: new Map(),
   lastGestureAt: new Map(),
-  selectedTrackId: null
+  selectedTrackId: null,
+  selectedSceneRecord: null
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -214,10 +268,30 @@ window.TrackyAgentEyes = Object.freeze({
   getState() {
     return roomStateSnapshot(roomState);
   },
+  getSceneState() {
+    return sceneStateSnapshot(sceneState);
+  },
+  getWorldState() {
+    return {
+      room: roomStateSnapshot(roomState),
+      scene: sceneStateSnapshot(sceneState)
+    };
+  },
+  getChanges() {
+    return sceneState.changes.slice();
+  },
+  getEpisodes() {
+    return sceneState.episodes.slice();
+  },
   subscribe(type, listener) {
     return bus.subscribe(type, listener);
   },
-  eventTypes: PERCEPTION_EVENT_TYPES
+  subscribeScene(listener) {
+    sceneListeners.add(listener);
+    return () => sceneListeners.delete(listener);
+  },
+  eventTypes: PERCEPTION_EVENT_TYPES,
+  sceneChangeTypes: SCENE_CHANGE_TYPES
 });
 
 function nextTrackId() {
