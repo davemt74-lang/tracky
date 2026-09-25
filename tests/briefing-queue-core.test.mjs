@@ -35,6 +35,15 @@ test('surfaced, deferred and acknowledged lifecycle are explicit',()=>{
  q=[b('B2')];q=deferBriefing(q,'B2',60000,'user-deferred',2000);assert.equal(q[0].deliveryState,'deferred');
  q=acknowledgeQueuedBriefing(q,'B2',3000);assert.equal(q[0].deliveryState,'acknowledged');
 });
+test('user-deferred briefing stays deferred until retry time',()=>{
+ let q=enqueueBriefing([],b(),{agentConnected:true,activeRoomId:'ROOM01'},1000).queue;
+ q=deferBriefing(q,'B1',60000,'user-deferred',2000);
+ q=reevaluateBriefingQueue(q,{agentConnected:true,activeRoomId:'ROOM01'},3000);
+ assert.equal(q[0].deliveryState,'deferred');
+ q=reevaluateBriefingQueue(q,{agentConnected:true,activeRoomId:'ROOM01'},62001);
+ assert.equal(q[0].deliveryState,'ready');
+});
+
 test('ready selector only returns ready records',()=>{
  const q=[
   {...b('B1'),deliveryState:'ready',deliveryReady:true},
