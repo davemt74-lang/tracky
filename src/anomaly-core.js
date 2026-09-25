@@ -146,6 +146,7 @@ export function normalizeAnomalySignal(signal = {}, now = Date.now()) {
     targetId: signal.targetId || null,
     expectedTargetId: signal.expectedTargetId || null,
     evidence: signal.evidence || null,
+    evidenceId: signal.evidenceId || null,
     observedAt: Number(signal.observedAt || now),
     rule
   };
@@ -206,6 +207,8 @@ export function observeAnomalySignals(state, signals = [], now = Date.now()) {
       targetId: signal.targetId,
       expectedTargetId: signal.expectedTargetId,
       evidence: signal.evidence,
+      evidenceId: signal.evidenceId,
+      lastEvidenceId: null,
       firstSeenAt: now,
       lastSeenAt: now,
       observations: 0,
@@ -214,7 +217,14 @@ export function observeAnomalySignals(state, signals = [], now = Date.now()) {
     };
 
     candidate.lastSeenAt = now;
-    candidate.observations += 1;
+    const newEvidence = (
+      !signal.evidenceId ||
+      signal.evidenceId !== candidate.lastEvidenceId
+    );
+    if (newEvidence) {
+      candidate.observations += 1;
+      candidate.lastEvidenceId = signal.evidenceId || null;
+    }
     candidate.confidence = Math.max(candidate.confidence, signal.confidence);
     candidate.priority = Math.max(candidate.priority, signal.priority);
     candidate.summary = signal.summary;
@@ -350,6 +360,9 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
       confidence: Math.max(0.55, 1 - Number(environment.best?.score || 0)),
       roomId: context.activeRoomId || null,
       summary: 'Current environment is not confidently recognized',
+      evidenceId: context.currentEnvironment?.capturedAt
+        ? 'environment:' + context.currentEnvironment.capturedAt
+        : null,
       evidence: {
         best: environment.best || null
       }
@@ -363,6 +376,9 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
       confidence: clamp01(drift.cameraPoseDrift || 0.5),
       roomId: context.activeRoomId || null,
       summary: 'Camera position appears persistently shifted',
+      evidenceId: context.currentEnvironment?.capturedAt
+        ? 'camera-pose:' + context.currentEnvironment.capturedAt
+        : null,
       evidence: drift
     });
   } else if (Number(drift?.structuralDrift || 0) >= 0.35) {
@@ -371,6 +387,9 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
       confidence: clamp01(0.55 + Number(drift.structuralDrift || 0) * 0.45),
       roomId: context.activeRoomId || null,
       summary: 'Environment structure differs from the confirmed baseline',
+      evidenceId: context.currentEnvironment?.capturedAt
+        ? 'structure:' + context.currentEnvironment.capturedAt
+        : null,
       evidence: drift
     });
   }
@@ -382,6 +401,9 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
       confidence: clamp01(1 - Number(quality.score || 0)),
       roomId: context.activeRoomId || null,
       summary: 'Camera view quality is persistently degraded',
+      evidenceId: context.currentEnvironment?.capturedAt
+        ? 'quality:' + context.currentEnvironment.capturedAt
+        : null,
       evidence: quality
     });
   }
@@ -426,6 +448,9 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
           expectedTargetId: expectedTarget,
           summary: (object.label || object.id) +
             ' is away from its confirmed expected location',
+          evidenceId: object.lastObservedAt
+            ? 'object-location:' + object.id + ':' + object.lastObservedAt
+            : null,
           evidence: {
             expected,
             current: {
@@ -488,6 +513,10 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
         roomId: context.activeRoomId || null,
         summary: (change.objectLabel || 'A new object') +
           ' has remained in the known environment',
+        evidenceId: currentObject.lastObservedAt
+          ? 'new-object:' + String(change.objectId || '') + ':' +
+            currentObject.lastObservedAt
+          : null,
         evidence: {
           sceneChangeId: change.id,
           firstObservedAt: change.timestamp,
