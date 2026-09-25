@@ -358,6 +358,15 @@ const ui = {
   proactiveCandidateList: $('#proactiveCandidateList'),
   proactiveHistoryStatus: $('#proactiveHistoryStatus'),
   proactiveHistoryList: $('#proactiveHistoryList'),
+  worldQueryStatus: $('#worldQueryStatus'),
+  worldQueryForm: $('#worldQueryForm'),
+  worldQueryInput: $('#worldQueryInput'),
+  worldQueryAnswer: $('#worldQueryAnswer'),
+  worldQueryEvidenceStatus: $('#worldQueryEvidenceStatus'),
+  worldQueryEvidence: $('#worldQueryEvidence'),
+  worldQueryHistoryStatus: $('#worldQueryHistoryStatus'),
+  worldQueryHistory: $('#worldQueryHistory'),
+  clearWorldQueryHistory: $('#clearWorldQueryHistory'),
   privacyRegionName: $('#privacyRegionName'),
   privacyRegionMode: $('#privacyRegionMode'),
   privacyRegionX: $('#privacyRegionX'),
@@ -6593,6 +6602,193 @@ function parseAttentionTaskForm() {
 }
 
 
+
+function formatQueryAge(milliseconds) {
+  if (milliseconds == null || !Number.isFinite(Number(milliseconds))) return 'freshness unknown';
+  const seconds = Math.max(0, Math.round(Number(milliseconds) / 1000));
+  if (seconds < 60) return seconds + 's ago';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return minutes + 'm ago';
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return hours + 'h ago';
+  return Math.round(hours / 24) + 'd ago';
+}
+
+function worldQueryFactText(fact) {
+  if (!fact) return '';
+  if (fact.type === 'current-location' || fact.type === 'last-known-location') {
+    return [fact.room, fact.anchor].filter(Boolean).join(' · ');
+  }
+  if (fact.type === 'journey-step') {
+    return [
+      fact.room,
+      fact.anchorLabel,
+      fact.holderName ? 'held by ' + fact.holderName : null
+    ].filter(Boolean).join(' · ');
+  }
+  if (fact.type === 'custody') {
+    return fact.participantName + ' · ' + fact.observations + ' observations';
+  }
+  if (fact.type === 'room-occupant') {
+    return fact.name + ' · ' + fact.presence;
+  }
+  if (fact.type === 'active-anomaly') {
+    return [fact.severity, fact.summary].filter(Boolean).join(' · ');
+  }
+  if (fact.source && fact.summary) {
+    return [fact.source, fact.summary].join(' · ');
+  }
+  if (fact.type === 'confirmed-expected-location') {
+    return fact.anchorLabel || fact.room || fact.targetId || 'expected location';
+  }
+  if (fact.type === 'unconfirmed-location-evidence') {
+    return [
+      fact.anchorLabel || fact.targetId,
+      fact.observations + ' observations',
+      fact.sessions + ' sessions'
+    ].filter(Boolean).join(' · ');
+  }
+  if (fact.type === 'entity-match') {
+    return fact.label + ' · ' + fact.entityType;
+  }
+  if (fact.type === 'evidence-bundle') {
+    return 'Current state, semantic history, relationships, anomalies, and provenance';
+  }
+  return JSON.stringify(fact);
+}
+
+function renderWorldQuery() {
+  const answer = runtime.lastWorldQuery;
+  ui.worldQueryAnswer.replaceChildren();
+  ui.worldQueryEvidence.replaceChildren();
+
+  if (!answer) {
+    ui.worldQueryStatus.textContent = 'Ready';
+    ui.worldQueryEvidenceStatus.textContent = 'No answer';
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Ask about current location, last seen, history, custody, room occupancy, expected location, anomalies, or evidence.';
+    ui.worldQueryAnswer.append(empty);
+    const evidenceEmpty = document.createElement('div');
+    evidenceEmpty.className = 'agent-empty';
+    evidenceEmpty.textContent = 'Evidence and uncertainty will appear after a query.';
+    ui.worldQueryEvidence.append(evidenceEmpty);
+  } else {
+    ui.worldQueryStatus.textContent = answer.status + ' · ' +
+      Math.round(Number(answer.confidence || 0) * 100) + '%';
+
+    const summary = document.createElement('p');
+    summary.className = 'world-query-summary';
+    summary.textContent = answer.summary;
+    ui.worldQueryAnswer.append(summary);
+
+    const meta = document.createElement('div');
+    meta.className = 'world-query-meta';
+    meta.textContent = [
+      answer.intent,
+      Math.round(Number(answer.confidence || 0) * 100) + '% confidence',
+      answer.freshnessMs != null ? formatQueryAge(answer.freshnessMs) : null
+    ].filter(Boolean).join(' · ');
+    ui.worldQueryAnswer.append(meta);
+
+    for (const fact of (answer.facts || []).slice(0, 16)) {
+      const row = document.createElement('div');
+      row.className = 'world-query-fact';
+      const label = document.createElement('strong');
+      const copy = document.createElement('span');
+      label.textContent = fact.type || 'fact';
+      copy.textContent = worldQueryFactText(fact);
+      row.append(label, copy);
+      ui.worldQueryAnswer.append(row);
+    }
+
+    if (answer.candidates?.length) {
+      for (const candidate of answer.candidates) {
+        const row = document.createElement('div');
+        row.className = 'world-query-fact candidate';
+        const label = document.createElement('strong');
+        const copy = document.createElement('span');
+        label.textContent = candidate.label || candidate.id;
+        copy.textContent = [
+          candidate.type,
+          Math.round(Number(candidate.score || 0) * 100) + '% match'
+        ].filter(Boolean).join(' · ');
+        row.append(label, copy);
+        ui.worldQueryAnswer.append(row);
+      }
+    }
+
+    const evidenceItems = [
+      ...(answer.uncertainty || []).map((item) => ({
+        kind:'UNCERTAINTY',
+        text:item
+      })),
+      ...(answer.provenance || []).map((item) => ({
+        kind:'SOURCE',
+        text:[
+          item.source,
+          item.timestamp ? new Date(item.timestamp).toLocaleString() : null,
+          item.confidence != null
+            ? Math.round(Number(item.confidence) * 100) + '%'
+            : null
+        ].filter(Boolean).join(' · ')
+      }))
+    ];
+
+    ui.worldQueryEvidenceStatus.textContent =
+      evidenceItems.length + ' evidence notes';
+
+    if (!evidenceItems.length) {
+      const empty = document.createElement('div');
+      empty.className = 'agent-empty';
+      empty.textContent = 'No additional uncertainty or provenance notes.';
+      ui.worldQueryEvidence.append(empty);
+    } else {
+      for (const item of evidenceItems) {
+        const row = document.createElement('div');
+        row.className = 'world-query-evidence-row';
+        const kind = document.createElement('strong');
+        const copy = document.createElement('span');
+        kind.textContent = item.kind;
+        copy.textContent = item.text;
+        row.append(kind, copy);
+        ui.worldQueryEvidence.append(row);
+      }
+    }
+  }
+
+  ui.worldQueryHistory.replaceChildren();
+  ui.worldQueryHistoryStatus.textContent =
+    runtime.recentWorldQueries.length + ' recent';
+
+  if (!runtime.recentWorldQueries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Recent compact semantic queries will appear here.';
+    ui.worldQueryHistory.append(empty);
+  } else {
+    for (const item of runtime.recentWorldQueries.slice(0, 12)) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'world-query-history-row';
+      const query = document.createElement('strong');
+      const summary = document.createElement('span');
+      query.textContent = item.query || item.intent;
+      summary.textContent = [
+        item.status,
+        Math.round(Number(item.confidence || 0) * 100) + '%',
+        item.summary
+      ].filter(Boolean).join(' · ');
+      row.append(query, summary);
+      row.addEventListener('click', () => {
+        ui.worldQueryInput.value = item.query;
+        void runPhysicalWorldQuery(item.query);
+      });
+      ui.worldQueryHistory.append(row);
+    }
+  }
+}
+
 function anomalyMeta(anomaly) {
   return [
     String(anomaly.severity || 'medium').toUpperCase(),
@@ -7550,6 +7746,7 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderWorldQuery();
   renderProactiveAwareness();
   renderAttentionController();
   renderEnvironmentPanel();
@@ -7938,6 +8135,19 @@ ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
 ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
 ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
 ui.clearSpatialMemory.addEventListener('click', () => void clearLearnedSpatialMemory());
+ui.worldQueryForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const query = ui.worldQueryInput.value.trim();
+  if (query) void runPhysicalWorldQuery(query);
+});
+for (const button of document.querySelectorAll('[data-world-query]')) {
+  button.addEventListener('click', () => {
+    const query = button.dataset.worldQuery || '';
+    ui.worldQueryInput.value = query;
+    if (query) void runPhysicalWorldQuery(query);
+  });
+}
+ui.clearWorldQueryHistory.addEventListener('click', () => void clearWorldQueryHistory());
 ui.attentionTaskForm.addEventListener('submit', (event) => {
   event.preventDefault();
   startAttentionTask(parseAttentionTaskForm());
@@ -8002,6 +8212,7 @@ await initializeSceneMemory();
 await initializeSpatialMemory();
 await initializeAnomalyState();
 await initializeAttentionState();
+await initializeWorldQueries();
 renderAll();
 renderEventFeed();
 renderRoomState();
