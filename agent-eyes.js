@@ -3951,9 +3951,15 @@ function renderEnvironmentPanel() {
   ui.environmentQualityScore.textContent = current?.quality
     ? percent(current.quality.score)
     : '—';
-  ui.environmentCameraScore.textContent = analysis?.best
-    ? percent(analysis.best.evidence?.camera)
-    : '—';
+  ui.environmentCameraScore.textContent = analysis?.drift
+    ? (
+        analysis.drift.likelyCameraShift
+          ? 'SHIFT · ' + percent(analysis.drift.cameraPoseDrift)
+          : 'stable · ' + percent(1 - Number(analysis.drift.cameraPoseDrift || 0))
+      )
+    : analysis?.best
+      ? percent(analysis.best.evidence?.camera)
+      : '—';
 
   const cameraReady = runtime.running && ui.video.readyState >= 2;
   ui.capturePrimaryEnvironment.disabled = !cameraReady;
