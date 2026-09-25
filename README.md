@@ -2,6 +2,160 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.6 — Privacy Zones & Observation Policy
+
+V1.6 turns the privacy/retention defaults introduced in V1.3 into an enforceable room-scoped observation policy.
+
+The policy boundary is applied before information reaches downstream Agent state:
+
+```text
+camera / microphone
+  → observation policy
+  → permitted or sanitized perception
+  → fusion / Current World State
+  → persistence / learned memory
+```
+
+### Room observation policy
+
+Each room can independently allow or disable:
+
+- visual observation
+- enrolled participant identity
+- anonymous body tracking
+- object observation
+- behavior analysis
+- environment comparison
+- room audio
+- Voice Profile matching
+- live transcription
+- transcript storage
+- learned spatial memory
+- Primary Environment image retention
+- Alternate Environment image retention
+
+Live transcription and transcript storage are separate permissions. A room can therefore use speech transiently without retaining transcript turns.
+
+Voice Profile matching is also independent from room audio. Audio may remain available for live voice activity without speaker identity.
+
+### Sensitive regions
+
+Rooms can define normalized rectangular privacy regions that are visible on both the live camera view and room radar.
+
+Each region supports one of three modes:
+
+- `ignore` — observations inside the region are suppressed
+- `anonymous` — presence can remain visible, but participant identity is removed
+- `live-only` — live state may be used, but retention and learned spatial memory are blocked
+
+Regions apply to participants, objects, behavior, voice/transcript context, environment capture, and spatial memory by default.
+
+### Enforcement before fusion
+
+Privacy is not a display-only filter.
+
+Primary and secondary camera observations are filtered before they enter room fusion.
+
+When visual observation is disabled for a room:
+
+- the active camera stream may remain available to the browser UI
+- Tracky stops visual inference for that room
+- configured secondary cameras for that room do not start perception scans
+- stale room/fusion entities are purged when the policy changes
+
+When participant identity is disabled:
+
+- enrolled profiles are not supplied to secondary-camera face matching
+- primary face identity resolution is disabled
+- participant events that still contain identity context are anonymized before entering Current Room State
+
+Anonymous body tracking can remain enabled without personal identity.
+
+### Event policy boundary
+
+Perception events pass through the room observation policy before the Perception Event Bus.
+
+Suppressed private events therefore do not reach:
+
+- Current Room State
+- the recent semantic event feed
+- browser `tracky:perception` listeners
+
+Tracky intentionally does not emit a per-observation “privacy suppression” event because that could itself reveal that a private person or object was present.
+
+The aggregate UI may show counts of suppressed/anonymized events without exposing what was suppressed.
+
+### Transcript and audio privacy
+
+Room audio is refused entirely when its room policy disables audio.
+
+When audio is enabled:
+
+- Voice Profile embeddings/matching run only if Voice Profile matching is allowed
+- Whisper transcription runs only if live transcription is allowed
+- accepted transcript turns are written to IndexedDB only if transcript storage is allowed
+- `live-only` regions prohibit transcript retention
+- anonymized regions strip participant identity before a transcript event can be saved
+
+### Environment image masking
+
+Sensitive regions are masked before environment image data is fingerprinted.
+
+The capture pipeline is:
+
+```text
+camera frame
+  → black privacy masks
+  → imageData
+  → environment fingerprint
+  → optional retained image
+```
+
+This prevents masked pixels from entering either the saved reference image or its visual fingerprint.
+
+Primary, Alternate, comparison, and change-evidence image retention remain independently governed.
+
+### Learned-memory privacy
+
+V1.5 spatial learning now receives only policy-permitted semantic state.
+
+Participants, objects, relationships, and room transitions blocked from retention are removed before the spatial-memory learner sees them.
+
+A `live-only` region can therefore participate in live perception without teaching an expected object location or participant circulation pattern.
+
+### Policy changes
+
+Applying a stricter active-room policy immediately clears stale live/fusion state for that room so facts observed under the previous policy do not remain visible as current state.
+
+Confirmed physical facts intentionally taught by the user are not silently deleted by privacy-policy changes; the observation policy governs sensing and retention, not the user’s explicit knowledge declarations.
+
+### Agent API
+
+V1.6 adds:
+
+```js
+TrackyAgentEyes.getObservationPolicy(roomId)
+TrackyAgentEyes.setObservationPolicy(policy)
+TrackyAgentEyes.getPrivacyStats()
+```
+
+Current World State also includes:
+
+```js
+{
+  observationPolicies,
+  privacyStats
+}
+```
+
+Policy changes produce:
+
+```text
+privacy.policy_changed
+```
+
+The Current Room State snapshot carries a privacy summary so an Agent can distinguish unavailable evidence from evidence that is intentionally disallowed.
+
 ## V1.5 — Spatial Memory & Learned Physical Knowledge
 
 V1.5 adds a conservative learning layer above the V1.4 multi-room world.
