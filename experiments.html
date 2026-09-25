@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#02070a">
+  <title>Tracky — Experiments</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="jarvis-page">
+<main class="jarvis-shell">
+  <header class="jarvis-topbar">
+    <div class="jarvis-brand">
+      <span class="jarvis-orb" aria-hidden="true"></span>
+      <div>
+        <small>TRACKY · SENSOR LAB</small>
+        <h1>Experiments</h1>
+      </div>
+    </div>
+    <nav class="jarvis-nav">
+      <a href="./index.html">Agent Eyes</a>
+      <a href="./participants.html">Participants</a>
+      <a class="active" href="./experiments.html">Experiments</a>
+    </nav>
+  </header>
+
+  <section class="system-strip">
+    <div><span>PURPOSE</span><b>Perception validation</b></div>
+    <div><span>AGENT RUNTIME</span><b>Agent Eyes is primary</b></div>
+    <div><span>TRACKER</span><b>Available</b></div>
+    <div><span>GAME HARNESS</span><b>Available</b></div>
+  </section>
+
+  <section class="experiments-grid">
+    <article class="hud-panel experiment-card">
+      <div class="hud-panel-head">
+        <div><small>EXPERIMENT 01</small><h2>Green Object Tracker</h2></div>
+        <span class="status-chip ok">Preserved</span>
+      </div>
+      <p>Original camera-tracking laboratory with HSV green detection, calibration, smoothing, velocity telemetry, and a generic game-input surface. This remains useful for testing future physical controller providers.</p>
+      <a class="button-link primary" href="./tracker.html">Open tracker experiment</a>
+    </article>
+
+    <article class="hud-panel experiment-card">
+      <div class="hud-panel-head">
+        <div><small>EXPERIMENT 02</small><h2>Vertical Motion</h2></div>
+        <span class="status-chip ok">Preserved</span>
+      </div>
+      <p>The movement/game harness remains available for testing participant identity, body persistence, voice attribution, controller input, raw micro-motion analytics, and perception under active movement.</p>
+      <a class="button-link primary" href="./vertical-motion.html">Open Vertical Motion</a>
+    </article>
+  </section>
+
+  <section class="hud-panel" style="margin-top:12px">
+    <div class="hud-panel-head">
+      <div><small>ARCHITECTURE</small><h2>Experiments consume perception — they do not define it</h2></div>
+    </div>
+    <p class="privacy-note">Agent Eyes is now the canonical room-perception surface. Experimental trackers and games can evolve independently while consuming the same identity, body, voice, and future Agent perception interfaces.</p>
+  </section>
+</main>
+</body>
+</html>
