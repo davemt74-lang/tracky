@@ -47,3 +47,16 @@ test('rectangleRoomPoints clamps room coverage', () => {
   assert.equal(points[2].x,1);
   assert.equal(points[2].y,1);
 });
+
+
+test('invalid calibration input falls back to finite room coordinates', () => {
+  const camera=cameraWithCoverage(
+    normalizeCameraConfig({id:'CAM03'}),
+    {x:'bad',y:null,width:undefined,height:'bad'}
+  );
+  for (const point of camera.roomPoints) {
+    assert.equal(Number.isFinite(point.x),true);
+    assert.equal(Number.isFinite(point.y),true);
+  }
+  assert.equal(cameraCalibrationValid(camera),true);
+});
