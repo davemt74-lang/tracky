@@ -45,7 +45,10 @@ const requiredFiles = [
   'src/environment-store.js',
   'src/scene-graph-core.js',
   'src/world-state-core.js',
-  'src/perception-replay-core.js'
+  'src/perception-replay-core.js',
+  'src/multiroom-core.js',
+  'src/visibility-core.js',
+  'src/room-topology-core.js'
 ];
 
 const runtimeJs = [
@@ -80,7 +83,10 @@ const runtimeJs = [
   'src/environment-store.js',
   'src/scene-graph-core.js',
   'src/world-state-core.js',
-  'src/perception-replay-core.js'
+  'src/perception-replay-core.js',
+  'src/multiroom-core.js',
+  'src/visibility-core.js',
+  'src/room-topology-core.js'
 ];
 
 const htmlContracts = [
@@ -106,8 +112,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.3.0') {
-  fail('package.json version must be 1.3.0');
+if (packageJson.version !== '1.4.0') {
+  fail('package.json version must be 1.4.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -146,7 +152,10 @@ for (const file of [
   'src/environment-store.js',
   'src/scene-graph-core.js',
   'src/world-state-core.js',
-  'src/perception-replay-core.js'
+  'src/perception-replay-core.js',
+  'src/room-topology-core.js',
+  'src/visibility-core.js',
+  'src/multiroom-core.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -462,6 +471,44 @@ for (const symbol of [
   }
 }
 
+const topologyCore = read('src/room-topology-core.js');
+for (const symbol of [
+  'buildWorldTopology',
+  'areRoomsAdjacent',
+  'shortestRoomPath',
+  'portalForTransition',
+  'proposeTopologyConnection'
+]) {
+  if (!topologyCore.includes(symbol)) {
+    fail('Room topology core is missing required interface: ' + symbol);
+  }
+}
+
+const visibilityCore = read('src/visibility-core.js');
+for (const symbol of [
+  'cameraCanSeePosition',
+  'classifyVisibility',
+  'visibilityOccludersFromGraph'
+]) {
+  if (!visibilityCore.includes(symbol)) {
+    fail('Visibility core is missing required interface: ' + symbol);
+  }
+}
+
+const multiRoomCore = read('src/multiroom-core.js');
+for (const symbol of [
+  'createMultiRoomWorld',
+  'reconcileParticipantLocations',
+  'reconcileObjectLocations',
+  'updateRoomConversations',
+  'updateMultiRoomWorld',
+  'multiRoomSnapshot'
+]) {
+  if (!multiRoomCore.includes(symbol)) {
+    fail('Multi-room core is missing required continuity interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -556,6 +603,42 @@ for (const symbol of [
 if (!/tracky:world-state/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level physical world state');
 }
+for (const symbol of [
+  'getRooms',
+  'getRoomState',
+  'getParticipantLocation',
+  'getObjectLocation',
+  'getWorldTopology',
+  'getMultiRoomWorld',
+  'subscribeRoom'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing multi-room Agent API: ' + symbol);
+  }
+}
+if (!/tracky:multi-room-world/.test(agentEyes) || !/tracky:room-state/.test(agentEyes)) {
+  fail('Agent Eyes must emit multi-room and room-scoped browser state');
+}
+if (!/globalRoomMap/.test(indexHtml) || !/topologyConnectForm/.test(indexHtml)) {
+  fail('Agent Eyes must expose global room topology UI');
+}
+if (!/renderMultiRoomWorld/.test(agentEyes) || !/confirmTopologyConnection/.test(agentEyes)) {
+  fail('Agent Eyes must render and confirm room topology');
+}
+for (const eventName of [
+  'participant.room_exit',
+  'participant.room_enter',
+  'participant.room_transition',
+  'participant.location_uncertain',
+  'object.room_transition',
+  'portal.crossing',
+  'world.topology_changed',
+  'visibility.changed'
+]) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing V1.4 world event: ' + eventName);
+  }
+}
 for (const eventName of [
   'environment.captured',
   'environment.matched',
@@ -606,8 +689,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.3-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.3 deploy ZIP');
+if (!/tracky-v1\.4-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.4 deploy ZIP');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -637,5 +720,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
