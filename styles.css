@@ -1182,3 +1182,20 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
 @media(max-width:560px){
   .agent-signal-strip{grid-template-columns:1fr 1fr}
 }
+
+.radar-track.object{
+  width:9px;
+  height:9px;
+  border-radius:2px;
+  border-color:rgba(255,209,102,.75);
+  background:rgba(255,209,102,.3);
+  box-shadow:0 0 14px rgba(255,209,102,.22);
+}
+.radar-track.object.interacting{
+  border-color:rgba(255,159,67,.95);
+  background:rgba(255,159,67,.42);
+  box-shadow:0 0 18px rgba(255,159,67,.35);
+}
+.radar-track.object span{
+  color:var(--amber);
+}
