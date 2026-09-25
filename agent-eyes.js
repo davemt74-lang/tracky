@@ -7409,6 +7409,18 @@ ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
 ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
 ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
 ui.clearSpatialMemory.addEventListener('click', () => void clearLearnedSpatialMemory());
+ui.attentionTaskForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  startAttentionTask(parseAttentionTaskForm());
+});
+ui.clearAttentionTask.addEventListener('click', () => {
+  clearAttentionTask();
+  ui.attentionTaskMode.value = 'general';
+  ui.attentionTarget.value = '';
+  ui.attentionRoom.value = '';
+  ui.attentionDuration.value = '0';
+  ui.attentionSticky.checked = false;
+});
 ui.privacySavePolicy.addEventListener('click', () => void savePrivacyPolicyFromUi());
 ui.privacyRoomSelect.addEventListener('change', renderPrivacyPolicy);
 ui.privacyRegionForm.addEventListener('submit', (event) => void addPrivacyRegion(event));
@@ -7459,6 +7471,7 @@ await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
 await initializeSpatialMemory();
+await initializeAttentionState();
 renderAll();
 renderEventFeed();
 renderRoomState();
