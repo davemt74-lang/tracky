@@ -133,7 +133,12 @@ export function buildRoomSceneGraph(input = {}, previous = null, now = Date.now(
       position: landmark.position,
       properties: {
         detectorLabel: landmark.label,
-        stability: landmark.stability
+        stability: landmark.stability,
+        occluder: ['desk','table','couch','sofa','bookshelf','shelf','bed']
+          .includes(String(landmark.label || '').toLowerCase()),
+        occlusionRadius: ['couch','sofa','bed'].includes(String(landmark.label || '').toLowerCase())
+          ? 0.14
+          : 0.09
       },
       lastObservedAt: now,
       provenance: [{
