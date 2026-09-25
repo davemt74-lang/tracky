@@ -91,16 +91,32 @@ export function evaluatePhysicalExpectation(input={},context={},now=Date.now()){
   const condition=normalizePhysicalExpectation(input);
   if(condition.kind==='room-empty'){
     if(!condition.roomId) return {state:'unknown',summary:'Room is not resolved.',confidence:0,evidence:{roomId:null}};
-    if(context.roomObservability?.[condition.roomId]===false){
-      return {state:'unknown',summary:'Room occupancy is unavailable under the current observation policy.',confidence:0,evidence:{roomId:condition.roomId}};
-    }
     const occupants=arr(context.people).filter((person)=>(
       person.roomId===condition.roomId &&
       ['confirmed','transitioning'].includes(String(person.presence||'confirmed'))
     ));
-    return occupants.length
-      ? {state:'violated',summary:String(occupants.length)+' '+(occupants.length===1?'person remains':'people remain')+' in the room.',confidence:Math.min(...occupants.map(confidenceOf)),evidence:{roomId:condition.roomId,occupantIds:occupants.map(entityKey).filter(Boolean)}}
-      : {state:'met',summary:'The room is empty.',confidence:1,evidence:{roomId:condition.roomId,occupantIds:[]}};
+    if(occupants.length){
+      return {
+        state:'violated',
+        summary:String(occupants.length)+' '+(occupants.length===1?'person remains':'people remain')+' in the room.',
+        confidence:Math.min(...occupants.map(confidenceOf)),
+        evidence:{roomId:condition.roomId,occupantIds:occupants.map(entityKey).filter(Boolean)}
+      };
+    }
+    if(context.roomObservability?.[condition.roomId]!==true){
+      return {
+        state:'unknown',
+        summary:'The room cannot be verified empty with current privacy and camera coverage.',
+        confidence:clamp01(context.roomCoverageConfidence?.[condition.roomId]||0),
+        evidence:{roomId:condition.roomId,occupantIds:[],coverageConfidence:clamp01(context.roomCoverageConfidence?.[condition.roomId]||0)}
+      };
+    }
+    return {
+      state:'met',
+      summary:'The room is verified empty under current camera coverage.',
+      confidence:clamp01(context.roomCoverageConfidence?.[condition.roomId]??1),
+      evidence:{roomId:condition.roomId,occupantIds:[],coverageConfidence:clamp01(context.roomCoverageConfidence?.[condition.roomId]??1)}
+    };
   }
 
   const matches=matchingEntities(context,condition);
