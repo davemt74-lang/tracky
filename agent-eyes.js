@@ -624,7 +624,9 @@ window.TrackyAgentEyes = Object.freeze({
       multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
       spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
       observationPolicies: copySerializable(runtime.roomPolicies),
-      privacyStats: copySerializable(runtime.privacyStats)
+      privacyStats: copySerializable(runtime.privacyStats),
+      attentionController: attentionSnapshot(runtime.attention),
+      perceptionBudget: copySerializable(currentPerceptionBudget())
     };
   },
   getEnvironmentState() {
@@ -688,6 +690,27 @@ window.TrackyAgentEyes = Object.freeze({
   getPrivacyStats() {
     return copySerializable(runtime.privacyStats);
   },
+  getAttentionState() {
+    return attentionSnapshot(runtime.attention);
+  },
+  getActiveTask() {
+    return copySerializable(runtime.attention.activeTask);
+  },
+  getPerceptionBudget() {
+    return copySerializable(currentPerceptionBudget());
+  },
+  setTask(task = {}) {
+    return startAttentionTask(task);
+  },
+  clearTask() {
+    return clearAttentionTask();
+  },
+  resolveAttention(key) {
+    return resolveAttentionQueueItem(key, 'resolved');
+  },
+  dismissAttention(key) {
+    return resolveAttentionQueueItem(key, 'dismissed');
+  },
   getExpectedLocation(entityId) {
     return copySerializable(
       confirmedExpectedLocationFor(runtime.spatialMemory, entityId)
@@ -731,6 +754,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeSpatialMemory(listener) {
     spatialMemoryListeners.add(listener);
     return () => spatialMemoryListeners.delete(listener);
+  },
+  subscribeAttention(listener) {
+    attentionListeners.add(listener);
+    return () => attentionListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
