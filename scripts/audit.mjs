@@ -58,6 +58,8 @@ const requiredFiles = [
   'src/world-query-store.js',
   'src/world-query-core.js',
   'src/agent-context-core.js',
+  'src/world-watch-core.js',
+  'src/world-watch-store.js',
   'src/anomaly-core.js'
 ];
 
@@ -131,8 +133,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '2.0.0') {
-  fail('package.json version must be 2.0.0');
+if (packageJson.version !== '2.1.0') {
+  fail('package.json version must be 2.1.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -184,7 +186,9 @@ for (const file of [
   'src/anomaly-store.js',
   'src/world-query-core.js',
   'src/world-query-store.js',
-  'src/agent-context-core.js'
+  'src/agent-context-core.js',
+  'src/world-watch-core.js',
+  'src/world-watch-store.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -756,6 +760,42 @@ for (const boundary of [
   }
 }
 
+const worldWatchCore = read('src/world-watch-core.js');
+for (const symbol of [
+  'WORLD_WATCH_SCHEMA_VERSION',
+  'WORLD_WATCH_TYPES',
+  'normalizeWorldWatch',
+  'evaluateWorldWatch',
+  'evaluateWorldWatches'
+]) {
+  if (!worldWatchCore.includes(symbol)) {
+    fail('World watch core is missing required V2.1 interface: ' + symbol);
+  }
+}
+for (const boundary of [
+  'semantic-context-only',
+  'privacy-governed-context',
+  'no-autonomous-physical-control'
+]) {
+  if (!worldWatchCore.includes(boundary)) {
+    fail('World watch core is missing authority boundary: ' + boundary);
+  }
+}
+
+const worldWatchStore = read('src/world-watch-store.js');
+for (const symbol of [
+  'saveWorldWatch',
+  'listWorldWatches',
+  'deleteWorldWatch',
+  'saveWorldWatchTrigger',
+  'listWorldWatchHistory',
+  'clearWorldWatchHistory'
+]) {
+  if (!worldWatchStore.includes(symbol)) {
+    fail('World watch store is missing required V2.1 persistence interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -804,6 +844,26 @@ for (const symbol of [
 }
 if (!/tracky:agent-context/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level V2.0 Agent context deltas');
+}
+
+for (const symbol of [
+  'addWorldWatch',
+  'removeWorldWatch',
+  'getWorldWatches',
+  'getWorldWatchHistory',
+  'clearWorldWatchHistory',
+  'subscribeWorldWatches'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V2.1 physical-world watch API: ' + symbol);
+  }
+}
+if (!/tracky:world-watch/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level V2.1 world-watch triggers');
+}
+if (!/from ['"]\.\/src\/world-watch-core\.js['"]/.test(agentEyes) ||
+    !/from ['"]\.\/src\/world-watch-store\.js['"]/.test(agentEyes)) {
+  fail('Agent Eyes must explicitly import the V2.1 world-watch runtime dependencies');
 }
 if (!/from ['"]\.\/src\/world-query-core\.js['"]/.test(agentEyes) ||
     !/from ['"]\.\/src\/world-query-store\.js['"]/.test(agentEyes)) {
@@ -1165,8 +1225,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v2\.0-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V2.0 deploy ZIP');
+if (!/tracky-v2\.1-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V2.1 deploy ZIP');
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
   fail('CI V1.9 deploy package must include attention core and store');
@@ -1176,6 +1236,9 @@ if (!workflow.includes('src/anomaly-core.js') || !workflow.includes('src/anomaly
 }
 if (!workflow.includes('src/agent-context-core.js')) {
   fail('CI V2.0 deploy package must include Agent context core');
+}
+if (!workflow.includes('src/world-watch-core.js') || !workflow.includes('src/world-watch-store.js')) {
+  fail('CI V2.1 deploy package must include world-watch core and store');
 }
 if (!workflow.includes('src/privacy-policy-core.js')) {
   fail('CI V1.9 deploy package must include privacy policy core');
