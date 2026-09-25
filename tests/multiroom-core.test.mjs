@@ -90,3 +90,28 @@ test('multi-room snapshot carries room-scoped conversations',()=>{
   },1000);
   assert.equal(multiRoomSnapshot(state).conversations['ROOM01:G01'].roomId,'ROOM01');
 });
+
+
+test('cross-room object alias persists canonical identity on later scans',()=>{
+  const state=createMultiRoomWorld();
+  state.transitions.push({
+    id:'PT1',type:'participant.room_transition',participantId:'p1',
+    fromRoomId:'ROOM01',toRoomId:'ROOM02',confidence:.9,timestamp:4000
+  });
+  state.objects.WO1={
+    id:'WO1',label:'phone',roomId:'ROOM01',lastKnownRoomId:'ROOM01',
+    holderParticipantId:'p1',confidence:.8,lastObservedAt:3000,firstObservedAt:1000
+  };
+  const room2={ROOM02:{objects:[{
+    id:'WO7',label:'phone',confidence:.88,roomPosition:{x:.4,y:.4},
+    cameraIds:['CAM02'],status:'visible'
+  }]}};
+  const custody={'ROOM02:WO7':{participantId:'p1'}};
+
+  reconcileObjectLocations(state,room2,{topology,custodyByLocalObjectId:custody},4500);
+  reconcileObjectLocations(state,room2,{topology,custodyByLocalObjectId:custody},5000);
+
+  assert.equal(state.objectAliases['ROOM02:WO7'],'WO1');
+  assert.equal(state.objects.WO1.roomId,'ROOM02');
+  assert.equal(state.objects.WO7,undefined);
+});
