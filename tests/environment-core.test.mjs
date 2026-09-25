@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ENVIRONMENT_MATCH,
   baselineQuality,
+  canonicalLandmarkLabel,
   compareEnvironment,
   environmentDrift,
   estimateCameraPoseDrift,
@@ -96,4 +97,10 @@ test('coherent landmark displacement identifies likely camera shift',()=>{
   ]);
   assert.equal(pose.likelyCameraShift,true);
   assert.ok(pose.consistency>.8);
+});
+
+
+test('detector-specific labels canonicalize before scene graph use',()=>{
+  assert.equal(canonicalLandmarkLabel('dining table'),'table');
+  assert.equal(canonicalLandmarkLabel('cell phone'),'phone');
 });
