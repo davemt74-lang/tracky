@@ -5,6 +5,7 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'participant.left',
   'participant.reacquired',
   'face.visible',
+  'face.hidden',
   'face.capture_ready',
   'face.matched',
   'body.locked',
@@ -14,6 +15,7 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'voice.activity_stopped',
   'voice.matched',
   'conversation.started',
+  'conversation.ended',
   'conversation.participant_joined',
   'conversation.participant_left',
   'transcript.turn',
@@ -77,6 +79,7 @@ export class PerceptionEventBus {
 
 export function createRoomState(roomId = 'default-room') {
   return {
+    schemaVersion: 1,
     roomId,
     status: 'standby',
     updatedAt: Date.now(),
@@ -214,6 +217,11 @@ export function applyPerceptionEvent(state, event) {
       if (unknown) unknown.faceVisible = true;
       break;
 
+    case 'face.hidden':
+      if (participant) participant.faceVisible = false;
+      if (unknown) unknown.faceVisible = false;
+      break;
+
     case 'face.matched':
       if (participant) {
         participant.faceVisible = true;
@@ -274,6 +282,18 @@ export function applyPerceptionEvent(state, event) {
           startedAt: event.timestamp,
           updatedAt: event.timestamp
         };
+      }
+      break;
+
+    case 'conversation.ended':
+      if (event.conversationGroup) {
+        delete state.conversationGroups[event.conversationGroup];
+      }
+      for (const entity of Object.values(state.participants)) {
+        if (entity.conversationGroup === event.conversationGroup) entity.conversationGroup = null;
+      }
+      for (const entity of Object.values(state.unknownTracks)) {
+        if (entity.conversationGroup === event.conversationGroup) entity.conversationGroup = null;
       }
       break;
 
@@ -338,6 +358,7 @@ export function applyPerceptionEvent(state, event) {
 
 export function roomStateSnapshot(state) {
   return {
+    schemaVersion: state.schemaVersion || 1,
     roomId: state.roomId,
     status: state.status,
     updatedAt: state.updatedAt,
