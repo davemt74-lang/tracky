@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.7 — Agent Eyes</title>
+  <title>Tracky V1.8 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.7 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.8 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -41,6 +41,7 @@
     <div><span>SPATIAL MEMORY</span><b id="eyesSpatialMemoryStatus">Learning</b></div>
     <div><span>PRIVACY</span><b id="eyesPrivacyStatus">Policy ready</b></div>
     <div><span>TASK / ATTENTION</span><b id="eyesTaskStatus">General awareness</b></div>
+    <div><span>PROACTIVE</span><b id="eyesAnomalyStatus">Quiet</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -471,6 +472,47 @@
 
       <div id="attentionQueueList" class="attention-queue-list">
         <div class="agent-empty">No task-conditioned attention items.</div>
+      </div>
+    </article>
+  </section>
+
+  <section class="proactive-awareness-grid">
+    <article class="hud-panel proactive-active-panel">
+      <div class="hud-panel-head">
+        <div><small>PROACTIVE ENVIRONMENTAL AWARENESS</small><h2>Persistent anomalies</h2></div>
+        <span id="proactiveStatus" class="status-chip">Quiet</span>
+      </div>
+
+      <div class="proactive-summary">
+        <div><span>ACTIVE</span><b id="proactiveActiveCount">0</b></div>
+        <div><span>CRITICAL</span><b id="proactiveCriticalCount">0</b></div>
+        <div><span>HIGH</span><b id="proactiveHighCount">0</b></div>
+        <div><span>MEDIUM</span><b id="proactiveMediumCount">0</b></div>
+      </div>
+
+      <div id="proactiveActiveList" class="proactive-anomaly-list">
+        <div class="agent-empty">No persistent physical-world anomalies.</div>
+      </div>
+      <p class="privacy-note">Anomalies require persistence/evidence thresholds. A single frame, ordinary movement, or an unconfirmed learned expectation does not become a proactive alert.</p>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>EVIDENCE ACCUMULATING</small><h2>Verification candidates</h2></div>
+        <span id="proactiveCandidateStatus" class="status-chip">0 verifying</span>
+      </div>
+      <div id="proactiveCandidateList" class="proactive-candidate-list">
+        <div class="agent-empty">No anomaly candidates are currently being verified.</div>
+      </div>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>RECENT OUTCOMES</small><h2>Awareness history</h2></div>
+        <span id="proactiveHistoryStatus" class="status-chip">No history</span>
+      </div>
+      <div id="proactiveHistoryList" class="proactive-history-list">
+        <div class="agent-empty">Cleared and dismissed anomalies will appear here.</div>
       </div>
     </article>
   </section>
