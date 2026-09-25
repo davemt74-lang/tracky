@@ -39,7 +39,8 @@ const requiredFiles = [
   'src/camera-core.js',
   'src/camera-store.js',
   'src/fusion-core.js',
-  'src/multicamera-runtime.js'
+  'src/multicamera-runtime.js',
+  'src/environment-core.js'
 ];
 
 const runtimeJs = [
@@ -68,7 +69,8 @@ const runtimeJs = [
   'src/camera-core.js',
   'src/camera-store.js',
   'src/fusion-core.js',
-  'src/multicamera-runtime.js'
+  'src/multicamera-runtime.js',
+  'src/environment-runtime.js'
 ];
 
 const htmlContracts = [
@@ -94,8 +96,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.2.0') {
-  fail('package.json version must be 1.2.0');
+if (packageJson.version !== '1.3.0') {
+  fail('package.json version must be 1.3.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -128,7 +130,13 @@ for (const file of [
   'src/camera-core.js',
   'src/camera-store.js',
   'src/fusion-core.js',
-  'src/multicamera-runtime.js'
+  'src/multicamera-runtime.js',
+  'src/environment-core.js',
+  'src/environment-runtime.js',
+  'src/environment-store.js',
+  'src/scene-graph-core.js',
+  'src/world-state-core.js',
+  'src/perception-replay-core.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -365,6 +373,85 @@ if (!/presenceAnnounced/.test(multiCameraRuntime)) {
   fail('Secondary camera runtime must stabilize body presence before fusion');
 }
 
+const environmentCore = read('src/environment-core.js');
+for (const symbol of [
+  'fingerprintImageData',
+  'baselineQuality',
+  'matchEnvironment',
+  'environmentDrift',
+  'suggestRoomMapping',
+  'estimateCameraPoseDrift',
+  'canonicalLandmarkLabel'
+]) {
+  if (!environmentCore.includes(symbol)) {
+    fail('Environment core is missing required baseline/mapping interface: ' + symbol);
+  }
+}
+
+const environmentRuntime = read('src/environment-runtime.js');
+for (const symbol of [
+  'captureBestEnvironmentFrame',
+  'buildEnvironmentObservation',
+  'analyzeEnvironmentObservation',
+  'assistedMappingFromObservation',
+  'environmentProviderContract'
+]) {
+  if (!environmentRuntime.includes(symbol)) {
+    fail('Environment runtime is missing required capture/matching interface: ' + symbol);
+  }
+}
+
+const environmentStore = read('src/environment-store.js');
+for (const symbol of [
+  'listEnvironmentRooms',
+  'saveEnvironmentRoom',
+  'saveEnvironmentView',
+  'saveEnvironmentHistory',
+  'defaultEnvironmentPolicy'
+]) {
+  if (!environmentStore.includes(symbol)) {
+    fail('Environment store is missing required persistence/privacy interface: ' + symbol);
+  }
+}
+
+const sceneGraphCore = read('src/scene-graph-core.js');
+for (const symbol of [
+  'buildRoomSceneGraph',
+  'confirmGraphNode',
+  'confirmGraphEdge',
+  'nearestGraphNode',
+  'graphFactsForEntity',
+  'sceneGraphSnapshot'
+]) {
+  if (!sceneGraphCore.includes(symbol)) {
+    fail('Scene graph core is missing required physical-world interface: ' + symbol);
+  }
+}
+
+const worldStateCore = read('src/world-state-core.js');
+for (const symbol of [
+  'derivePhysicalWorldState',
+  'evidenceQuorum',
+  'detectContradictions',
+  'rankWorldAttention',
+  'worldStateSnapshot'
+]) {
+  if (!worldStateCore.includes(symbol)) {
+    fail('World state core is missing required confidence/attention interface: ' + symbol);
+  }
+}
+
+const replayCore = read('src/perception-replay-core.js');
+for (const symbol of [
+  'appendReplayFrame',
+  'replayFrames',
+  'simulateEnvironmentScenario'
+]) {
+  if (!replayCore.includes(symbol)) {
+    fail('Perception replay core is missing required regression interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -433,6 +520,44 @@ if (!/worldMap/.test(indexHtml) || !/renderWorldMap/.test(agentEyes)) {
 if (!/worldMapVectors/.test(indexHtml) || !/updateWorldTrails/.test(agentEyes)) {
   fail('Agent Eyes must expose fused participant trails');
 }
+if (!/environmentPrimaryImage/.test(indexHtml) || !/environmentCurrentImage/.test(indexHtml)) {
+  fail('Agent Eyes must expose Primary and Current Environment reference images');
+}
+if (!/capturePrimaryEnvironment/.test(indexHtml) || !/scanEnvironment/.test(indexHtml)) {
+  fail('Agent Eyes must expose explicit environment capture and assisted mapping controls');
+}
+if (!/physicalWorldJson/.test(indexHtml) || !/physicalAttentionFeed/.test(indexHtml)) {
+  fail('Agent Eyes must expose Physical World State and attention evidence');
+}
+for (const symbol of [
+  'getEnvironmentState',
+  'getSceneGraph',
+  'getPhysicalWorldState',
+  'subscribeWorld',
+  'teachPhysicalEntity',
+  'teachPhysicalRelationship',
+  'teachAtPoint',
+  'getPhysicalFacts'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing physical-world Agent API: ' + symbol);
+  }
+}
+if (!/tracky:world-state/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level physical world state');
+}
+for (const eventName of [
+  'environment.captured',
+  'environment.matched',
+  'environment.unknown',
+  'environment.changed',
+  'environment.mapping_updated',
+  'world.attention'
+]) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing environment/world event: ' + eventName);
+  }
+}
 for (const eventName of ['camera.status','camera.handoff','camera.overlap_fused']) {
   if (!perceptionCore.includes(eventName)) {
     fail('Perception core is missing camera event: ' + eventName);
@@ -471,8 +596,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.2-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.2 deploy ZIP');
+if (!/tracky-v1\.3-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.3 deploy ZIP');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -502,5 +627,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera interfaces, temporal memory, multi-camera fusion, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
