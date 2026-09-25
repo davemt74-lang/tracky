@@ -158,3 +158,63 @@ test('replaceSceneZones resets pending zone transitions', () => {
   assert.equal(zones.length,1);
   assert.deepEqual(state.pending.zones,{});
 });
+
+
+test('recognizing an unknown track migrates scene identity without false leave-enter', () => {
+  const state=createSceneState('room');
+  const unknown={
+    id:null,name:'T001',trackId:'T001',presence:'active',
+    position:{x:0.4,y:0.5},behavior:{motion:'stationary'}
+  };
+
+  updateSceneState(state,baseSnapshot({participants:[unknown]}),1000,{
+    activityCommitMs:999999,zoneCommitMs:999999
+  });
+  const before=state.changes.length;
+
+  const recognized={
+    ...unknown,
+    id:'p1',
+    name:'Dave'
+  };
+  const changes=updateSceneState(state,baseSnapshot({participants:[recognized]}),1500,{
+    activityCommitMs:999999,zoneCommitMs:999999
+  });
+
+  assert.equal(changes.some((change)=>change.type==='presence.left'),false);
+  assert.equal(changes.some((change)=>change.type==='presence.entered'),false);
+  assert.equal(state.participants.T001,undefined);
+  assert.equal(state.participants.p1.name,'Dave');
+  assert.equal(state.changes.length,before);
+});
+
+test('holding interaction creates pickup change and removal creates put-down change', () => {
+  const state=createSceneState('room');
+  const participant={
+    id:'p1',name:'Dave',trackId:'T001',presence:'active',
+    position:{x:0.4,y:0.5},behavior:{motion:'stationary'}
+  };
+  const object={id:'O1',label:'phone',score:0.9,position:{x:0.42,y:0.52}};
+
+  updateSceneState(state,baseSnapshot({participants:[participant],objects:[object]}),1000,{
+    activityCommitMs:999999,zoneCommitMs:999999
+  });
+
+  let changes=updateSceneState(state,baseSnapshot({
+    participants:[participant],
+    objects:[object],
+    interactions:[{
+      id:'holding:T001:O1',type:'holding',
+      participantId:'p1',participantName:'Dave',trackId:'T001',
+      objectId:'O1',objectLabel:'phone',confidence:0.91
+    }]
+  }),2000,{activityCommitMs:999999,zoneCommitMs:999999});
+  assert.equal(changes.some((change)=>change.type==='object.picked_up'),true);
+
+  changes=updateSceneState(state,baseSnapshot({
+    participants:[participant],
+    objects:[object],
+    interactions:[]
+  }),3000,{activityCommitMs:999999,zoneCommitMs:999999});
+  assert.equal(changes.some((change)=>change.type==='object.put_down'),true);
+});
