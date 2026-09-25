@@ -2,6 +2,169 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.2 — Room Mapping & Multi-Camera Fusion
+
+V1.2 turns individual camera views into calibrated sensors inside a shared room coordinate system.
+
+### Persistent camera registry
+
+Agent Eyes now keeps a local camera registry with:
+
+- camera ID such as `CAM01`, `CAM02`
+- browser device ID
+- display name
+- explicit room ID
+- enabled/disabled state
+- main vs secondary role
+- four camera source corners
+- four mapped room corners
+
+Camera configuration is stored locally in IndexedDB.
+
+The active main camera is automatically registered when Agent Eyes starts. Additional configured cameras in the same room can run as secondary perception sensors.
+
+### Four-point room calibration
+
+Each camera maps its normalized image coordinates into normalized shared-room coordinates using a homography.
+
+Quick setup can assign a rectangular coverage area with X/Y/width/height. The Camera Calibration Inspector exposes all four room corners:
+
+- top-left
+- top-right
+- bottom-right
+- bottom-left
+
+This supports perspective-aware quadrilateral coverage instead of assuming every camera is square to the room.
+
+Invalid/degenerate calibration polygons are rejected.
+
+### Shared inference runtime
+
+The main and secondary cameras use the same pinned Human perception engine.
+
+Model inference is serialized across camera feeds so multiple streams do not concurrently mutate the same model runtime.
+
+Secondary sensors maintain their own:
+
+- local body Track IDs
+- face/body association
+- enrolled face identity
+- body continuity
+- pose/behavior evidence
+- persistent local object IDs
+
+Secondary body tracks must stabilize before they enter world fusion.
+
+### Cross-camera participant fusion
+
+Per-camera observations are transformed into room coordinates and then fused.
+
+For enrolled participants:
+
+- enrolled face identity remains the authority
+- all simultaneous observations for the same participant are combined
+- the highest-quality view becomes the primary camera
+- face confidence, body confidence, pose confidence, and continuity contribute to camera arbitration
+- overlapping views reinforce the same world participant instead of creating duplicates
+
+If two cameras identify the same enrolled participant but their calibrated room positions strongly disagree, Tracky does **not** average the conflict. It trusts the stronger view for location and flags the conflicting camera calibration.
+
+### Camera handoff
+
+A known participant can move from one camera to another while retaining the same world participant identity.
+
+Example:
+
+`CAM01 / Dave → overlap → CAM02 / Dave`
+
+Tracky emits:
+
+- `camera.overlap_fused`
+- `camera.handoff`
+
+and preserves the participant's world trail and Scene Intelligence continuity.
+
+A face/Voice Profile remains the identity authority. An unknown body appearing on another camera is not promoted to Dave merely because the trajectory looks plausible.
+
+### Anonymous overlap
+
+When two calibrated cameras simultaneously see an unknown body at nearly the same room position, those observations may be deduplicated into one temporary anonymous world entity.
+
+The result is explicitly labeled:
+
+`anonymous-spatial-overlap`
+
+This is duplicate suppression, **not personal identification**.
+
+If the authoritative simultaneous overlap disappears, geometry alone cannot carry a known identity through a camera handoff.
+
+### Cross-camera object continuity
+
+Objects use:
+
+- detector label
+- calibrated room position
+- camera overlap
+- prior world position
+
+to maintain a room-level world object ID such as `WO001`.
+
+Multiple cameras can reinforce the same object. A phone can leave CAM01 and appear in CAM02 while retaining its world object ID when label and spatial continuity are strong enough.
+
+Two same-label objects from the same camera are never merged merely because they are close together.
+
+### Fused World Map
+
+Agent Eyes now includes a room-level world map with:
+
+- camera coverage polygons
+- online/offline camera state
+- main-camera coverage
+- known participants
+- anonymous participants
+- persistent world objects
+- overlap indicators
+- last-known states
+- calibration-conflict warning state
+- short participant movement trails
+- live conversation links
+
+The original Room Radar remains useful for inspecting the main camera's local tracks. The World Map represents the fused room coordinate system.
+
+### Current World State
+
+`getWorldState()` now returns three independent layers:
+
+```js
+{
+  room,         // current main-camera perception state
+  scene,        // temporal semantic memory
+  cameraFusion  // fused multi-camera room state
+}
+```
+
+Additional Agent interfaces:
+
+```js
+window.TrackyAgentEyes.getCameraFusionState()
+window.TrackyAgentEyes.getCameras()
+window.TrackyAgentEyes.subscribeCameraFusion(handler)
+```
+
+Every fusion update is also dispatched as:
+
+```js
+tracky:camera-fusion
+```
+
+### Room IDs and multi-room groundwork
+
+Each camera belongs to an explicit room ID.
+
+V1.2 fuses only cameras assigned to the active main camera's room. Cameras assigned to another room remain registered but are not mixed into the active coordinate system.
+
+This establishes the boundary needed for later room-to-room transitions and multiple simultaneous room models without pretending unrelated room coordinates are directly comparable.
+
 ## V1.1 — Scene Intelligence & Temporal Memory
 
 V1.1 turns Agent Eyes from a live perception surface into a temporal scene model that can answer **what changed?** and preserve meaningful room context over time.
