@@ -1010,6 +1010,115 @@ function resizeOverlay() {
   if (ui.overlay.height !== height) ui.overlay.height = height;
 }
 
+
+function canvasPoint(point, width, height) {
+  return {
+    x: (1 - Number(point.x || 0)) * width,
+    y: Number(point.y || 0) * height
+  };
+}
+
+function drawPoseSkeleton(track, width, height, selected = false) {
+  if (!ui.poseOverlay.checked || !track.keypoints?.length) return;
+
+  const points = keypointMap(track.keypoints);
+  const color = track.participantId ? '#5cff9d' : '#4ee8ff';
+
+  overlayCtx.save();
+  overlayCtx.strokeStyle = color;
+  overlayCtx.fillStyle = color;
+  overlayCtx.lineWidth = selected
+    ? Math.max(3, width / 500)
+    : Math.max(1.5, width / 800);
+  overlayCtx.globalAlpha = selected ? 0.95 : 0.7;
+
+  for (const [aName, bName] of POSE_CONNECTIONS) {
+    const a = points.get(aName);
+    const b = points.get(bName);
+    if (!a || !b) continue;
+    const pa = canvasPoint(a, width, height);
+    const pb = canvasPoint(b, width, height);
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(pa.x, pa.y);
+    overlayCtx.lineTo(pb.x, pb.y);
+    overlayCtx.stroke();
+  }
+
+  for (const point of points.values()) {
+    const p = canvasPoint(point, width, height);
+    overlayCtx.beginPath();
+    overlayCtx.arc(
+      p.x,
+      p.y,
+      selected ? Math.max(3, width / 320) : Math.max(2, width / 500),
+      0,
+      Math.PI * 2
+    );
+    overlayCtx.fill();
+  }
+
+  overlayCtx.restore();
+}
+
+function drawAttentionRay(track, width, height) {
+  if (!ui.attentionOverlay.checked) return;
+  const attention = track.behaviorEvidence?.attention;
+  if (!attention || Number(attention.confidence || 0) < 0.32) return;
+
+  const points = keypointMap(track.keypoints || []);
+  const head = points.get('nose') || points.get('leftEye') || points.get('rightEye');
+  const start = head
+    ? canvasPoint(head, width, height)
+    : {
+        x: (1 - Number(track.cx || 0.5)) * width,
+        y: Number(track.box?.y || track.cy || 0.5) * height
+      };
+
+  let end = null;
+  if (attention.targetTrackId) {
+    const target = runtime.tracks.find(
+      (candidate) => candidate.id === attention.targetTrackId
+    );
+    if (target) {
+      end = {
+        x: (1 - Number(target.cx || 0.5)) * width,
+        y: Number(target.cy || 0.5) * height
+      };
+    }
+  } else if (attention.targetType === 'camera') {
+    end = {
+      x: start.x,
+      y: Math.max(10, start.y - Math.max(35, height * 0.11))
+    };
+  } else {
+    const direction = track.behaviorEvidence?.orientation?.horizontal === 'left'
+      ? 1
+      : -1;
+    end = {
+      x: start.x + direction * Math.max(45, width * 0.10),
+      y: start.y
+    };
+  }
+
+  if (!end) return;
+
+  overlayCtx.save();
+  overlayCtx.strokeStyle = '#ffd166';
+  overlayCtx.fillStyle = '#ffd166';
+  overlayCtx.lineWidth = Math.max(1.5, width / 850);
+  overlayCtx.setLineDash([8, 6]);
+  overlayCtx.globalAlpha = 0.82;
+  overlayCtx.beginPath();
+  overlayCtx.moveTo(start.x, start.y);
+  overlayCtx.lineTo(end.x, end.y);
+  overlayCtx.stroke();
+  overlayCtx.setLineDash([]);
+  overlayCtx.beginPath();
+  overlayCtx.arc(end.x, end.y, Math.max(3, width / 360), 0, Math.PI * 2);
+  overlayCtx.fill();
+  overlayCtx.restore();
+}
+
 function drawOverlay() {
   resizeOverlay();
   const width = ui.overlay.width;
@@ -1051,6 +1160,10 @@ function drawOverlay() {
       x + 8,
       Math.max(16, y - labelHeight + labelHeight * 0.7)
     );
+
+    const selected = runtime.selectedTrackId === track.id;
+    drawPoseSkeleton(track, width, height, selected);
+    drawAttentionRay(track, width, height);
 
     if (track.face?.box) {
       const face = track.face.box;
