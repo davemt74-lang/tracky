@@ -221,6 +221,7 @@ import {
 import {
   acknowledgeAgentBriefing,
   buildAgentBriefing,
+  buildPhysicalGoalBriefing,
   pendingAgentBriefings
 } from './src/agent-briefing-core.js';
 import {
@@ -241,6 +242,22 @@ import {
   readyBriefings,
   reevaluateBriefingQueue
 } from './src/briefing-queue-core.js';
+import {
+  evaluatePhysicalGoal,
+  evaluatePhysicalGoals,
+  normalizePhysicalGoal
+} from './src/physical-goal-core.js';
+import {
+  clearPhysicalGoalEvents,
+  deletePhysicalGoal,
+  listPhysicalGoalEvents,
+  listPhysicalGoals,
+  savePhysicalGoal,
+  savePhysicalGoalEvent
+} from './src/physical-goal-store.js';
+import {
+  interpretPhysicalGoalCommand
+} from './src/physical-goal-language-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -543,6 +560,7 @@ const agentContextListeners = new Set();
 const worldWatchListeners = new Set();
 const agentBriefingListeners = new Set();
 const agentDeliveryListeners = new Set();
+const physicalGoalListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -645,7 +663,9 @@ const runtime = {
   worldWatches: [],
   worldWatchHistory: [],
   agentBriefings: [],
-  agentDeliveryContext: normalizeDeliveryContext({}, Date.now())
+  agentDeliveryContext: normalizeDeliveryContext({}, Date.now()),
+  physicalGoals: [],
+  physicalGoalHistory: []
 };
 
 const SCAN_INTERVAL_MS = 550;
