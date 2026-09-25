@@ -90,7 +90,7 @@ export class PerceptionEventBus {
 
 export function createRoomState(roomId = 'default-room') {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     roomId,
     status: 'standby',
     updatedAt: Date.now(),
@@ -106,6 +106,8 @@ export function createRoomState(roomId = 'default-room') {
       camera: 'offline',
       microphone: 'offline',
       identity: 'standby',
+      objects: 'standby',
+      hands: 'standby',
       voice: 'standby',
       transcription: 'standby'
     },
@@ -504,7 +506,7 @@ export function applyPerceptionEvent(state, event) {
 
 export function roomStateSnapshot(state) {
   return {
-    schemaVersion: state.schemaVersion || 1,
+    schemaVersion: state.schemaVersion || 2,
     roomId: state.roomId,
     status: state.status,
     updatedAt: state.updatedAt,
