@@ -35,19 +35,26 @@ export function normalizeCameraConfig(camera = {}, index = 0) {
   };
 }
 
+function finiteOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 export function normalizePoints(points) {
   const fallback = unitCorners();
   return fallback.map((point, index) => ({
-    x: clamp01(Number(points?.[index]?.x ?? point.x)),
-    y: clamp01(Number(points?.[index]?.y ?? point.y))
+    x: clamp01(finiteOr(points?.[index]?.x, point.x)),
+    y: clamp01(finiteOr(points?.[index]?.y, point.y))
   }));
 }
 
 export function rectangleRoomPoints(x = 0, y = 0, width = 1, height = 1) {
-  const left = clamp01(Number(x));
-  const top = clamp01(Number(y));
-  const right = clamp01(left + Math.max(0.02, Number(width)));
-  const bottom = clamp01(top + Math.max(0.02, Number(height)));
+  const left = clamp01(finiteOr(x, 0));
+  const top = clamp01(finiteOr(y, 0));
+  const safeWidth = Math.max(0.02, finiteOr(width, 1));
+  const safeHeight = Math.max(0.02, finiteOr(height, 1));
+  const right = clamp01(left + safeWidth);
+  const bottom = clamp01(top + safeHeight);
 
   return [
     { x: left, y: top },
