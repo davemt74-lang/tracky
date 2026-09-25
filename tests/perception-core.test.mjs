@@ -234,3 +234,96 @@ test('behavior attention and gesture events update participant state', () => {
   assert.equal(state.participants.p1.attention.targetName,'Sarah');
   assert.equal(state.participants.p1.lastGesture.type,'left-hand-raised');
 });
+
+
+test('object events populate room objects without flooding recent semantic events', () => {
+  const state = createRoomState();
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'object.detected',
+    {
+      confidence:0.91,
+      roomPosition:{x:0.4,y:0.5},
+      data:{objectId:'O001',label:'cup',status:'tracked'}
+    },
+    { timestamp:1 }
+  ));
+
+  const before = state.recentEvents.length;
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'object.updated',
+    {
+      confidence:0.92,
+      roomPosition:{x:0.42,y:0.5},
+      data:{objectId:'O001',label:'cup',status:'tracked'}
+    },
+    { timestamp:2 }
+  ));
+
+  assert.equal(state.objects.O001.label,'cup');
+  assert.equal(state.objects.O001.position.x,0.42);
+  assert.equal(state.recentEvents.length,before);
+});
+
+test('picked up and put down update object holder state', () => {
+  const state = createRoomState();
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'object.detected',
+    { data:{objectId:'O001',label:'cell phone'} },
+    { timestamp:1 }
+  ));
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'object.picked_up',
+    {
+      participantId:'p1',
+      participantName:'Dave',
+      trackId:'T001',
+      data:{objectId:'O001',label:'cell phone'}
+    },
+    { timestamp:2 }
+  ));
+  assert.equal(state.objects.O001.holderParticipantId,'p1');
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'object.put_down',
+    {
+      participantId:'p1',
+      trackId:'T001',
+      data:{objectId:'O001',label:'cell phone'}
+    },
+    { timestamp:3 }
+  ));
+  assert.equal(state.objects.O001.holderParticipantId,null);
+});
+
+test('interaction lifecycle is represented in room snapshot', () => {
+  const state = createRoomState();
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'interaction.started',
+    {
+      participantId:'p1',
+      participantName:'Dave',
+      trackId:'T001',
+      confidence:0.8,
+      data:{
+        interactionId:'pointing-at:T001:O001',
+        type:'pointing-at',
+        objectId:'O001',
+        objectLabel:'laptop'
+      }
+    },
+    { timestamp:1 }
+  ));
+  assert.equal(roomStateSnapshot(state).interactions.length,1);
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'interaction.ended',
+    {
+      participantId:'p1',
+      trackId:'T001',
+      data:{interactionId:'pointing-at:T001:O001'}
+    },
+    { timestamp:2 }
+  ));
+  assert.equal(roomStateSnapshot(state).interactions.length,0);
+});
