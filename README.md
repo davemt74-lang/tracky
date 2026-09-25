@@ -2,6 +2,165 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.1 — Scene Intelligence & Temporal Memory
+
+V1.1 turns Agent Eyes from a live perception surface into a temporal scene model that can answer **what changed?** and preserve meaningful room context over time.
+
+### Separate temporal layer
+
+Current Room State still represents what is visible/active now. Scene Intelligence is a separate higher-level reducer that consumes stable room snapshots and produces:
+
+- semantic scene changes
+- persistent participant activities
+- completed activity/conversation episodes
+- named-zone transitions
+- object permanence / last-known position
+- meaningful object movement
+- a change-only Agent feed
+
+Raw camera frames, body landmarks, object-position refreshes, and other high-frequency sensor telemetry are not written into scene memory.
+
+### Current World State
+
+The Agent browser API now exposes both layers:
+
+```js
+window.TrackyAgentEyes.getState()       // current room perception
+window.TrackyAgentEyes.getSceneState()  // temporal scene memory
+window.TrackyAgentEyes.getWorldState()  // both together
+window.TrackyAgentEyes.getChanges()
+window.TrackyAgentEyes.getEpisodes()
+window.TrackyAgentEyes.subscribeScene(handler)
+```
+
+Every semantic scene change is also dispatched as:
+
+```js
+window.addEventListener('tracky:scene-change', event => {
+  console.log(event.detail)
+})
+```
+
+### Named room zones
+
+Agent Eyes can define persistent normalized rectangular zones such as:
+
+- Desk
+- Doorway
+- Couch
+- Workstation
+- Kitchen
+
+Zones are stored locally and shown on both the room radar and camera overlay. When multiple zones overlap, the smallest matching zone is treated as the most specific location.
+
+Zone changes require dwell time before they become semantic events so boundary jitter does not create repeated transitions.
+
+### Stable activities
+
+Participant activity is consolidated from existing perception signals.
+
+Current activity precedence includes:
+
+1. holding an object
+2. pointing at an object
+3. active conversation membership
+4. moving through the room
+5. seated
+6. stationary
+7. present
+
+Activity changes are debounced before they open or close temporal episodes.
+
+Examples:
+
+- `Dave is now holding phone`
+- `Sarah is now in conversation G01`
+- `Dave stopped moving through room`
+- `T004 is now seated`
+
+### Episodes
+
+Stable activities and conversations become episodes with:
+
+- participant / Track ID
+- object when relevant
+- conversation group
+- named zone
+- start time
+- end time
+- duration
+- confidence
+- source evidence
+
+Active episodes remain in memory while they are occurring. Completed episodes are persisted locally with bounded retention.
+
+### Object permanence
+
+Objects no longer disappear semantically just because the detector cannot currently see them.
+
+Scene memory preserves:
+
+- persistent object ID
+- label
+- last known position
+- last seen timestamp
+- current/previous holder
+- visible vs last-known status
+
+A missing object becomes `last-known` and remains available to the scene model for a bounded memory window.
+
+Meaningful object displacement generates a semantic `object.moved` change; tiny detector movement does not.
+
+### Identity continuity
+
+When an unknown persistent body track later becomes an enrolled participant, the temporal entity is migrated rather than split.
+
+Tracky therefore avoids false sequences such as:
+
+`T001 left → Dave entered`
+
+when the actual event was simply:
+
+`T001 recognized as Dave`
+
+Pending zone/activity state and an active activity episode migrate to the recognized participant identity.
+
+### Change-only Agent feed
+
+The V1.1 **What changed?** panel contains only temporal semantic changes such as:
+
+- participant entered/left scene
+- location changed
+- activity started/ended
+- conversation started/ended
+- object appeared/moved/became last-known/returned
+- object picked up/put down
+
+This is the layer intended for eventual Agent Brain ingestion.
+
+### Scene Evidence Inspector
+
+Every change and episode can be opened in the Scene Evidence Inspector to see:
+
+- change/episode type
+- confidence
+- participant
+- object
+- named zone
+- duration
+- semantic summary
+- exact evidence
+- raw Agent-readable record
+
+### Local persistence
+
+Scene history uses a separate local IndexedDB store.
+
+- up to 500 semantic scene changes
+- up to 250 completed episodes
+- named zones stored separately
+- Clear scene history removes changes/episodes while preserving zone configuration
+
 ## V1.0 — Objects & Interactions
 
 V1.0 adds persistent room objects and conservative person↔object interaction inference to Agent Eyes.

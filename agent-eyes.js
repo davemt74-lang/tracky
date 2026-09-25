@@ -51,6 +51,23 @@ import {
   carryLostObjectTracks,
   interactionKey
 } from './src/object-core.js';
+import {
+  SCENE_CHANGE_TYPES,
+  createSceneState,
+  normalizeZone,
+  replaceSceneZones,
+  sceneStateSnapshot,
+  updateSceneState
+} from './src/scene-core.js';
+import {
+  clearSceneMemory,
+  listSceneChanges,
+  listSceneEpisodes,
+  loadSceneZones,
+  saveSceneChanges,
+  saveSceneEpisodes,
+  saveSceneZones
+} from './src/scene-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -72,6 +89,7 @@ const ui = {
   healthStatus: $('#eyesHealthStatus'),
   behaviorStatus: $('#eyesBehaviorStatus'),
   objectStatus: $('#eyesObjectStatus'),
+  sceneStatus: $('#eyesSceneStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -89,10 +107,30 @@ const ui = {
   poseOverlay: $('#eyesPoseOverlay'),
   attentionOverlay: $('#eyesAttentionOverlay'),
   objectOverlay: $('#eyesObjectOverlay'),
+  sceneOverlay: $('#eyesSceneOverlay'),
+  radarZones: $('#agentRadarZones'),
   radarTracks: $('#agentRadarTracks'),
   participants: $('#eyesParticipants'),
   objects: $('#eyesObjects'),
   objectRuntimeStatus: $('#objectRuntimeStatus'),
+  sceneRuntimeStatus: $('#sceneRuntimeStatus'),
+  sceneActivityCount: $('#sceneActivityCount'),
+  sceneMemoryObjectCount: $('#sceneMemoryObjectCount'),
+  sceneEpisodeCount: $('#sceneEpisodeCount'),
+  sceneChangeCount: $('#sceneChangeCount'),
+  clearSceneMemory: $('#clearSceneMemory'),
+  sceneChangeFeed: $('#sceneChangeFeed'),
+  sceneEpisodeFeed: $('#sceneEpisodeFeed'),
+  sceneChangeStatus: $('#sceneChangeStatus'),
+  sceneEpisodeStatus: $('#sceneEpisodeStatus'),
+  sceneZoneStatus: $('#sceneZoneStatus'),
+  sceneZoneForm: $('#sceneZoneForm'),
+  sceneZoneName: $('#sceneZoneName'),
+  sceneZoneX: $('#sceneZoneX'),
+  sceneZoneY: $('#sceneZoneY'),
+  sceneZoneWidth: $('#sceneZoneWidth'),
+  sceneZoneHeight: $('#sceneZoneHeight'),
+  sceneZoneList: $('#sceneZoneList'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -129,13 +167,28 @@ const ui = {
   objectInspectorInteraction: $('#objectInspectorInteraction'),
   objectInspectorSignals: $('#objectInspectorSignals'),
   objectInspectorJson: $('#objectInspectorJson'),
-  closeObjectInspector: $('#closeObjectEvidenceInspector')
+  closeObjectInspector: $('#closeObjectEvidenceInspector'),
+  sceneInspector: $('#sceneEvidenceInspector'),
+  sceneInspectorTitle: $('#sceneInspectorTitle'),
+  sceneInspectorMeta: $('#sceneInspectorMeta'),
+  sceneInspectorType: $('#sceneInspectorType'),
+  sceneInspectorConfidence: $('#sceneInspectorConfidence'),
+  sceneInspectorParticipant: $('#sceneInspectorParticipant'),
+  sceneInspectorObject: $('#sceneInspectorObject'),
+  sceneInspectorZone: $('#sceneInspectorZone'),
+  sceneInspectorDuration: $('#sceneInspectorDuration'),
+  sceneInspectorSummary: $('#sceneInspectorSummary'),
+  sceneInspectorEvidence: $('#sceneInspectorEvidence'),
+  sceneInspectorJson: $('#sceneInspectorJson'),
+  closeSceneInspector: $('#closeSceneEvidenceInspector')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
 
 const bus = new PerceptionEventBus();
 const roomState = createRoomState('agent-eyes-room');
+const sceneState = createSceneState(roomState.roomId);
+const sceneListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -184,7 +237,8 @@ const runtime = {
   behaviorByTrack: new Map(),
   wristHistory: new Map(),
   lastGestureAt: new Map(),
-  selectedTrackId: null
+  selectedTrackId: null,
+  selectedSceneRecord: null
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -214,11 +268,189 @@ window.TrackyAgentEyes = Object.freeze({
   getState() {
     return roomStateSnapshot(roomState);
   },
+  getSceneState() {
+    return sceneStateSnapshot(sceneState);
+  },
+  getWorldState() {
+    return {
+      room: roomStateSnapshot(roomState),
+      scene: sceneStateSnapshot(sceneState)
+    };
+  },
+  getChanges() {
+    return sceneState.changes.slice();
+  },
+  getEpisodes() {
+    return sceneState.episodes.slice();
+  },
   subscribe(type, listener) {
     return bus.subscribe(type, listener);
   },
-  eventTypes: PERCEPTION_EVENT_TYPES
+  subscribeScene(listener) {
+    sceneListeners.add(listener);
+    return () => sceneListeners.delete(listener);
+  },
+  eventTypes: PERCEPTION_EVENT_TYPES,
+  sceneChangeTypes: SCENE_CHANGE_TYPES
 });
+
+
+function sceneInputSnapshot() {
+  const room = roomStateSnapshot(roomState);
+  const acceptedTrackIds = new Set(
+    runtime.tracks
+      .filter((track) => track.presenceAnnounced)
+      .map((track) => track.id)
+  );
+
+  const knownParticipants = (room.participants || [])
+    .filter((participant) => acceptedTrackIds.has(participant.trackId));
+
+  const unknownParticipants = (room.unknownTracks || [])
+    .filter((track) => acceptedTrackIds.has(track.trackId))
+    .map((track) => ({
+      id: null,
+      name: track.trackId,
+      trackId: track.trackId,
+      presence: track.presence,
+      position: track.position,
+      behavior: track.behavior,
+      attention: track.attention,
+      addressing: track.addressing,
+      conversationGroup: track.conversationGroup,
+      voiceStatus: 'quiet'
+    }));
+
+  const conversationGroups = (room.conversationGroups || [])
+    .map((group) => ({
+      ...group,
+      trackIds: (group.trackIds || []).filter((id) => acceptedTrackIds.has(id)),
+      participantIds: (group.participantIds || []).filter((participantId) => (
+        knownParticipants.some((participant) => participant.id === participantId)
+      ))
+    }))
+    .filter((group) => group.trackIds.length >= 2);
+
+  return {
+    ...room,
+    participants: [
+      ...knownParticipants,
+      ...unknownParticipants
+    ],
+    conversationGroups
+  };
+}
+
+function publishSceneChanges(changes) {
+  for (const change of changes) {
+    for (const listener of sceneListeners) listener(change);
+    window.dispatchEvent(new CustomEvent('tracky:scene-change', {
+      detail: change
+    }));
+  }
+}
+
+function updateSceneIntelligence(now = Date.now()) {
+  const previousEpisodeIds = new Set(
+    sceneState.episodes.map((episode) => episode.id)
+  );
+
+  const changes = updateSceneState(
+    sceneState,
+    sceneInputSnapshot(),
+    now
+  );
+
+  const completedEpisodes = sceneState.episodes.filter(
+    (episode) => !previousEpisodeIds.has(episode.id)
+  );
+
+  if (changes.length) {
+    publishSceneChanges(changes);
+    void saveSceneChanges(changes).catch((error) => {
+      console.error('Could not persist scene changes', error);
+    });
+  }
+
+  if (completedEpisodes.length) {
+    void saveSceneEpisodes(completedEpisodes).catch((error) => {
+      console.error('Could not persist scene episodes', error);
+    });
+  }
+
+  renderSceneIntelligence();
+  return changes;
+}
+
+async function initializeSceneMemory() {
+  try {
+    const [zones, changes, episodes] = await Promise.all([
+      loadSceneZones(),
+      listSceneChanges(120),
+      listSceneEpisodes(120)
+    ]);
+
+    replaceSceneZones(sceneState, zones);
+    sceneState.changes = changes;
+    sceneState.episodes = episodes;
+    ui.sceneStatus.textContent = 'Memory online';
+  } catch (error) {
+    console.error('Could not load scene memory', error);
+    ui.sceneStatus.textContent = 'Memory unavailable';
+  }
+
+  renderSceneIntelligence();
+}
+
+async function replaceZonesAndPersist(zones) {
+  replaceSceneZones(sceneState, zones);
+  try {
+    await saveSceneZones(sceneState.zones);
+  } catch (error) {
+    console.error('Could not persist scene zones', error);
+  }
+  renderSceneIntelligence();
+  renderRadar();
+  drawOverlay();
+}
+
+async function addSceneZone(event) {
+  event.preventDefault();
+
+  const zone = normalizeZone({
+    name: ui.sceneZoneName.value.trim() || 'Zone',
+    x: Number(ui.sceneZoneX.value) / 100,
+    y: Number(ui.sceneZoneY.value) / 100,
+    width: Number(ui.sceneZoneWidth.value) / 100,
+    height: Number(ui.sceneZoneHeight.value) / 100
+  });
+
+  await replaceZonesAndPersist([...sceneState.zones, zone]);
+  ui.sceneZoneName.value = '';
+}
+
+async function deleteSceneZone(zoneId) {
+  await replaceZonesAndPersist(
+    sceneState.zones.filter((zone) => zone.id !== zoneId)
+  );
+}
+
+async function clearSavedSceneMemory() {
+  if (!window.confirm(
+    'Clear locally saved scene changes and completed episodes? Named room zones will be preserved.'
+  )) return;
+
+  try {
+    await clearSceneMemory({ preserveZones: true });
+    sceneState.changes = [];
+    sceneState.episodes = [];
+    runtime.selectedSceneRecord = null;
+    ui.sceneInspector.hidden = true;
+    renderSceneIntelligence();
+  } catch (error) {
+    console.error('Could not clear scene memory', error);
+  }
+}
 
 function nextTrackId() {
   runtime.trackCounter += 1;
@@ -1305,6 +1537,7 @@ async function scanRoom() {
     emitTrackTransitions(previousTracks, runtime.tracks, now);
     emitObjectTransitions(previousObjects, runtime.objects);
     synchronizeObjectInteractions(now);
+    updateSceneIntelligence(Date.now());
     drawOverlay();
     renderAll();
 
@@ -1520,11 +1753,37 @@ function drawObjectOverlays(width, height) {
   }
 }
 
+function drawSceneZones(width, height) {
+  if (!ui.sceneOverlay.checked) return;
+
+  overlayCtx.save();
+  overlayCtx.setLineDash([10, 7]);
+  overlayCtx.font = Math.max(10, width / 90) + 'px ui-monospace, monospace';
+
+  for (const zone of sceneState.zones) {
+    if (!zone.enabled) continue;
+
+    const x = (1 - zone.x - zone.width) * width;
+    const y = zone.y * height;
+    const w = zone.width * width;
+    const h = zone.height * height;
+
+    overlayCtx.strokeStyle = 'rgba(184,120,255,.72)';
+    overlayCtx.fillStyle = 'rgba(184,120,255,.72)';
+    overlayCtx.lineWidth = Math.max(1.2, width / 1000);
+    overlayCtx.strokeRect(x, y, w, h);
+    overlayCtx.fillText(zone.name.toUpperCase(), x + 6, y + 15);
+  }
+
+  overlayCtx.restore();
+}
+
 function drawOverlay() {
   resizeOverlay();
   const width = ui.overlay.width;
   const height = ui.overlay.height;
   overlayCtx.clearRect(0, 0, width, height);
+  drawSceneZones(width, height);
   drawObjectOverlays(width, height);
 
   for (const track of runtime.tracks) {
@@ -1817,7 +2076,9 @@ function renderEvidenceInspector() {
 
 function openEvidenceInspector(trackId) {
   runtime.selectedObjectId = null;
+  runtime.selectedSceneRecord = null;
   ui.objectInspector.hidden = true;
+  ui.sceneInspector.hidden = true;
   runtime.selectedTrackId = trackId;
   renderEvidenceInspector();
   drawOverlay();
@@ -1961,7 +2222,9 @@ function renderObjectEvidenceInspector() {
 
 function openObjectEvidenceInspector(objectId) {
   runtime.selectedTrackId = null;
+  runtime.selectedSceneRecord = null;
   ui.inspector.hidden = true;
+  ui.sceneInspector.hidden = true;
   runtime.selectedObjectId = objectId;
   renderObjectEvidenceInspector();
   drawOverlay();
@@ -2133,8 +2396,263 @@ function renderParticipants() {
   }
 }
 
+function formatSceneDuration(milliseconds) {
+  if (!Number.isFinite(Number(milliseconds))) return '—';
+  const seconds = Math.max(0, Math.floor(Number(milliseconds) / 1000));
+  if (seconds < 60) return seconds + 's';
+  const minutes = Math.floor(seconds / 60);
+  return minutes + 'm ' + String(seconds % 60).padStart(2, '0') + 's';
+}
+
+function closeSceneEvidenceInspector() {
+  runtime.selectedSceneRecord = null;
+  ui.sceneInspector.hidden = true;
+}
+
+function openSceneEvidenceInspector(record, kind = 'change') {
+  runtime.selectedTrackId = null;
+  runtime.selectedObjectId = null;
+  ui.inspector.hidden = true;
+  ui.objectInspector.hidden = true;
+  runtime.selectedSceneRecord = { record, kind };
+  renderSceneEvidenceInspector();
+}
+
+function renderSceneEvidenceInspector() {
+  const selected = runtime.selectedSceneRecord;
+  if (!selected?.record) {
+    ui.sceneInspector.hidden = true;
+    return;
+  }
+
+  const record = selected.record;
+  const isEpisode = selected.kind === 'episode';
+  const durationMs = isEpisode
+    ? (
+        record.durationMs ??
+        (record.endedAt
+          ? record.endedAt - record.startedAt
+          : Date.now() - Number(record.startedAt || Date.now()))
+      )
+    : null;
+
+  ui.sceneInspector.hidden = false;
+  ui.sceneInspectorTitle.textContent = isEpisode
+    ? record.label || record.type || 'Episode'
+    : record.summary || record.type || 'Scene change';
+  ui.sceneInspectorMeta.textContent = isEpisode
+    ? (record.endedAt ? 'COMPLETED EPISODE' : 'ACTIVE EPISODE')
+    : new Date(record.timestamp).toLocaleString();
+  ui.sceneInspectorType.textContent = record.type || '—';
+  ui.sceneInspectorConfidence.textContent = confidenceText(record.confidence);
+  ui.sceneInspectorParticipant.textContent =
+    record.participantName || record.participantId || record.trackId || '—';
+  ui.sceneInspectorObject.textContent =
+    record.objectLabel || record.objectId || '—';
+  ui.sceneInspectorZone.textContent =
+    record.zoneName || record.zoneId || '—';
+  ui.sceneInspectorDuration.textContent = isEpisode
+    ? formatSceneDuration(durationMs)
+    : 'instant';
+  ui.sceneInspectorSummary.textContent = isEpisode
+    ? (
+        (record.participantName ? record.participantName + ' · ' : '') +
+        (record.label || record.type || 'episode')
+      )
+    : (record.summary || record.type || 'scene change');
+  ui.sceneInspectorEvidence.textContent = JSON.stringify(
+    record.evidence || {},
+    null,
+    2
+  );
+  ui.sceneInspectorJson.textContent = JSON.stringify(record, null, 2);
+}
+
+function createSceneRow(record, kind) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = kind === 'episode'
+    ? 'scene-episode-row'
+    : 'scene-change-row';
+  button.addEventListener('click', () => openSceneEvidenceInspector(record, kind));
+
+  const top = document.createElement('div');
+  const type = document.createElement('i');
+  const time = document.createElement('span');
+  type.textContent = record.type || kind;
+  time.textContent = new Date(
+    kind === 'episode'
+      ? Number(record.startedAt || Date.now())
+      : Number(record.timestamp || Date.now())
+  ).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  top.append(type, time);
+
+  const summary = document.createElement('strong');
+  summary.textContent = kind === 'episode'
+    ? (
+        (record.participantName ? record.participantName + ' · ' : '') +
+        (record.label || record.type || 'episode')
+      )
+    : (record.summary || record.type);
+
+  const meta = document.createElement('small');
+  if (kind === 'episode') {
+    const duration = record.endedAt
+      ? Number(record.durationMs || record.endedAt - record.startedAt)
+      : Date.now() - Number(record.startedAt || Date.now());
+    meta.textContent = [
+      record.endedAt ? formatSceneDuration(duration) : 'ACTIVE',
+      record.zoneName,
+      record.objectLabel,
+      confidenceText(record.confidence)
+    ].filter(Boolean).join(' · ');
+  } else {
+    meta.textContent = [
+      record.zoneName,
+      record.objectLabel,
+      confidenceText(record.confidence)
+    ].filter(Boolean).join(' · ');
+  }
+
+  button.append(top, summary, meta);
+  return button;
+}
+
+function renderSceneChanges() {
+  ui.sceneChangeFeed.replaceChildren();
+  const changes = sceneState.changes.slice(-24).reverse();
+
+  if (!changes.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No meaningful scene changes yet.';
+    ui.sceneChangeFeed.append(empty);
+    return;
+  }
+
+  for (const change of changes) {
+    ui.sceneChangeFeed.append(createSceneRow(change, 'change'));
+  }
+}
+
+function renderSceneEpisodes() {
+  ui.sceneEpisodeFeed.replaceChildren();
+
+  const active = Object.values(sceneState.activeEpisodes)
+    .sort((a, b) => Number(b.startedAt || 0) - Number(a.startedAt || 0));
+  const completed = sceneState.episodes.slice(-16).reverse();
+  const records = [
+    ...active.map((record) => ({ record, active: true })),
+    ...completed.map((record) => ({ record, active: false }))
+  ].slice(0, 24);
+
+  if (!records.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Stable activities and conversations will become episodes.';
+    ui.sceneEpisodeFeed.append(empty);
+    ui.sceneEpisodeStatus.textContent = 'No episodes';
+    return;
+  }
+
+  for (const item of records) {
+    const row = createSceneRow(item.record, 'episode');
+    if (item.active) row.classList.add('active');
+    ui.sceneEpisodeFeed.append(row);
+  }
+
+  ui.sceneEpisodeStatus.textContent =
+    active.length + ' active · ' + sceneState.episodes.length + ' completed';
+}
+
+function renderSceneZones() {
+  ui.sceneZoneList.replaceChildren();
+  ui.radarZones.replaceChildren();
+
+  if (!sceneState.zones.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Add named zones such as Desk, Doorway, Couch, or Workstation.';
+    ui.sceneZoneList.append(empty);
+  }
+
+  for (const zone of sceneState.zones) {
+    const row = document.createElement('div');
+    row.className = 'scene-zone-row';
+
+    const copy = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = zone.name;
+    meta.textContent = [
+      'x ' + Math.round(zone.x * 100) + '%',
+      'y ' + Math.round(zone.y * 100) + '%',
+      Math.round(zone.width * 100) + '×' + Math.round(zone.height * 100) + '%'
+    ].join(' · ');
+    copy.append(name, meta);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'agent-entity-action';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => void deleteSceneZone(zone.id));
+
+    row.append(copy, remove);
+    ui.sceneZoneList.append(row);
+
+    if (zone.enabled && ui.sceneOverlay.checked) {
+      const region = document.createElement('div');
+      region.className = 'radar-zone';
+      region.style.left = (zone.x * 100) + '%';
+      region.style.top = (zone.y * 100) + '%';
+      region.style.width = (zone.width * 100) + '%';
+      region.style.height = (zone.height * 100) + '%';
+
+      const label = document.createElement('span');
+      label.textContent = zone.name;
+      region.append(label);
+      ui.radarZones.append(region);
+    }
+  }
+
+  ui.sceneZoneStatus.textContent = sceneState.zones.length + ' zones';
+}
+
+function renderSceneIntelligence() {
+  const snapshot = sceneStateSnapshot(sceneState);
+  const activeActivities = snapshot.activeEpisodes.filter(
+    (episode) => episode.type !== 'conversation'
+  ).length;
+  const memoryObjects = snapshot.objects.filter(
+    (object) => object.status === 'last-known'
+  ).length;
+
+  ui.sceneActivityCount.textContent = String(activeActivities);
+  ui.sceneMemoryObjectCount.textContent = String(memoryObjects);
+  ui.sceneEpisodeCount.textContent = String(
+    snapshot.activeEpisodes.length + snapshot.recentEpisodes.length
+  );
+  ui.sceneChangeCount.textContent = String(sceneState.changes.length);
+  ui.sceneRuntimeStatus.textContent = runtime.running
+    ? 'Observing'
+    : 'Memory ready';
+  ui.sceneStatus.textContent = runtime.running
+    ? 'Temporal online'
+    : 'Memory online';
+
+  renderSceneChanges();
+  renderSceneEpisodes();
+  renderSceneZones();
+  renderSceneEvidenceInspector();
+}
+
 function renderRadar() {
   ui.radarTracks.replaceChildren();
+  renderSceneZones();
 
   for (const track of runtime.tracks) {
     const dot = document.createElement('div');
@@ -2360,7 +2878,11 @@ function renderActiveSpeaker() {
 
 function renderRoomState() {
   const snapshot = roomStateSnapshot(roomState);
-  ui.stateJson.textContent = JSON.stringify(snapshot, null, 2);
+  const world = {
+    room: snapshot,
+    scene: sceneStateSnapshot(sceneState)
+  };
+  ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
   ui.peopleCount.textContent = String(
     snapshot.participants.length + snapshot.unknownTracks.length
@@ -2413,6 +2935,7 @@ function renderAll() {
   renderRoomState();
   renderEvidenceInspector();
   renderObjectEvidenceInspector();
+  renderSceneIntelligence();
 }
 
 function suppressMicForSpeech() {
@@ -2688,12 +3211,15 @@ function stopRoomAudio() {
 }
 
 async function copySnapshot() {
-  const text = JSON.stringify(roomStateSnapshot(roomState), null, 2);
+  const text = JSON.stringify({
+    room: roomStateSnapshot(roomState),
+    scene: sceneStateSnapshot(sceneState)
+  }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
     ui.copyState.textContent = 'Copied';
     setTimeout(() => {
-      ui.copyState.textContent = 'Copy JSON';
+      ui.copyState.textContent = 'Copy world JSON';
     }, 1200);
   } catch (error) {
     console.error(error);
@@ -2728,9 +3254,16 @@ ui.cameraSelect.addEventListener('change', () => {
 ui.copyState.addEventListener('click', () => void copySnapshot());
 ui.closeInspector.addEventListener('click', closeEvidenceInspector);
 ui.closeObjectInspector.addEventListener('click', closeObjectEvidenceInspector);
+ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
+ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
+ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
 ui.objectOverlay.addEventListener('change', drawOverlay);
+ui.sceneOverlay.addEventListener('change', () => {
+  renderSceneZones();
+  drawOverlay();
+});
 window.addEventListener('resize', () => {
   resizeOverlay();
   drawOverlay();
@@ -2738,6 +3271,7 @@ window.addEventListener('resize', () => {
 window.addEventListener('beforeunload', stopPerception);
 
 await reloadParticipants();
+await initializeSceneMemory();
 renderAll();
 renderEventFeed();
 renderRoomState();

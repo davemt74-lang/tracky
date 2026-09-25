@@ -33,7 +33,9 @@ const requiredFiles = [
   'src/model-config.js',
   'src/perception-core.js',
   'src/behavior-core.js',
-  'src/object-core.js'
+  'src/object-core.js',
+  'src/scene-core.js',
+  'src/scene-store.js'
 ];
 
 const runtimeJs = [
@@ -56,7 +58,9 @@ const runtimeJs = [
   'src/model-config.js',
   'src/perception-core.js',
   'src/behavior-core.js',
-  'src/object-core.js'
+  'src/object-core.js',
+  'src/scene-core.js',
+  'src/scene-store.js'
 ];
 
 const htmlContracts = [
@@ -82,8 +86,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.0.0') {
-  fail('package.json version must be 1.0.0');
+if (packageJson.version !== '1.1.0') {
+  fail('package.json version must be 1.1.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -105,6 +109,12 @@ if (!packageJson.scripts?.test?.includes('src/behavior-core.js')) {
 }
 if (!packageJson.scripts?.test?.includes('src/object-core.js')) {
   fail('test script must syntax-check object core');
+}
+if (!packageJson.scripts?.test?.includes('src/scene-core.js')) {
+  fail('test script must syntax-check scene core');
+}
+if (!packageJson.scripts?.test?.includes('src/scene-store.js')) {
+  fail('test script must syntax-check scene store');
 }
 
 for (const file of runtimeJs) {
@@ -262,6 +272,35 @@ for (const symbol of [
   }
 }
 
+const sceneCore = read('src/scene-core.js');
+for (const symbol of [
+  'createSceneState',
+  'updateSceneState',
+  'sceneStateSnapshot',
+  'replaceSceneZones',
+  'deriveParticipantActivity',
+  'SCENE_CHANGE_TYPES'
+]) {
+  if (!sceneCore.includes(symbol)) {
+    fail('Scene core is missing required temporal interface: ' + symbol);
+  }
+}
+
+const sceneStore = read('src/scene-store.js');
+for (const symbol of [
+  'saveSceneChanges',
+  'saveSceneEpisodes',
+  'listSceneChanges',
+  'listSceneEpisodes',
+  'saveSceneZones',
+  'loadSceneZones',
+  'clearSceneMemory'
+]) {
+  if (!sceneStore.includes(symbol)) {
+    fail('Scene store is missing required local memory interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -297,6 +336,21 @@ if (!/objectEvidenceInspector/.test(indexHtml) || !/renderObjectEvidenceInspecto
 if (!/eyesObjects/.test(indexHtml) || !/renderObjects/.test(agentEyes)) {
   fail('Agent Eyes must expose persistent room objects');
 }
+if (!/sceneEvidenceInspector/.test(indexHtml) || !/renderSceneEvidenceInspector/.test(agentEyes)) {
+  fail('Agent Eyes must include the scene evidence inspector');
+}
+if (!/sceneChangeFeed/.test(indexHtml) || !/renderSceneChanges/.test(agentEyes)) {
+  fail('Agent Eyes must expose a change-only semantic scene feed');
+}
+if (!/sceneZoneForm/.test(indexHtml) || !/replaceZonesAndPersist/.test(agentEyes)) {
+  fail('Agent Eyes must expose persistent named room zones');
+}
+if (!/getSceneState/.test(agentEyes) || !/subscribeScene/.test(agentEyes) || !/tracky:scene-change/.test(agentEyes)) {
+  fail('Agent Eyes must expose the temporal Agent integration interface');
+}
+if (!/getWorldState/.test(agentEyes)) {
+  fail('Agent Eyes must expose combined Current World State');
+}
 
 const identityEngine = read('src/identity-engine.js');
 if (!/object:\s*\{[\s\S]*?enabled:\s*true/.test(identityEngine)) {
@@ -330,8 +384,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.0-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.0 deploy ZIP');
+if (!/tracky-v1\.1-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.1 deploy ZIP');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -361,5 +415,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object perception interfaces, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene interfaces, temporal memory, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );

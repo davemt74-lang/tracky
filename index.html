@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.0 — Agent Eyes</title>
+  <title>Tracky V1.1 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,9 +13,9 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.0 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.1 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
-        <p>Live visual, spatial, behavioral, object, interaction, voice, and conversation awareness for the Agent system.</p>
+        <p>Live visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
     </div>
     <nav class="jarvis-nav">
@@ -33,6 +33,7 @@
     <div><span>TRANSCRIPTION</span><b id="eyesTranscriptStatus">Standby</b></div>
     <div><span>BEHAVIOR</span><b id="eyesBehaviorStatus">Standby</b></div>
     <div><span>OBJECTS</span><b id="eyesObjectStatus">Standby</b></div>
+    <div><span>SCENE MEMORY</span><b id="eyesSceneStatus">Standby</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -60,6 +61,10 @@
     <label class="switch-row compact-switch">
       <input id="eyesObjectOverlay" type="checkbox" checked>
       Object overlay
+    </label>
+    <label class="switch-row compact-switch">
+      <input id="eyesSceneOverlay" type="checkbox" checked>
+      Scene zones
     </label>
     <span class="agent-runtime-clock" id="agentRuntimeClock">ROOM STANDBY</span>
   </section>
@@ -115,6 +120,7 @@
         </div>
         <div class="room-radar agent-radar-map" id="agentRadar">
           <div class="radar-crosshair" aria-hidden="true"></div>
+          <div id="agentRadarZones" class="room-radar-zones"></div>
           <div id="agentRadarTracks" class="room-radar-tracks"></div>
           <span class="radar-label">NORMALIZED ROOM POSITION</span>
         </div>
@@ -142,14 +148,68 @@
         </div>
       </section>
 
+      <section class="hud-panel">
+        <div class="hud-panel-head">
+          <div><small>TEMPORAL MODEL</small><h2>Scene intelligence</h2></div>
+          <span id="sceneRuntimeStatus" class="status-chip">Standby</span>
+        </div>
+        <div id="sceneSummary" class="scene-summary">
+          <div><span>ACTIVE ACTIVITIES</span><b id="sceneActivityCount">0</b></div>
+          <div><span>MEMORY OBJECTS</span><b id="sceneMemoryObjectCount">0</b></div>
+          <div><span>EPISODES</span><b id="sceneEpisodeCount">0</b></div>
+          <div><span>CHANGES</span><b id="sceneChangeCount">0</b></div>
+        </div>
+        <button id="clearSceneMemory" class="hud-button scene-clear-button" type="button">Clear scene history</button>
+      </section>
+
       <section class="hud-panel agent-state-panel">
         <div class="hud-panel-head">
-          <div><small>AGENT INTERFACE</small><h2>Current Room State</h2></div>
-          <button id="copyRoomState" class="hud-button">Copy JSON</button>
+          <div><small>AGENT INTERFACE</small><h2>Current World State</h2></div>
+          <button id="copyRoomState" class="hud-button">Copy world JSON</button>
         </div>
         <pre id="roomStateJson" class="room-state-json" tabindex="0">{}</pre>
       </section>
     </aside>
+  </section>
+
+  <section class="scene-intelligence-grid">
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>CHANGE-ONLY AGENT FEED</small><h2>What changed?</h2></div>
+        <span id="sceneChangeStatus" class="status-chip ok">Semantic only</span>
+      </div>
+      <div id="sceneChangeFeed" class="scene-change-feed">
+        <div class="agent-empty">No meaningful scene changes yet.</div>
+      </div>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>TEMPORAL MEMORY</small><h2>Activities + episodes</h2></div>
+        <span id="sceneEpisodeStatus" class="status-chip">No episodes</span>
+      </div>
+      <div id="sceneEpisodeFeed" class="scene-episode-feed">
+        <div class="agent-empty">Stable activities and conversations will become episodes.</div>
+      </div>
+    </article>
+
+    <article class="hud-panel scene-zone-panel">
+      <div class="hud-panel-head">
+        <div><small>SPATIAL SEMANTICS</small><h2>Named room zones</h2></div>
+        <span id="sceneZoneStatus" class="status-chip">0 zones</span>
+      </div>
+      <form id="sceneZoneForm" class="scene-zone-form">
+        <label>Name<input id="sceneZoneName" maxlength="40" placeholder="Desk"></label>
+        <label>X %<input id="sceneZoneX" type="number" min="0" max="100" step="1" value="0"></label>
+        <label>Y %<input id="sceneZoneY" type="number" min="0" max="100" step="1" value="0"></label>
+        <label>Width %<input id="sceneZoneWidth" type="number" min="2" max="100" step="1" value="25"></label>
+        <label>Height %<input id="sceneZoneHeight" type="number" min="2" max="100" step="1" value="25"></label>
+        <button class="hud-button primary" type="submit">Add zone</button>
+      </form>
+      <div id="sceneZoneList" class="scene-zone-list">
+        <div class="agent-empty">Add named zones such as Desk, Doorway, Couch, or Workstation.</div>
+      </div>
+    </article>
   </section>
 
   <section class="agent-bottom-grid">
@@ -259,6 +319,50 @@
       <strong>Agent-readable</strong>
     </div>
     <pre id="objectInspectorJson" class="room-state-json">{}</pre>
+  </section>
+</aside>
+
+<aside id="sceneEvidenceInspector" class="evidence-inspector" hidden aria-label="Scene evidence inspector">
+  <div class="evidence-inspector-head">
+    <div>
+      <small>SCENE EVIDENCE</small>
+      <strong id="sceneInspectorTitle">Scene change</strong>
+      <span id="sceneInspectorMeta">—</span>
+    </div>
+    <button id="closeSceneEvidenceInspector" class="hud-button" type="button">Close</button>
+  </div>
+
+  <div class="evidence-inspector-summary">
+    <div><span>TYPE</span><b id="sceneInspectorType">—</b></div>
+    <div><span>CONFIDENCE</span><b id="sceneInspectorConfidence">—</b></div>
+    <div><span>PARTICIPANT</span><b id="sceneInspectorParticipant">—</b></div>
+    <div><span>OBJECT</span><b id="sceneInspectorObject">—</b></div>
+    <div><span>ZONE</span><b id="sceneInspectorZone">—</b></div>
+    <div><span>DURATION</span><b id="sceneInspectorDuration">—</b></div>
+  </div>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>SEMANTIC SUMMARY</small>
+      <strong>Temporal conclusion</strong>
+    </div>
+    <p id="sceneInspectorSummary" class="scene-inspector-summary">—</p>
+  </section>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>SOURCE EVIDENCE</small>
+      <strong>Why this conclusion exists</strong>
+    </div>
+    <pre id="sceneInspectorEvidence" class="room-state-json">{}</pre>
+  </section>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>RAW SCENE RECORD</small>
+      <strong>Agent-readable</strong>
+    </div>
+    <pre id="sceneInspectorJson" class="room-state-json">{}</pre>
   </section>
 </aside>
 
