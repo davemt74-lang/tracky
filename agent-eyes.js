@@ -163,6 +163,7 @@ const ui = {
   cameraRegistryList: $('#cameraRegistryList'),
   worldMapStatus: $('#worldMapStatus'),
   worldMapCoverage: $('#worldMapCoverage'),
+  worldMapVectors: $('#worldMapVectors'),
   worldMapEntities: $('#worldMapEntities'),
   worldCameraCount: $('#worldCameraCount'),
   worldPersonCount: $('#worldPersonCount'),
@@ -306,7 +307,8 @@ const runtime = {
   worldObjectCounter: 0,
   selectedCalibrationCameraId: null,
   secondaryCameras: null,
-  identityInference: Promise.resolve()
+  identityInference: Promise.resolve(),
+  worldTrails: new Map()
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -543,6 +545,53 @@ function publishFusionEvent(event) {
   }
 }
 
+function updateWorldTrails(now = Date.now()) {
+  const visible = new Set();
+
+  for (const entity of runtime.fusionState.participants || []) {
+    if (entity.status === 'last-known') continue;
+    const key = entity.participantId
+      ? 'P:' + entity.participantId
+      : entity.id;
+    visible.add(key);
+
+    const trail = runtime.worldTrails.get(key) || {
+      id: key,
+      participantId: entity.participantId || null,
+      participantName: entity.participantName || null,
+      points: [],
+      lastSeenAt: now
+    };
+
+    const last = trail.points[trail.points.length - 1];
+    if (
+      !last ||
+      Math.hypot(
+        entity.roomPosition.x - last.x,
+        entity.roomPosition.y - last.y
+      ) >= 0.012
+    ) {
+      trail.points.push({
+        x: entity.roomPosition.x,
+        y: entity.roomPosition.y,
+        at: now,
+        cameraId: entity.primaryCameraId
+      });
+      if (trail.points.length > 24) trail.points.shift();
+    }
+
+    trail.lastSeenAt = now;
+    trail.participantName = entity.participantName || trail.participantName;
+    runtime.worldTrails.set(key, trail);
+  }
+
+  for (const [key, trail] of [...runtime.worldTrails.entries()]) {
+    if (!visible.has(key) && now - Number(trail.lastSeenAt || 0) > 30000) {
+      runtime.worldTrails.delete(key);
+    }
+  }
+}
+
 function updateCameraFusion(now = Date.now(), updateScene = false) {
   const activeObservations = [...runtime.cameraObservations.values()]
     .filter((observation) => now - Number(observation.timestamp || 0) <= 3000);
@@ -566,6 +615,7 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
   );
 
   runtime.fusionState = result.state;
+  updateWorldTrails(now);
   for (const event of result.events) publishFusionEvent(event);
 
   const detail = structuredClone(runtime.fusionState);
@@ -1303,6 +1353,7 @@ function stopCamera() {
   runtime.previousGroups.clear();
   runtime.cameraObservations.clear();
   runtime.cameraStatuses.clear();
+  runtime.worldTrails.clear();
   runtime.fusionState = {
     schemaVersion: 1,
     roomId: primaryCameraConfig()?.roomId || 'ROOM01',
@@ -3369,9 +3420,59 @@ function mapPolygonCss(points) {
     .join(', ');
 }
 
+function renderWorldMapVectors() {
+  ui.worldMapVectors.replaceChildren();
+  const ns = 'http://www.w3.org/2000/svg';
+
+  for (const trail of runtime.worldTrails.values()) {
+    if (trail.points.length < 2) continue;
+
+    const polyline = document.createElementNS(ns, 'polyline');
+    polyline.setAttribute(
+      'points',
+      trail.points
+        .map((point) => (
+          (point.x * 1000).toFixed(1) + ',' +
+          (point.y * 1000).toFixed(1)
+        ))
+        .join(' ')
+    );
+    polyline.setAttribute(
+      'class',
+      trail.participantId ? 'world-trail known' : 'world-trail unknown'
+    );
+    ui.worldMapVectors.append(polyline);
+  }
+
+  const fusedByParticipant = new Map(
+    (runtime.fusionState.participants || [])
+      .filter((entity) => entity.participantId && entity.status !== 'last-known')
+      .map((entity) => [entity.participantId, entity])
+  );
+
+  for (const group of roomStateSnapshot(roomState).conversationGroups || []) {
+    const members = (group.participantIds || [])
+      .map((participantId) => fusedByParticipant.get(participantId))
+      .filter(Boolean);
+
+    for (let index = 1; index < members.length; index += 1) {
+      const a = members[index - 1];
+      const b = members[index];
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', (a.roomPosition.x * 1000).toFixed(1));
+      line.setAttribute('y1', (a.roomPosition.y * 1000).toFixed(1));
+      line.setAttribute('x2', (b.roomPosition.x * 1000).toFixed(1));
+      line.setAttribute('y2', (b.roomPosition.y * 1000).toFixed(1));
+      line.setAttribute('class', 'world-conversation-link');
+      ui.worldMapVectors.append(line);
+    }
+  }
+}
+
 function renderWorldMap() {
   ui.worldMapCoverage.replaceChildren();
   ui.worldMapEntities.replaceChildren();
+  renderWorldMapVectors();
 
   for (const camera of runtime.cameraConfigs) {
     if (!camera.enabled || !cameraCalibrationValid(camera)) continue;
