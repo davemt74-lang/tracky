@@ -841,6 +841,10 @@ function updatePhysicalWorldModel(now = Date.now()) {
     portals: view?.portals || []
   };
 
+  if (runtime.sceneGraph.roomId !== roomId) {
+    runtime.sceneGraph = createSceneGraph(roomId);
+  }
+
   runtime.sceneGraph = buildRoomSceneGraph({
     roomId,
     roomName: room?.name || roomId,
@@ -1130,6 +1134,7 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
   renderRoomState();
 
   if (updateScene) updateSceneIntelligence(now);
+  updatePhysicalWorldModel(now);
 }
 
 function sceneInputSnapshot() {
@@ -4366,7 +4371,10 @@ function renderRoomState() {
   const world = {
     room: snapshot,
     scene: sceneStateSnapshot(sceneState),
-    cameraFusion: runtime.fusionState
+    cameraFusion: runtime.fusionState,
+    environment: runtime.environmentAnalysis,
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld)
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -4702,7 +4710,10 @@ async function copySnapshot() {
   const text = JSON.stringify({
     room: roomStateSnapshot(roomState),
     scene: sceneStateSnapshot(sceneState),
-    cameraFusion: runtime.fusionState
+    cameraFusion: runtime.fusionState,
+    environment: runtime.environmentAnalysis,
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld)
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
