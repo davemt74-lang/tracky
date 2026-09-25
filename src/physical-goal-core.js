@@ -213,6 +213,9 @@ export function evaluatePhysicalGoal(input,previous={},current={},now=Date.now()
     return {goal,events};
   }
 
+  if (options.suppressRoutineTriggers === true && options.manual !== true) {
+    return {goal,events:[]};
+  }
   const trigger=options.manual===true?{kind:'manual',roomId:null,subject:null}:triggerMatches(goal.trigger||{},previous,current);
   if(!trigger||!cooldownReady(goal,now)) return {goal,events:[]};
   goal.lastTriggeredAt=now;
@@ -230,11 +233,11 @@ export function evaluatePhysicalGoal(input,previous={},current={},now=Date.now()
   return {goal,events:[event(goal,type,state,summary,now,{triggerKind:trigger.kind,triggerRoomId:trigger.roomId||null,triggerSubjectId:trigger.subject?entityKey(trigger.subject):null},checks)]};
 }
 
-export function evaluatePhysicalGoals(goals=[],previous={},current={},now=Date.now()){
+export function evaluatePhysicalGoals(goals=[],previous={},current={},now=Date.now(),options={}){
   const updated=[];
   const events=[];
   for(const item of arr(goals)){
-    const result=evaluatePhysicalGoal(item,previous,current,now);
+    const result=evaluatePhysicalGoal(item,previous,current,now,options);
     updated.push(result.goal);
     events.push(...result.events);
   }
