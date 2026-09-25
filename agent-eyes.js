@@ -87,6 +87,34 @@ import {
 import {
   MultiCameraSensorRuntime
 } from './src/multicamera-runtime.js';
+import {
+  analyzeEnvironmentObservation,
+  assistedMappingFromObservation,
+  buildEnvironmentObservation,
+  captureBestEnvironmentFrame,
+  environmentProviderContract
+} from './src/environment-runtime.js';
+import {
+  listEnvironmentRooms,
+  saveEnvironmentHistory,
+  saveEnvironmentRoom,
+  saveEnvironmentView
+} from './src/environment-store.js';
+import {
+  buildRoomSceneGraph,
+  confirmGraphEdge,
+  confirmGraphNode,
+  createSceneGraph,
+  graphFactsForEntity,
+  markGraphFactsStale,
+  nearestGraphNode,
+  sceneGraphSnapshot
+} from './src/scene-graph-core.js';
+import {
+  createPhysicalWorldState,
+  derivePhysicalWorldState,
+  worldStateSnapshot
+} from './src/world-state-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -114,6 +142,8 @@ const ui = {
   objectStatus: $('#eyesObjectStatus'),
   sceneStatus: $('#eyesSceneStatus'),
   fusionStatus: $('#eyesFusionStatus'),
+  environmentStatus: $('#eyesEnvironmentStatus'),
+  worldStatus: $('#eyesWorldStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -173,6 +203,37 @@ const ui = {
   worldPersonCount: $('#worldPersonCount'),
   worldObjectCount: $('#worldObjectCount'),
   worldOverlapCount: $('#worldOverlapCount'),
+  environmentMatchStatus: $('#environmentMatchStatus'),
+  environmentPrimaryMeta: $('#environmentPrimaryMeta'),
+  environmentPrimaryImage: $('#environmentPrimaryImage'),
+  environmentPrimaryEmpty: $('#environmentPrimaryEmpty'),
+  environmentCurrentMeta: $('#environmentCurrentMeta'),
+  environmentCurrentImage: $('#environmentCurrentImage'),
+  environmentCurrentEmpty: $('#environmentCurrentEmpty'),
+  environmentRoomName: $('#environmentRoomName'),
+  environmentViewName: $('#environmentViewName'),
+  capturePrimaryEnvironment: $('#capturePrimaryEnvironment'),
+  saveAlternateEnvironment: $('#saveAlternateEnvironment'),
+  scanEnvironment: $('#scanEnvironment'),
+  promoteEnvironmentPrimary: $('#promoteEnvironmentPrimary'),
+  environmentRoomMatch: $('#environmentRoomMatch'),
+  environmentViewMatch: $('#environmentViewMatch'),
+  environmentStructureScore: $('#environmentStructureScore'),
+  environmentDriftScore: $('#environmentDriftScore'),
+  environmentQualityScore: $('#environmentQualityScore'),
+  environmentCameraScore: $('#environmentCameraScore'),
+  environmentMappingStatus: $('#environmentMappingStatus'),
+  environmentMappingPreview: $('#environmentMappingPreview'),
+  environmentMappingList: $('#environmentMappingList'),
+  acceptEnvironmentMap: $('#acceptEnvironmentMap'),
+  discardEnvironmentMap: $('#discardEnvironmentMap'),
+  physicalWorldStatus: $('#physicalWorldStatus'),
+  physicalGraphNodes: $('#physicalGraphNodes'),
+  physicalGraphEdges: $('#physicalGraphEdges'),
+  physicalContradictions: $('#physicalContradictions'),
+  physicalAttentionCount: $('#physicalAttentionCount'),
+  physicalAttentionFeed: $('#physicalAttentionFeed'),
+  physicalWorldJson: $('#physicalWorldJson'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -247,6 +308,7 @@ const roomState = createRoomState('agent-eyes-room');
 const sceneState = createSceneState(roomState.roomId);
 const sceneListeners = new Set();
 const cameraFusionListeners = new Set();
+const worldListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -312,7 +374,16 @@ const runtime = {
   selectedCalibrationCameraId: null,
   secondaryCameras: null,
   identityInference: Promise.resolve(),
-  worldTrails: new Map()
+  worldTrails: new Map(),
+  environmentRooms: [],
+  currentEnvironment: null,
+  environmentAnalysis: null,
+  mappingProposal: null,
+  environmentCheckPending: false,
+  environmentLastCheckedAt: 0,
+  environmentStartupChecked: false,
+  sceneGraph: createSceneGraph('ROOM01'),
+  physicalWorld: createPhysicalWorldState()
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -349,8 +420,25 @@ window.TrackyAgentEyes = Object.freeze({
     return {
       room: roomStateSnapshot(roomState),
       scene: sceneStateSnapshot(sceneState),
-      cameraFusion: copySerializable(runtime.fusionState)
+      cameraFusion: copySerializable(runtime.fusionState),
+      environment: copySerializable(runtime.environmentAnalysis),
+      sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+      physicalWorld: worldStateSnapshot(runtime.physicalWorld)
     };
+  },
+  getEnvironmentState() {
+    return {
+      current: copySerializable(runtime.currentEnvironment),
+      analysis: copySerializable(runtime.environmentAnalysis),
+      rooms: copySerializable(runtime.environmentRooms),
+      provider: environmentProviderContract()
+    };
+  },
+  getSceneGraph() {
+    return sceneGraphSnapshot(runtime.sceneGraph);
+  },
+  getPhysicalWorldState() {
+    return worldStateSnapshot(runtime.physicalWorld);
   },
   getCameraFusionState() {
     return copySerializable(runtime.fusionState);
@@ -378,11 +466,462 @@ window.TrackyAgentEyes = Object.freeze({
     cameraFusionListeners.add(listener);
     return () => cameraFusionListeners.delete(listener);
   },
+  subscribeWorld(listener) {
+    worldListeners.add(listener);
+    return () => worldListeners.delete(listener);
+  },
+  refreshEnvironment() {
+    return refreshEnvironmentObservation({ reason: 'agent-request' });
+  },
+  teachPhysicalEntity(input = {}) {
+    const node = confirmGraphNode(runtime.sceneGraph, {
+      ...input,
+      source: input.source || 'agent-teaching'
+    });
+    updatePhysicalWorldModel(Date.now());
+    return copySerializable(node);
+  },
+  teachPhysicalRelationship(input = {}) {
+    const edge = confirmGraphEdge(runtime.sceneGraph, {
+      ...input,
+      source: input.source || 'agent-teaching'
+    });
+    updatePhysicalWorldModel(Date.now());
+    return copySerializable(edge);
+  },
+  teachAtPoint(input = {}) {
+    const match = nearestGraphNode(
+      runtime.sceneGraph,
+      { x: input.x, y: input.y },
+      { types: input.types, maxDistance: input.maxDistance }
+    );
+    if (!match) return null;
+    const node = confirmGraphNode(runtime.sceneGraph, {
+      ...match.node,
+      label: input.label || match.node.label,
+      source: input.source || 'teach-by-pointing'
+    });
+    updatePhysicalWorldModel(Date.now());
+    return copySerializable({ node, distance: match.distance });
+  },
+  getPhysicalFacts(entityId) {
+    return copySerializable(graphFactsForEntity(runtime.sceneGraph, entityId));
+  },
   eventTypes: PERCEPTION_EVENT_TYPES,
   sceneChangeTypes: SCENE_CHANGE_TYPES
 });
 
 
+
+
+function nextEnvironmentViewId(roomId) {
+  const prefix = 'VIEW-' + roomId + '-';
+  const used = new Set(
+    runtime.environmentRooms
+      .flatMap((room) => room.views || [])
+      .map((view) => view.id)
+  );
+  let index = 1;
+  while (used.has(prefix + String(index).padStart(3, '0'))) index += 1;
+  return prefix + String(index).padStart(3, '0');
+}
+
+async function reloadEnvironmentRooms() {
+  try {
+    runtime.environmentRooms = await listEnvironmentRooms();
+  } catch (error) {
+    console.error('Could not load environment rooms', error);
+    runtime.environmentRooms = [];
+  }
+  renderEnvironmentPanel();
+  return runtime.environmentRooms;
+}
+
+function activeEnvironmentRoom() {
+  const roomId = runtime.environmentAnalysis?.best?.roomId ||
+    primaryCameraConfig()?.roomId ||
+    runtime.fusionState.roomId;
+  return runtime.environmentRooms.find((room) => room.id === roomId) || null;
+}
+
+function activeEnvironmentView() {
+  const analysis = runtime.environmentAnalysis;
+  if (analysis?.view) return analysis.view;
+  const room = activeEnvironmentRoom();
+  return room?.views?.find((view) => view.id === room.primaryViewId) ||
+    room?.views?.find((view) => view.primary) ||
+    room?.views?.[0] ||
+    null;
+}
+
+function currentObstructionRatio() {
+  return Math.min(
+    0.7,
+    runtime.tracks
+      .filter((track) => track.presenceAnnounced && track.box)
+      .reduce((sum, track) => (
+        sum + Number(track.box.width || 0) * Number(track.box.height || 0)
+      ), 0)
+  );
+}
+
+async function captureCurrentEnvironmentFrame() {
+  if (!runtime.running || ui.video.readyState < 2) {
+    throw new Error('Agent Eyes camera is not ready.');
+  }
+
+  const camera = primaryCameraConfig();
+  const frame = await captureBestEnvironmentFrame(ui.video, {
+    count: 4,
+    intervalMs: 100,
+    maxWidth: 720,
+    quality: 0.84,
+    obstructionRatio: currentObstructionRatio(),
+    landmarkCoverage: Math.min(1, (runtime.fusionState.objects?.length || 0) / 5)
+  });
+
+  return buildEnvironmentObservation({
+    frame,
+    cameraId: camera?.id || null,
+    roomHint: camera?.roomId || null,
+    objects: runtime.fusionState.objects || [],
+    calibration: camera ? {
+      roomPoints: camera.roomPoints,
+      sourcePoints: camera.sourcePoints
+    } : null
+  });
+}
+
+async function refreshEnvironmentObservation(options = {}) {
+  if (runtime.environmentCheckPending) return runtime.environmentAnalysis;
+  runtime.environmentCheckPending = true;
+
+  try {
+    const observation = await captureCurrentEnvironmentFrame();
+    runtime.currentEnvironment = observation;
+    runtime.environmentLastCheckedAt = Date.now();
+
+    const analysis = analyzeEnvironmentObservation(
+      observation,
+      runtime.environmentRooms
+    );
+    runtime.environmentAnalysis = analysis;
+
+    if (analysis.classification === 'known-view') {
+      const view = analysis.view;
+      if (view?.floor) observation.floor = view.floor;
+      if (view?.zones?.length) {
+        replaceSceneZones(sceneState, view.zones);
+      }
+      emit('environment.matched', {
+        source: 'environment-runtime',
+        confidence: analysis.best?.score || 0,
+        data: {
+          classification: analysis.classification,
+          roomId: analysis.best?.roomId || null,
+          viewId: analysis.best?.viewId || null,
+          reason: options.reason || 'comparison'
+        }
+      });
+    } else if (analysis.classification === 'unknown') {
+      emit('environment.unknown', {
+        source: 'environment-runtime',
+        confidence: 1 - Number(analysis.best?.score || 0),
+        data: {
+          reason: options.reason || 'comparison',
+          bestCandidate: analysis.best || null
+        }
+      });
+    } else {
+      emit('environment.captured', {
+        source: 'environment-runtime',
+        confidence: analysis.best?.score || 0,
+        data: {
+          classification: analysis.classification,
+          bestCandidate: analysis.best || null,
+          reason: options.reason || 'comparison'
+        }
+      });
+    }
+
+    if (
+      analysis.drift &&
+      Number(analysis.drift.environmentStateDrift || 0) >= 0.28
+    ) {
+      emit('environment.changed', {
+        source: 'environment-runtime',
+        confidence: Math.min(1, 0.5 + analysis.drift.environmentStateDrift / 2),
+        data: {
+          roomId: analysis.best?.roomId || null,
+          viewId: analysis.best?.viewId || null,
+          drift: analysis.drift
+        }
+      });
+    }
+
+    if (options.persistHistory !== false) {
+      void saveEnvironmentHistory({
+        roomId: analysis.best?.roomId || null,
+        viewId: analysis.best?.viewId || null,
+        classification: analysis.classification,
+        score: analysis.best?.score || 0,
+        drift: analysis.drift,
+        imageDataUrl: observation.imageDataUrl,
+        retainImage: false
+      }).catch((error) => {
+        console.error('Could not save environment history', error);
+      });
+    }
+
+    updatePhysicalWorldModel(Date.now());
+    renderEnvironmentPanel();
+    return analysis;
+  } catch (error) {
+    console.error('Could not refresh environment', error);
+    ui.environmentStatus.textContent = 'Capture failed';
+    return null;
+  } finally {
+    runtime.environmentCheckPending = false;
+  }
+}
+
+function viewRecordFromCurrent(roomId, viewId, primary, overrides = {}) {
+  const camera = primaryCameraConfig();
+  const mapping = overrides.mapping || runtime.mappingProposal;
+  const current = runtime.currentEnvironment;
+  return {
+    id: viewId,
+    roomId,
+    name: overrides.name || ui.environmentViewName.value.trim() ||
+      (primary ? 'Primary view' : 'Alternate view'),
+    primary,
+    cameraId: camera?.id || current?.cameraId || null,
+    capturedAt: current?.capturedAt || Date.now(),
+    imageDataUrl: current?.imageDataUrl || null,
+    fingerprint: current?.fingerprint || null,
+    quality: current?.quality || null,
+    floor: mapping?.floor || current?.floor || null,
+    landmarks: mapping?.landmarks || current?.landmarks || [],
+    zones: mapping?.zones || sceneState.zones || [],
+    portals: mapping?.portals || [],
+    calibration: camera ? {
+      sourcePoints: camera.sourcePoints,
+      roomPoints: camera.roomPoints
+    } : current?.calibration || null,
+    version: Number(overrides.version || 1)
+  };
+}
+
+async function saveCurrentEnvironmentView(primary = false) {
+  if (!runtime.currentEnvironment) {
+    await refreshEnvironmentObservation({
+      reason: primary ? 'capture-primary' : 'capture-alternate',
+      persistHistory: false
+    });
+  }
+  if (!runtime.currentEnvironment) return null;
+
+  const camera = primaryCameraConfig();
+  const roomId = camera?.roomId || runtime.fusionState.roomId || 'ROOM01';
+  const roomName = ui.environmentRoomName.value.trim() || roomId;
+  const room = runtime.environmentRooms.find((item) => item.id === roomId);
+
+  await saveEnvironmentRoom({
+    ...(room || {}),
+    id: roomId,
+    name: roomName,
+    userConfirmed: true,
+    topology: {
+      ...(room?.topology || {}),
+      portals: runtime.mappingProposal?.portals || room?.topology?.portals || []
+    }
+  });
+
+  const viewId = nextEnvironmentViewId(roomId);
+  const view = viewRecordFromCurrent(roomId, viewId, primary);
+
+  await saveEnvironmentView(view, { roomName });
+  await reloadEnvironmentRooms();
+  await refreshEnvironmentObservation({
+    reason: primary ? 'primary-saved' : 'alternate-saved',
+    persistHistory: false
+  });
+  runtime.mappingProposal = null;
+  renderEnvironmentMapping();
+  return view;
+}
+
+async function promoteCurrentEnvironmentToPrimary() {
+  if (!runtime.currentEnvironment) {
+    await refreshEnvironmentObservation({
+      reason: 'promote-primary',
+      persistHistory: false
+    });
+  }
+
+  const room = activeEnvironmentRoom();
+  const primary = room?.views?.find((view) => view.id === room.primaryViewId) ||
+    room?.views?.find((view) => view.primary);
+  if (!room || !primary || !runtime.currentEnvironment) {
+    return saveCurrentEnvironmentView(true);
+  }
+
+  const updated = viewRecordFromCurrent(room.id, primary.id, true, {
+    name: primary.name,
+    version: Number(primary.version || 1) + 1,
+    mapping: runtime.mappingProposal || {
+      floor: primary.floor,
+      landmarks: runtime.currentEnvironment.landmarks?.length
+        ? runtime.currentEnvironment.landmarks
+        : primary.landmarks,
+      zones: primary.zones,
+      portals: primary.portals
+    }
+  });
+
+  await saveEnvironmentView(updated, { roomName: room.name });
+  await reloadEnvironmentRooms();
+  await refreshEnvironmentObservation({
+    reason: 'primary-promoted',
+    persistHistory: false
+  });
+  return updated;
+}
+
+async function scanEnvironmentMapping() {
+  if (!runtime.currentEnvironment) {
+    await refreshEnvironmentObservation({
+      reason: 'mapping-scan',
+      persistHistory: false
+    });
+  }
+  if (!runtime.currentEnvironment) return;
+
+  runtime.mappingProposal = assistedMappingFromObservation(
+    runtime.currentEnvironment,
+    runtime.fusionState.objects || []
+  );
+  renderEnvironmentMapping();
+}
+
+async function acceptEnvironmentMapping() {
+  const proposal = runtime.mappingProposal;
+  if (!proposal) return;
+
+  if (proposal.zones?.length) {
+    const byName = new Map(
+      [...sceneState.zones, ...proposal.zones].map((zone) => [zone.name, zone])
+    );
+    replaceSceneZones(sceneState, [...byName.values()]);
+    try {
+      await saveSceneZones(sceneState.zones);
+    } catch (error) {
+      console.error('Could not persist accepted environment zones', error);
+    }
+  }
+
+  const room = activeEnvironmentRoom();
+  const view = activeEnvironmentView();
+  if (room && view) {
+    await saveEnvironmentRoom({
+      ...room,
+      topology: {
+        ...(room.topology || {}),
+        portals: proposal.portals || []
+      }
+    });
+    await saveEnvironmentView({
+      ...view,
+      floor: proposal.floor,
+      landmarks: proposal.landmarks,
+      zones: sceneState.zones,
+      portals: proposal.portals,
+      version: Number(view.version || 1) + 1
+    }, { roomName: room.name });
+  }
+
+  emit('environment.mapping_updated', {
+    source: 'assisted-room-mapping',
+    confidence: proposal.confidence || 0,
+    data: {
+      roomId: room?.id || primaryCameraConfig()?.roomId || null,
+      landmarkCount: proposal.landmarks?.length || 0,
+      zoneCount: proposal.zones?.length || 0,
+      portalCount: proposal.portals?.length || 0,
+      requiresConfirmation: false
+    }
+  });
+
+  runtime.mappingProposal = null;
+  await reloadEnvironmentRooms();
+  updatePhysicalWorldModel(Date.now());
+  renderEnvironmentMapping();
+  renderSceneIntelligence();
+}
+
+function discardEnvironmentMapping() {
+  runtime.mappingProposal = null;
+  renderEnvironmentMapping();
+}
+
+function updatePhysicalWorldModel(now = Date.now()) {
+  const analysis = runtime.environmentAnalysis;
+  const roomId = analysis?.best?.roomId ||
+    primaryCameraConfig()?.roomId ||
+    runtime.fusionState.roomId ||
+    'ROOM01';
+  const room = runtime.environmentRooms.find((item) => item.id === roomId);
+  const view = analysis?.view ||
+    room?.views?.find((item) => item.id === room?.primaryViewId) ||
+    null;
+  const mapping = runtime.mappingProposal || {
+    landmarks: runtime.currentEnvironment?.landmarks || view?.landmarks || [],
+    portals: view?.portals || []
+  };
+
+  if (runtime.sceneGraph.roomId !== roomId) {
+    runtime.sceneGraph = createSceneGraph(roomId);
+  }
+
+  runtime.sceneGraph = buildRoomSceneGraph({
+    roomId,
+    roomName: room?.name || roomId,
+    roomUserConfirmed: room?.userConfirmed === true,
+    roomConfidence: analysis?.best?.score || (room ? 0.9 : 0.55),
+    landmarks: mapping.landmarks || [],
+    portals: mapping.portals || [],
+    participants: runtime.fusionState.participants || [],
+    objects: runtime.fusionState.objects || [],
+    provenance: [{
+      kind: 'environment-match',
+      source: 'environment-runtime',
+      timestamp: now
+    }]
+  }, runtime.sceneGraph, now);
+
+  markGraphFactsStale(runtime.sceneGraph, now);
+  const graph = sceneGraphSnapshot(runtime.sceneGraph);
+
+  runtime.physicalWorld = derivePhysicalWorldState({
+    roomId,
+    environment: {
+      classification: analysis?.classification || 'unknown',
+      best: analysis?.best || null,
+      drift: analysis?.drift || null,
+      currentCapturedAt: runtime.currentEnvironment?.capturedAt || null
+    },
+    sceneGraph: graph,
+    changes: sceneState.changes.slice(-20)
+  }, runtime.physicalWorld, now);
+
+  const snapshot = worldStateSnapshot(runtime.physicalWorld);
+  for (const listener of worldListeners) listener(snapshot);
+  window.dispatchEvent(new CustomEvent('tracky:world-state', {
+    detail: snapshot
+  }));
+
+  renderPhysicalWorld();
+}
 
 function nextWorldObjectId() {
   runtime.worldObjectCounter += 1;
@@ -633,6 +1172,7 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
   renderRoomState();
 
   if (updateScene) updateSceneIntelligence(now);
+  updatePhysicalWorldModel(now);
 }
 
 function sceneInputSnapshot() {
@@ -1300,6 +1840,7 @@ async function startEyes(deviceId = '') {
 
     runtime.running = true;
     runtime.startedAt = Date.now();
+    runtime.environmentStartupChecked = false;
     ui.offline.hidden = true;
     ui.startEyes.disabled = true;
     ui.stop.disabled = false;
@@ -1358,6 +1899,8 @@ function stopCamera() {
   runtime.cameraObservations.clear();
   runtime.cameraStatuses.clear();
   runtime.worldTrails.clear();
+  runtime.environmentStartupChecked = false;
+  runtime.environmentCheckPending = false;
   runtime.fusionState = {
     schemaVersion: 1,
     roomId: primaryCameraConfig()?.roomId || 'ROOM01',
@@ -2215,6 +2758,30 @@ async function scanRoom() {
     publishPrimaryCameraObservation(fusionNow);
     updateCameraFusion(fusionNow, false);
     updateSceneIntelligence(fusionNow);
+
+    const sessionAge = runtime.startedAt
+      ? fusionNow - runtime.startedAt
+      : 0;
+    if (
+      !runtime.environmentStartupChecked &&
+      sessionAge >= 1400
+    ) {
+      runtime.environmentStartupChecked = true;
+      void refreshEnvironmentObservation({
+        reason: 'agent-engaged',
+        persistHistory: true
+      });
+    } else if (
+      runtime.environmentStartupChecked &&
+      !runtime.environmentCheckPending &&
+      fusionNow - Number(runtime.environmentLastCheckedAt || 0) >= 60000
+    ) {
+      void refreshEnvironmentObservation({
+        reason: 'periodic-environment-check',
+        persistHistory: true
+      });
+    }
+
     drawOverlay();
     renderAll();
 
@@ -3304,6 +3871,224 @@ function cameraStatusFor(camera) {
   return runtime.cameraStatuses.get(camera.id) || 'offline';
 }
 
+
+function percent(value) {
+  return Number.isFinite(Number(value))
+    ? Math.round(Number(value) * 100) + '%'
+    : '—';
+}
+
+function renderEnvironmentImage(image, empty, dataUrl) {
+  if (dataUrl) {
+    image.src = dataUrl;
+    image.hidden = false;
+    empty.hidden = true;
+  } else {
+    image.removeAttribute('src');
+    image.hidden = true;
+    empty.hidden = false;
+  }
+}
+
+function renderEnvironmentPanel() {
+  const analysis = runtime.environmentAnalysis;
+  const room = activeEnvironmentRoom();
+  const view = activeEnvironmentView();
+  const primary = room?.views?.find((candidate) => candidate.id === room.primaryViewId) ||
+    room?.views?.find((candidate) => candidate.primary) ||
+    null;
+  const current = runtime.currentEnvironment;
+
+  renderEnvironmentImage(
+    ui.environmentPrimaryImage,
+    ui.environmentPrimaryEmpty,
+    primary?.imageDataUrl || null
+  );
+  renderEnvironmentImage(
+    ui.environmentCurrentImage,
+    ui.environmentCurrentEmpty,
+    current?.imageDataUrl || null
+  );
+
+  ui.environmentPrimaryMeta.textContent = primary
+    ? [room?.name || room?.id, primary.name, 'v' + Number(primary.version || 1)]
+        .filter(Boolean).join(' · ')
+    : 'Not saved';
+  ui.environmentCurrentMeta.textContent = current
+    ? new Date(current.capturedAt).toLocaleTimeString([], {
+        hour:'2-digit', minute:'2-digit', second:'2-digit'
+      })
+    : 'Waiting for camera';
+
+  const classification = analysis?.classification ||
+    (room ? 'baseline-ready' : 'no-baseline');
+  ui.environmentMatchStatus.textContent = classification;
+  ui.environmentStatus.textContent =
+    classification === 'known-view'
+      ? 'Known environment'
+      : classification === 'known-room-new-view'
+        ? 'New angle'
+        : classification === 'uncertain'
+          ? 'Uncertain'
+          : classification === 'unknown'
+            ? 'Unknown'
+            : room
+              ? 'Baseline ready'
+              : 'No baseline';
+
+  ui.environmentRoomMatch.textContent = analysis?.best
+    ? (analysis.best.roomName || analysis.best.roomId) + ' · ' + percent(analysis.best.score)
+    : '—';
+  ui.environmentViewMatch.textContent = analysis?.best
+    ? (analysis.best.viewName || analysis.best.viewId)
+    : '—';
+  ui.environmentStructureScore.textContent = analysis?.best
+    ? percent(analysis.best.evidence?.landmarks)
+    : '—';
+  ui.environmentDriftScore.textContent = analysis?.drift
+    ? percent(analysis.drift.environmentStateDrift)
+    : '—';
+  ui.environmentQualityScore.textContent = current?.quality
+    ? percent(current.quality.score)
+    : '—';
+  ui.environmentCameraScore.textContent = analysis?.drift
+    ? (
+        analysis.drift.likelyCameraShift
+          ? 'SHIFT · ' + percent(analysis.drift.cameraPoseDrift)
+          : 'stable · ' + percent(1 - Number(analysis.drift.cameraPoseDrift || 0))
+      )
+    : analysis?.best
+      ? percent(analysis.best.evidence?.camera)
+      : '—';
+
+  const cameraReady = runtime.running && ui.video.readyState >= 2;
+  ui.capturePrimaryEnvironment.disabled = !cameraReady;
+  ui.saveAlternateEnvironment.disabled = !cameraReady;
+  ui.scanEnvironment.disabled = !cameraReady;
+  ui.promoteEnvironmentPrimary.disabled = !cameraReady || !primary;
+}
+
+function renderEnvironmentMapping() {
+  const proposal = runtime.mappingProposal;
+  ui.environmentMappingPreview.replaceChildren();
+  ui.environmentMappingList.replaceChildren();
+
+  if (!proposal) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent =
+      'Scan the environment to propose a floor plane, stable landmarks, zones, and portal candidates.';
+    ui.environmentMappingPreview.append(empty);
+    ui.environmentMappingStatus.textContent = 'Not scanned';
+    ui.acceptEnvironmentMap.disabled = true;
+    ui.discardEnvironmentMap.disabled = true;
+    return;
+  }
+
+  const imageUrl = runtime.currentEnvironment?.imageDataUrl;
+  if (imageUrl) {
+    const img = document.createElement('img');
+    img.src = imageUrl;
+    img.alt = 'Environment mapping reference';
+    ui.environmentMappingPreview.append(img);
+
+    for (const landmark of proposal.landmarks || []) {
+      const pin = document.createElement('span');
+      pin.className = 'environment-landmark-marker';
+      pin.style.left = (landmark.position.x * 100) + '%';
+      pin.style.top = (landmark.position.y * 100) + '%';
+      pin.textContent = landmark.name || landmark.label;
+      ui.environmentMappingPreview.append(pin);
+    }
+  }
+
+  const rows = [
+    ['Floor proposal', percent(proposal.floor?.confidence)],
+    ['Landmarks', String(proposal.landmarks?.length || 0)],
+    ['Zones', String(proposal.zones?.length || 0)],
+    ['Portals', String(proposal.portals?.length || 0)]
+  ];
+
+  for (const [label, value] of rows) {
+    const row = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = label;
+    meta.textContent = value;
+    row.append(name, meta);
+    ui.environmentMappingList.append(row);
+  }
+
+  for (const landmark of proposal.landmarks || []) {
+    const row = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = landmark.name || landmark.label;
+    meta.textContent = [
+      landmark.stability,
+      percent(landmark.confidence),
+      Math.round(landmark.position.x * 100) + ',' +
+        Math.round(landmark.position.y * 100)
+    ].join(' · ');
+    row.append(name, meta);
+    ui.environmentMappingList.append(row);
+  }
+
+  ui.environmentMappingStatus.textContent =
+    'Proposal · ' + percent(proposal.confidence);
+  ui.acceptEnvironmentMap.disabled = false;
+  ui.discardEnvironmentMap.disabled = false;
+}
+
+
+function renderPhysicalWorld() {
+  const graph = sceneGraphSnapshot(runtime.sceneGraph);
+  const world = worldStateSnapshot(runtime.physicalWorld);
+  const attention = world.attention || [];
+
+  ui.physicalGraphNodes.textContent = String(graph.nodes.length);
+  ui.physicalGraphEdges.textContent = String(graph.edges.length);
+  ui.physicalContradictions.textContent = String(world.contradictions?.length || 0);
+  ui.physicalAttentionCount.textContent = String(attention.length);
+  ui.physicalWorldStatus.textContent = world.activeRoomId
+    ? world.activeRoomId + ' · ' + (world.environment?.classification || 'unknown')
+    : 'Standby';
+  ui.worldStatus.textContent = world.contradictions?.length
+    ? 'Evidence conflict'
+    : world.activeRoomId
+      ? 'World state online'
+      : 'Standby';
+
+  ui.physicalAttentionFeed.replaceChildren();
+  if (!attention.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No high-priority physical-world issues.';
+    ui.physicalAttentionFeed.append(empty);
+  } else {
+    for (const item of attention) {
+      const row = document.createElement('div');
+      row.className = 'physical-attention-row';
+      const top = document.createElement('div');
+      const type = document.createElement('strong');
+      const score = document.createElement('span');
+      type.textContent = item.type;
+      score.textContent = percent(item.priority);
+      top.append(type, score);
+      const summary = document.createElement('p');
+      summary.textContent = item.summary;
+      row.append(top, summary);
+      ui.physicalAttentionFeed.append(row);
+    }
+  }
+
+  ui.physicalWorldJson.textContent = JSON.stringify({
+    environment: runtime.environmentAnalysis,
+    sceneGraph: graph,
+    physicalWorld: world
+  }, null, 2);
+}
+
 function renderCameraNetwork() {
   ui.cameraRegistryList.replaceChildren();
 
@@ -3869,7 +4654,10 @@ function renderRoomState() {
   const world = {
     room: snapshot,
     scene: sceneStateSnapshot(sceneState),
-    cameraFusion: runtime.fusionState
+    cameraFusion: runtime.fusionState,
+    environment: runtime.environmentAnalysis,
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld)
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -3917,6 +4705,9 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderEnvironmentPanel();
+  renderEnvironmentMapping();
+  renderPhysicalWorld();
   renderCameraNetwork();
   renderWorldMap();
   renderParticipants();
@@ -4205,7 +4996,10 @@ async function copySnapshot() {
   const text = JSON.stringify({
     room: roomStateSnapshot(roomState),
     scene: sceneStateSnapshot(sceneState),
-    cameraFusion: runtime.fusionState
+    cameraFusion: runtime.fusionState,
+    environment: runtime.environmentAnalysis,
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld)
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
@@ -4252,6 +5046,24 @@ ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory()
 ui.cameraRegistryForm.addEventListener('submit', (event) => void addCameraConfig(event));
 ui.cameraCalibrationForm.addEventListener('submit', (event) => void saveCameraCalibrationForm(event));
 ui.closeCameraCalibration.addEventListener('click', closeCameraCalibration);
+ui.capturePrimaryEnvironment.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'capture-primary', persistHistory: false });
+  await saveCurrentEnvironmentView(true);
+})());
+ui.saveAlternateEnvironment.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'capture-alternate', persistHistory: false });
+  await saveCurrentEnvironmentView(false);
+})());
+ui.scanEnvironment.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'mapping-scan', persistHistory: false });
+  await scanEnvironmentMapping();
+})());
+ui.promoteEnvironmentPrimary.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'promote-primary', persistHistory: false });
+  await promoteCurrentEnvironmentToPrimary();
+})());
+ui.acceptEnvironmentMap.addEventListener('click', () => void acceptEnvironmentMapping());
+ui.discardEnvironmentMap.addEventListener('click', discardEnvironmentMapping);
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
 ui.objectOverlay.addEventListener('change', drawOverlay);
@@ -4273,6 +5085,7 @@ if (navigator.mediaDevices?.addEventListener) {
 
 await reloadParticipants();
 await reloadCameraRegistry();
+await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
 renderAll();

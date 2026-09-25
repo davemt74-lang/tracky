@@ -375,3 +375,17 @@ test('camera fusion events are accepted by the perception event bus', () => {
   assert.equal(seen.length,1);
   assert.equal(seen[0].data.toCameraId,'CAM02');
 });
+
+
+test('environment and world events are accepted by perception bus', () => {
+  const bus = new PerceptionEventBus();
+  const seen = [];
+  bus.subscribe('environment.matched', (event) => seen.push(event));
+  bus.emit('environment.matched', {
+    source:'environment-runtime',
+    confidence:.92,
+    data:{roomId:'ROOM01',viewId:'VIEW01'}
+  }, {timestamp:2});
+  assert.equal(seen.length,1);
+  assert.equal(seen[0].data.roomId,'ROOM01');
+});
