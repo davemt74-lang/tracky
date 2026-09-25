@@ -165,3 +165,22 @@ test('authoritative expected location requires explicit proposal confirmation',(
   resolveMemoryProposal(state,'expected-location::WO1::L1','confirmed',5000);
   assert.equal(confirmedExpectedLocationFor(state,'WO1').anchorId,'L1');
 });
+
+
+test('first spatial evidence is accepted even at an early timestamp',()=>{
+  const state=createSpatialMemoryState();
+  observeSpatialMemory(state,{
+    sessionId:'early',
+    multiRoom:{objects:{
+      WO1:{id:'WO1',label:'phone',roomId:'ROOM01',presence:'confirmed',confidence:.9,roomPosition:{x:.3,y:.4},holderParticipantId:null}
+    },participants:{}},
+    landmarksByRoom:{ROOM01:[{id:'L1',name:'Desk',position:{x:.3,y:.4}}]},
+    sceneGraph:{edges:[{
+      subjectId:'WO1',predicate:'on',objectId:'L1',
+      state:'inferred',confidence:.9
+    }]},
+    transitions:[]
+  },1000);
+  assert.equal(state.expectedLocations.WO1.candidates.L1.observations,1);
+  assert.equal(state.relationshipEvidence['WO1::on::L1'].observations,1);
+});
