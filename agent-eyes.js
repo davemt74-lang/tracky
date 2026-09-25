@@ -1212,13 +1212,14 @@ async function publishPhysicalGoalEvent(event, goal, reason, now = Date.now()) {
   return detail;
 }
 
-async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Date.now()) {
+async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Date.now(), options = {}) {
   const beforeById = new Map(runtime.physicalGoals.map((goal) => [goal.id, goal]));
   const result = evaluatePhysicalGoals(
     runtime.physicalGoals,
     physicalGoalContextFromAgent(previous || {}, {}, now),
     physicalGoalContextFromAgent(current || {}, {}, now),
-    now
+    now,
+    options
   );
   runtime.physicalGoals = result.goals;
 
@@ -8993,7 +8994,7 @@ await initializeWorldWatches();
 await initializeAgentBriefings();
 await initializePhysicalGoals();
 runtime.agentContext = currentAgentContext({}, Date.now());
-await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now());
+await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now(), { suppressRoutineTriggers:true });
 renderAll();
 renderEventFeed();
 renderRoomState();
