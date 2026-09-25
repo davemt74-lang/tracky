@@ -13,6 +13,19 @@ export const LANDMARK_STABILITY = Object.freeze({
   TEMPORARY: 'temporary'
 });
 
+const LANDMARK_LABEL_ALIASES = Object.freeze({
+  'dining table': 'table',
+  'cell phone': 'phone',
+  'tvmonitor': 'monitor',
+  'television': 'tv',
+  'sofa': 'couch'
+});
+
+export function canonicalLandmarkLabel(label = '') {
+  const normalized = String(label).trim().toLowerCase();
+  return LANDMARK_LABEL_ALIASES[normalized] || normalized;
+}
+
 const STRUCTURAL_LABELS = new Set([
   'door','window','desk','table','couch','sofa','bed','bookshelf','shelf',
   'refrigerator','oven','sink','toilet','tv','monitor'
@@ -24,7 +37,7 @@ const TEMPORARY_LABELS = new Set([
 ]);
 
 export function landmarkStability(label = '') {
-  const normalized = String(label).toLowerCase();
+  const normalized = canonicalLandmarkLabel(label);
   if (STRUCTURAL_LABELS.has(normalized)) return LANDMARK_STABILITY.STRUCTURAL;
   if (TEMPORARY_LABELS.has(normalized)) return LANDMARK_STABILITY.TEMPORARY;
   return LANDMARK_STABILITY.STABLE;
@@ -157,8 +170,8 @@ export function normalizeLandmark(landmark, index = 0) {
   const position = landmark?.position || landmark?.roomPosition || {};
   return {
     id: String(landmark?.id || 'L' + String(index + 1).padStart(3, '0')),
-    label: String(landmark?.label || 'object'),
-    name: String(landmark?.name || landmark?.label || 'Landmark'),
+    label: canonicalLandmarkLabel(landmark?.label || 'object'),
+    name: String(landmark?.name || canonicalLandmarkLabel(landmark?.label || 'Landmark')),
     stability: landmark?.stability || landmarkStability(landmark?.label),
     position: {
       x: clamp01(position.x ?? 0.5),
