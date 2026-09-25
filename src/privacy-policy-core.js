@@ -46,7 +46,7 @@ export function normalizePrivacyRegion(region = {}, index = 0) {
     : 'ignore';
   const appliesTo = Array.isArray(region.appliesTo) && region.appliesTo.length
     ? [...new Set(region.appliesTo.map(String))]
-    : ['participant','object','environment'];
+    : ['participant','object','behavior','voice','transcript','environment','spatial-memory'];
 
   const x = clamp01(region.x ?? 0);
   const y = clamp01(region.y ?? 0);
