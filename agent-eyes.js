@@ -27,6 +27,7 @@ import {
 } from './src/room-audio-engine.js';
 import {
   listParticipants,
+  patchParticipant,
   saveDialogueTurn,
   savePendingCapture
 } from './src/participant-store.js';
@@ -133,6 +134,9 @@ function emit(type, payload = {}) {
 
 bus.subscribe('*', (event) => {
   applyPerceptionEvent(roomState, event);
+  window.dispatchEvent(new CustomEvent('tracky:perception', {
+    detail: event
+  }));
   renderEventFeed();
   renderRoomState();
 });
@@ -173,13 +177,24 @@ function emitSensor(sensor, status) {
 }
 
 function setHealth(status, warning = null) {
-  roomState.health.perception = status;
-  if (warning && !roomState.health.warnings.includes(warning)) {
-    roomState.health.warnings.push(warning);
+  const warningIsNew = Boolean(
+    warning && !roomState.health.warnings.includes(warning)
+  );
+  if (
+    roomState.health.perception === status &&
+    !warningIsNew
+  ) {
+    return;
   }
+
+  if (warningIsNew) roomState.health.warnings.push(warning);
+
   emit('room.state_changed', {
     source: 'perception-runtime',
-    data: { status: runtime.running ? 'active' : 'standby', health: status }
+    data: {
+      status: runtime.running || runtime.audioActive ? 'active' : 'standby',
+      health: status
+    }
   });
 }
 
@@ -424,7 +439,7 @@ async function resolveIdentity(track, excludedParticipantIds) {
     };
   }
 
-  return {
+  const resolved = {
     ...track,
     participantId: match.participant.id,
     participantName: match.participant.name,
@@ -433,6 +448,18 @@ async function resolveIdentity(track, excludedParticipantIds) {
     scanProgress: 100,
     identitySource: 'face'
   };
+
+  try {
+    await patchParticipant(match.participant.id, {
+      latestPhoto: track.latestPhoto || match.participant.latestPhoto || match.participant.primaryPhoto,
+      lastSeenAt: new Date().toISOString()
+    });
+    await reloadParticipants();
+  } catch (error) {
+    console.error('Could not refresh recognized participant profile', error);
+  }
+
+  return resolved;
 }
 
 function roomPosition(track) {
@@ -475,8 +502,11 @@ function emitTrackTransitions(previousTracks, currentTracks) {
       emit('participant.entered', payload);
     }
 
-    if (track.face) {
+    if (track.face && !previous?.face) {
       emit('face.visible', payload);
+    }
+    if (!track.face && previous?.face) {
+      emit('face.hidden', payload);
     }
 
     if (track.participantId && (!previous?.participantId || previous.participantId !== track.participantId)) {
@@ -540,16 +570,17 @@ function updateGroups() {
     for (const track of group) track.conversationGroupId = groupId;
 
     const previous = runtime.previousGroups.get(groupId);
-    if (!previous || previous.signature !== signature) {
-      if (!previous) {
-        emit('conversation.started', {
-          conversationGroup: groupId,
-          source: 'body-proximity',
-          data: { participantIds, trackIds }
-        });
-      }
+    if (!previous) {
+      emit('conversation.started', {
+        conversationGroup: groupId,
+        source: 'body-proximity',
+        data: { participantIds, trackIds }
+      });
+      continue;
+    }
 
-      const oldTracks = new Set(previous?.trackIds || []);
+    if (previous.signature !== signature) {
+      const oldTracks = new Set(previous.trackIds || []);
       const newTracks = new Set(trackIds);
 
       for (const track of group) {
@@ -579,6 +610,18 @@ function updateGroups() {
       }
     }
   });
+
+  for (const [groupId, previous] of runtime.previousGroups) {
+    if (nextGroups.has(groupId)) continue;
+    emit('conversation.ended', {
+      conversationGroup: groupId,
+      source: 'body-proximity',
+      data: {
+        participantIds: previous.participantIds,
+        trackIds: previous.trackIds
+      }
+    });
+  }
 
   runtime.previousGroups = nextGroups;
 }
@@ -958,6 +1001,10 @@ function eventLabel(event) {
       return 'Speaker: ' + (event.participantName || 'Unknown voice');
     case 'conversation.started':
       return 'Conversation ' + event.conversationGroup + ' detected';
+    case 'conversation.ended':
+      return 'Conversation ' + event.conversationGroup + ' ended';
+    case 'face.hidden':
+      return (event.participantName || event.trackId || 'Face') + ' face out of view';
     case 'conversation.participant_joined':
       return (event.participantName || event.trackId) + ' joined ' + event.conversationGroup;
     case 'transcript.turn':
