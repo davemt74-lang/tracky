@@ -59,7 +59,12 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'task.cleared',
   'attention.updated',
   'attention.resolved',
-  'perception.budget_changed'
+  'perception.budget_changed',
+  'anomaly.confirmed',
+  'anomaly.cleared',
+  'anomaly.acknowledged',
+  'anomaly.dismissed',
+  'proactive_awareness.updated'
 ]);
 
 const KNOWN_TYPES = new Set(PERCEPTION_EVENT_TYPES);

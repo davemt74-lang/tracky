@@ -2649,3 +2649,133 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
   .attention-task-form{grid-template-columns:1fr}
   .attention-queue-row{grid-template-columns:1fr}
 }
+
+/* V1.8 — proactive environmental awareness + anomaly verification */
+.proactive-awareness-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1.15fr) minmax(320px,.72fr) minmax(320px,.72fr);
+  gap:12px;
+  margin-top:12px;
+  align-items:start;
+}
+.proactive-summary{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:1px;
+  border:1px solid rgba(78,232,255,.09);
+  background:rgba(78,232,255,.09);
+}
+.proactive-summary>div{
+  padding:8px;
+  background:rgba(1,9,13,.96);
+}
+.proactive-summary span,
+.proactive-summary b{display:block}
+.proactive-summary span{
+  color:var(--muted);
+  font-size:.42rem;
+  font-weight:900;
+}
+.proactive-summary b{
+  margin-top:2px;
+  color:var(--cyan);
+  font-size:.68rem;
+}
+.proactive-anomaly-list,
+.proactive-candidate-list,
+.proactive-history-list{
+  display:grid;
+  gap:5px;
+  margin-top:8px;
+  max-height:360px;
+  overflow:auto;
+}
+.proactive-anomaly-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  padding:9px;
+  border:1px solid rgba(78,232,255,.12);
+  border-left:3px solid var(--cyan);
+  border-radius:8px;
+  background:rgba(2,11,15,.5);
+}
+.proactive-anomaly-row.severity-low{border-left-color:var(--cyan)}
+.proactive-anomaly-row.severity-medium{
+  border-left-color:var(--amber);
+  background:rgba(28,20,4,.2);
+}
+.proactive-anomaly-row.severity-high{
+  border-left-color:#ff9a62;
+  background:rgba(36,16,5,.24);
+}
+.proactive-anomaly-row.severity-critical{
+  border-left-color:#ff6b6b;
+  background:rgba(38,8,8,.28);
+  box-shadow:0 0 18px rgba(255,107,107,.08);
+}
+.proactive-anomaly-row.acknowledged{opacity:.76}
+.proactive-anomaly-row>div:first-child>div,
+.proactive-candidate-row>div,
+.proactive-history-row>div{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+}
+.proactive-anomaly-row strong,
+.proactive-candidate-row strong,
+.proactive-history-row strong{
+  font-size:.5rem;
+  text-transform:uppercase;
+}
+.proactive-anomaly-row span,
+.proactive-candidate-row span,
+.proactive-history-row span{
+  color:var(--muted);
+  font-size:.46rem;
+}
+.proactive-anomaly-row p,
+.proactive-candidate-row p,
+.proactive-history-row p{
+  margin:4px 0 0;
+  font-size:.58rem;
+  line-height:1.35;
+}
+.proactive-anomaly-row small,
+.proactive-candidate-row small,
+.proactive-history-row small{
+  display:block;
+  margin-top:4px;
+  color:var(--muted);
+  font-size:.44rem;
+}
+.proactive-anomaly-actions{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.proactive-candidate-row,
+.proactive-history-row{
+  padding:8px;
+  border:1px solid rgba(78,232,255,.10);
+  border-radius:8px;
+  background:rgba(2,11,15,.42);
+}
+.proactive-candidate-row{
+  border-left:2px dashed rgba(255,209,102,.45);
+}
+.proactive-history-row{
+  border-left:2px solid rgba(184,120,255,.32);
+}
+@media(max-width:1280px){
+  .proactive-awareness-grid{grid-template-columns:1fr 1fr}
+  .proactive-active-panel{grid-column:1/-1}
+}
+@media(max-width:780px){
+  .proactive-awareness-grid{grid-template-columns:1fr}
+  .proactive-active-panel{grid-column:auto}
+}
+@media(max-width:560px){
+  .proactive-summary{grid-template-columns:1fr 1fr}
+  .proactive-anomaly-row{grid-template-columns:1fr}
+}

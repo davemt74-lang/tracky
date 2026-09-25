@@ -176,6 +176,19 @@ import {
   loadAttentionState,
   saveAttentionState
 } from './src/attention-store.js';
+import {
+  acknowledgeAnomaly,
+  anomalySnapshot,
+  createAnomalyState,
+  deriveAnomalySignals,
+  dismissAnomaly,
+  observeAnomalySignals,
+  proactiveAwarenessSummary
+} from './src/anomaly-core.js';
+import {
+  loadAnomalyState,
+  saveAnomalyState
+} from './src/anomaly-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -209,6 +222,7 @@ const ui = {
   spatialMemoryTopStatus: $('#eyesSpatialMemoryStatus'),
   privacyTopStatus: $('#eyesPrivacyStatus'),
   taskTopStatus: $('#eyesTaskStatus'),
+  anomalyTopStatus: $('#eyesAnomalyStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -334,6 +348,16 @@ const ui = {
   attentionBudgetCaps: $('#attentionBudgetCaps'),
   attentionQueueStatus: $('#attentionQueueStatus'),
   attentionQueueList: $('#attentionQueueList'),
+  proactiveStatus: $('#proactiveStatus'),
+  proactiveActiveCount: $('#proactiveActiveCount'),
+  proactiveCriticalCount: $('#proactiveCriticalCount'),
+  proactiveHighCount: $('#proactiveHighCount'),
+  proactiveMediumCount: $('#proactiveMediumCount'),
+  proactiveActiveList: $('#proactiveActiveList'),
+  proactiveCandidateStatus: $('#proactiveCandidateStatus'),
+  proactiveCandidateList: $('#proactiveCandidateList'),
+  proactiveHistoryStatus: $('#proactiveHistoryStatus'),
+  proactiveHistoryList: $('#proactiveHistoryList'),
   privacyRegionName: $('#privacyRegionName'),
   privacyRegionMode: $('#privacyRegionMode'),
   privacyRegionX: $('#privacyRegionX'),
@@ -452,6 +476,7 @@ const worldListeners = new Set();
 const roomListeners = new Map();
 const spatialMemoryListeners = new Set();
 const attentionListeners = new Set();
+const anomalyListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -544,7 +569,10 @@ const runtime = {
   attentionLastSavedAt: 0,
   attentionTopKey: null,
   perceptionBudget: null,
-  perceptionBudgetSignature: null
+  perceptionBudgetSignature: null,
+  anomalyState: createAnomalyState(),
+  anomalyLastSavedAt: 0,
+  anomalyTopSignature: null
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -612,8 +640,198 @@ function meaningfulAttentionEvent(type) {
     'privacy.policy_changed',
     'spatial_memory.proposed',
     'camera.handoff',
-    'camera.status'
+    'camera.status',
+    'anomaly.confirmed',
+    'anomaly.cleared',
+    'anomaly.acknowledged',
+    'anomaly.dismissed'
   ]).has(type);
+}
+
+
+function confirmedExpectedLocationsForAnomalies() {
+  return (runtime.spatialMemory.proposals || [])
+    .filter((proposal) => (
+      proposal.type === 'expected-location' &&
+      proposal.status === 'confirmed'
+    ))
+    .map((proposal) => ({
+      entityId: proposal.subjectId,
+      roomId: proposal.roomId || null,
+      anchorId: proposal.anchorId || null,
+      anchorLabel: proposal.anchorLabel || null,
+      confidence: proposal.confidence,
+      evidence: proposal.evidence || null,
+      confirmedAt: proposal.resolvedAt || proposal.updatedAt || null
+    }));
+}
+
+function anomalyContext() {
+  return {
+    activeRoomId: runtime.fusionState.roomId ||
+      primaryCameraConfig()?.roomId ||
+      null,
+    environment: runtime.environmentAnalysis,
+    currentEnvironment: runtime.currentEnvironment,
+    policies: runtime.roomPolicies,
+    confirmedExpectedLocations: confirmedExpectedLocationsForAnomalies(),
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    landmarksByRoom: spatialLandmarksByRoom(),
+    roomVisibility: runtime.roomVisibility,
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    sceneChanges: sceneState.changes.slice(-40)
+  };
+}
+
+async function persistAnomalyState(force = false) {
+  const now = Date.now();
+  if (
+    !force &&
+    now - Number(runtime.anomalyLastSavedAt || 0) < 10000
+  ) return;
+  runtime.anomalyLastSavedAt = now;
+  try {
+    await saveAnomalyState(anomalySnapshot(runtime.anomalyState));
+  } catch (error) {
+    console.error('Could not persist anomaly state', error);
+  }
+}
+
+async function initializeAnomalyState() {
+  try {
+    const saved = await loadAnomalyState();
+    const fresh = createAnomalyState();
+    if (saved) {
+      fresh.history = Array.isArray(saved.history)
+        ? saved.history.slice(-300)
+        : [];
+      fresh.suppressedUntil = saved.suppressedUntil || {};
+      fresh.stats = {
+        ...fresh.stats,
+        ...(saved.stats || {})
+      };
+    }
+    runtime.anomalyState = fresh;
+  } catch (error) {
+    console.error('Could not load anomaly state', error);
+    runtime.anomalyState = createAnomalyState();
+  }
+  renderProactiveAwareness();
+}
+
+function anomalyAttentionItems() {
+  return anomalySnapshot(runtime.anomalyState).active.map((anomaly) => ({
+    key: 'anomaly::' + anomaly.signature,
+    type: 'anomaly.' + anomaly.type,
+    category: anomaly.category,
+    priority: anomaly.priority,
+    confidence: anomaly.confidence,
+    subjectId: anomaly.subjectId,
+    objectId: anomaly.objectId,
+    participantId: anomaly.participantId,
+    roomId: anomaly.roomId,
+    summary: anomaly.summary,
+    data: {
+      anomalyId: anomaly.id,
+      signature: anomaly.signature,
+      severity: anomaly.severity,
+      evidence: anomaly.evidence
+    }
+  }));
+}
+
+function updateAnomalyAwareness(now = Date.now()) {
+  const signals = deriveAnomalySignals(anomalyContext(), now);
+  const events = observeAnomalySignals(
+    runtime.anomalyState,
+    signals,
+    now
+  );
+
+  for (const event of events) {
+    const anomaly = event.anomaly;
+    if (event.type === 'confirmed') {
+      emit('anomaly.confirmed', {
+        source: 'proactive-awareness',
+        confidence: anomaly.confidence,
+        data: anomaly
+      });
+    } else if (event.type === 'cleared') {
+      resolveAttentionItem(
+        runtime.attention,
+        'anomaly::' + anomaly.signature,
+        'resolved',
+        now
+      );
+      emit('anomaly.cleared', {
+        source: 'proactive-awareness',
+        confidence: anomaly.confidence,
+        data: anomaly
+      });
+    }
+  }
+
+  const summary = proactiveAwarenessSummary(runtime.anomalyState);
+  const topSignature = summary.top?.signature || null;
+  if (topSignature !== runtime.anomalyTopSignature) {
+    runtime.anomalyTopSignature = topSignature;
+    emit('proactive_awareness.updated', {
+      source: 'proactive-awareness',
+      confidence: summary.top?.confidence || 0,
+      data: summary
+    });
+  }
+
+  const snapshot = anomalySnapshot(runtime.anomalyState);
+  for (const listener of anomalyListeners) listener(snapshot);
+  window.dispatchEvent(new CustomEvent('tracky:anomaly-state', {
+    detail: snapshot
+  }));
+  renderProactiveAwareness();
+  void persistAnomalyState(false);
+  return snapshot;
+}
+
+function acknowledgeActiveAnomaly(signature) {
+  const anomaly = acknowledgeAnomaly(
+    runtime.anomalyState,
+    signature,
+    Date.now()
+  );
+  if (!anomaly) return null;
+  emit('anomaly.acknowledged', {
+    source: 'proactive-awareness',
+    confidence: anomaly.confidence,
+    data: anomaly
+  });
+  renderProactiveAwareness();
+  void persistAnomalyState(true);
+  return copySerializable(anomaly);
+}
+
+function dismissActiveAnomaly(signature, suppressMs = 60 * 60 * 1000) {
+  const anomaly = dismissAnomaly(
+    runtime.anomalyState,
+    signature,
+    Date.now(),
+    suppressMs
+  );
+  if (!anomaly) return null;
+  resolveAttentionItem(
+    runtime.attention,
+    'anomaly::' + signature,
+    'dismissed',
+    Date.now()
+  );
+  emit('anomaly.dismissed', {
+    source: 'proactive-awareness',
+    confidence: anomaly.confidence,
+    data: anomaly
+  });
+  updateAttentionController(Date.now());
+  renderProactiveAwareness();
+  void persistAnomalyState(true);
+  return copySerializable(anomaly);
 }
 
 async function persistAttentionState(force = false) {
@@ -750,10 +968,11 @@ function updateAttentionController(now = Date.now(), options = {}) {
     runtime.attention.activeTask,
     attentionContext()
   );
+  const proactiveItems = anomalyAttentionItems();
 
   const items = upsertAttentionItems(
     runtime.attention,
-    [...baseItems, ...taskItems],
+    [...baseItems, ...taskItems, ...proactiveItems],
     now,
     { ttlMs: 45000 }
   );
@@ -888,7 +1107,8 @@ window.TrackyAgentEyes = Object.freeze({
       observationPolicies: copySerializable(runtime.roomPolicies),
       privacyStats: copySerializable(runtime.privacyStats),
       attentionController: attentionSnapshot(runtime.attention),
-      perceptionBudget: copySerializable(currentPerceptionBudget())
+      perceptionBudget: copySerializable(currentPerceptionBudget()),
+      proactiveAwareness: anomalySnapshot(runtime.anomalyState)
     };
   },
   getEnvironmentState() {
@@ -961,6 +1181,18 @@ window.TrackyAgentEyes = Object.freeze({
   getPerceptionBudget() {
     return copySerializable(currentPerceptionBudget());
   },
+  getAnomalyState() {
+    return anomalySnapshot(runtime.anomalyState);
+  },
+  getProactiveAwareness() {
+    return copySerializable(proactiveAwarenessSummary(runtime.anomalyState));
+  },
+  acknowledgeAnomaly(signature) {
+    return acknowledgeActiveAnomaly(signature);
+  },
+  dismissAnomaly(signature, suppressMs) {
+    return dismissActiveAnomaly(signature, suppressMs);
+  },
   setTask(task = {}) {
     return startAttentionTask(task);
   },
@@ -1020,6 +1252,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAttention(listener) {
     attentionListeners.add(listener);
     return () => attentionListeners.delete(listener);
+  },
+  subscribeAnomalies(listener) {
+    anomalyListeners.add(listener);
+    return () => anomalyListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -2263,6 +2499,7 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
 
   if (updateScene) updateSceneIntelligence(now);
   updatePhysicalWorldModel(now);
+  if (runtime.running) updateAnomalyAwareness(now);
   if (runtime.running) updateSpatialMemory(now);
 }
 
@@ -5867,6 +6104,7 @@ function renderSpatialJourneys() {
   ui.spatialJourneyStatus.textContent = entities.length + ' recent entities';
 }
 
+
 function renderSpatialMemory() {
   const snapshot = spatialMemorySnapshot(runtime.spatialMemory);
   const pending = snapshot.proposals.filter((proposal) => proposal.status === 'proposed');
@@ -6256,6 +6494,176 @@ function parseAttentionTaskForm() {
     expiresAt: minutes > 0 ? now + minutes * 60000 : null,
     source: 'user'
   };
+}
+
+
+function anomalyMeta(anomaly) {
+  return [
+    String(anomaly.severity || 'medium').toUpperCase(),
+    Math.round(Number(anomaly.confidence || 0) * 100) + '% confidence',
+    anomaly.roomId || null,
+    anomaly.subjectId || null
+  ].filter(Boolean).join(' · ');
+}
+
+function renderProactiveAwareness() {
+  const snapshot = anomalySnapshot(runtime.anomalyState);
+  const summary = proactiveAwarenessSummary(runtime.anomalyState);
+  const active = snapshot.active || [];
+  const candidates = snapshot.candidates || [];
+  const history = (snapshot.history || []).slice(-16).reverse();
+
+  ui.proactiveActiveCount.textContent = String(summary.activeCount || 0);
+  ui.proactiveCriticalCount.textContent = String(summary.critical || 0);
+  ui.proactiveHighCount.textContent = String(summary.high || 0);
+  ui.proactiveMediumCount.textContent = String(summary.medium || 0);
+
+  const headline = summary.top
+    ? String(summary.top.severity || 'anomaly').toUpperCase() +
+      ' · ' + String(summary.top.type || 'physical change')
+    : 'Quiet';
+  ui.proactiveStatus.textContent = headline;
+  ui.anomalyTopStatus.textContent = headline;
+
+  ui.proactiveActiveList.replaceChildren();
+  if (!active.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No persistent physical-world anomalies.';
+    ui.proactiveActiveList.append(empty);
+  } else {
+    for (const anomaly of active) {
+      const row = document.createElement('article');
+      row.className = 'proactive-anomaly-row severity-' +
+        String(anomaly.severity || 'medium');
+      if (anomaly.status === 'acknowledged') row.classList.add('acknowledged');
+
+      const copy = document.createElement('div');
+      const head = document.createElement('div');
+      const type = document.createElement('strong');
+      const meta = document.createElement('span');
+      type.textContent = anomaly.type;
+      meta.textContent = anomalyMeta(anomaly);
+      head.append(type, meta);
+
+      const summaryText = document.createElement('p');
+      summaryText.textContent = anomaly.summary;
+      const evidence = document.createElement('small');
+      evidence.textContent = [
+        anomaly.observations + ' observations',
+        anomaly.status === 'acknowledged' ? 'ACKNOWLEDGED' : 'ACTIVE',
+        anomaly.expectedTargetId
+          ? 'expected ' + anomaly.expectedTargetId
+          : null,
+        anomaly.targetId ? 'current ' + anomaly.targetId : null
+      ].filter(Boolean).join(' · ');
+      copy.append(head, summaryText, evidence);
+
+      const actions = document.createElement('div');
+      actions.className = 'proactive-anomaly-actions';
+
+      if (anomaly.status !== 'acknowledged') {
+        const acknowledge = document.createElement('button');
+        acknowledge.type = 'button';
+        acknowledge.className = 'agent-entity-action';
+        acknowledge.textContent = 'Acknowledge';
+        acknowledge.addEventListener('click', () => (
+          acknowledgeActiveAnomaly(anomaly.signature)
+        ));
+        actions.append(acknowledge);
+      }
+
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'agent-entity-action';
+      dismiss.textContent = 'Dismiss 1h';
+      dismiss.addEventListener('click', () => (
+        dismissActiveAnomaly(anomaly.signature, 60 * 60 * 1000)
+      ));
+      actions.append(dismiss);
+
+      row.append(copy, actions);
+      ui.proactiveActiveList.append(row);
+    }
+  }
+
+  ui.proactiveCandidateStatus.textContent =
+    candidates.length + ' verifying';
+  ui.proactiveCandidateList.replaceChildren();
+  if (!candidates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No anomaly candidates are currently being verified.';
+    ui.proactiveCandidateList.append(empty);
+  } else {
+    for (const candidate of candidates
+      .sort((a,b) => Number(b.priority || 0) - Number(a.priority || 0))
+      .slice(0, 16)) {
+      const row = document.createElement('article');
+      row.className = 'proactive-candidate-row';
+
+      const head = document.createElement('div');
+      const type = document.createElement('strong');
+      const progress = document.createElement('span');
+      const observationRatio = Math.min(
+        1,
+        Number(candidate.observations || 0) /
+          Math.max(1, Number(candidate.rule?.minimumObservations || 1))
+      );
+      const timeRatio = Number(candidate.rule?.persistenceMs || 0) > 0
+        ? Math.min(
+            1,
+            (Date.now() - Number(candidate.firstSeenAt || Date.now())) /
+              Number(candidate.rule.persistenceMs)
+          )
+        : 1;
+      const verification = Math.round(
+        Math.min(observationRatio, timeRatio) * 100
+      );
+      type.textContent = candidate.type;
+      progress.textContent = verification + '% verified';
+      head.append(type, progress);
+
+      const summaryText = document.createElement('p');
+      summaryText.textContent = candidate.summary;
+      const meta = document.createElement('small');
+      meta.textContent = anomalyMeta(candidate);
+      row.append(head, summaryText, meta);
+      ui.proactiveCandidateList.append(row);
+    }
+  }
+
+  ui.proactiveHistoryStatus.textContent = history.length
+    ? history.length + ' recent'
+    : 'No history';
+  ui.proactiveHistoryList.replaceChildren();
+  if (!history.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Cleared and dismissed anomalies will appear here.';
+    ui.proactiveHistoryList.append(empty);
+  } else {
+    for (const anomaly of history) {
+      const row = document.createElement('article');
+      row.className = 'proactive-history-row';
+      const head = document.createElement('div');
+      const type = document.createElement('strong');
+      const state = document.createElement('span');
+      type.textContent = anomaly.type;
+      state.textContent = String(anomaly.status || 'cleared').toUpperCase();
+      head.append(type, state);
+      const summaryText = document.createElement('p');
+      summaryText.textContent = anomaly.summary;
+      const time = document.createElement('small');
+      const endedAt = anomaly.clearedAt || anomaly.dismissedAt ||
+        anomaly.acknowledgedAt || anomaly.lastSeenAt;
+      time.textContent = endedAt
+        ? new Date(endedAt).toLocaleString()
+        : anomalyMeta(anomaly);
+      row.append(head, summaryText, time);
+      ui.proactiveHistoryList.append(row);
+    }
+  }
 }
 
 function renderAttentionController() {
@@ -6869,6 +7277,22 @@ function eventLabel(event) {
       return 'Perception budget → ' +
         String(event.data?.intensity || 'balanced') + ' · ' +
         String(event.data?.taskMode || 'general');
+    case 'anomaly.confirmed':
+      return 'Proactive awareness · ' +
+        String(event.data?.severity || 'anomaly') + ' · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'anomaly.cleared':
+      return 'Anomaly cleared · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'anomaly.acknowledged':
+      return 'Anomaly acknowledged · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'anomaly.dismissed':
+      return 'Anomaly dismissed · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'proactive_awareness.updated':
+      return 'Proactive awareness updated · ' +
+        String(event.data?.activeCount || 0) + ' active';
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -6979,7 +7403,10 @@ function renderRoomState() {
     roomVisibility: runtime.roomVisibility,
     spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
     observationPolicies: copySerializable(runtime.roomPolicies),
-    privacyStats: copySerializable(runtime.privacyStats)
+    privacyStats: copySerializable(runtime.privacyStats),
+    attentionController: attentionSnapshot(runtime.attention),
+    perceptionBudget: copySerializable(currentPerceptionBudget()),
+    proactiveAwareness: anomalySnapshot(runtime.anomalyState)
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -7027,6 +7454,7 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderProactiveAwareness();
   renderAttentionController();
   renderEnvironmentPanel();
   renderPrivacyPolicy();
@@ -7364,7 +7792,12 @@ async function copySnapshot() {
     topology: runtime.worldTopology,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
     roomVisibility: runtime.roomVisibility,
-    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+    observationPolicies: copySerializable(runtime.roomPolicies),
+    privacyStats: copySerializable(runtime.privacyStats),
+    attentionController: attentionSnapshot(runtime.attention),
+    perceptionBudget: copySerializable(currentPerceptionBudget()),
+    proactiveAwareness: anomalySnapshot(runtime.anomalyState)
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
@@ -7471,6 +7904,7 @@ await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
 await initializeSpatialMemory();
+await initializeAnomalyState();
 await initializeAttentionState();
 renderAll();
 renderEventFeed();
