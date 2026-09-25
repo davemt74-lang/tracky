@@ -1537,6 +1537,29 @@ window.TrackyAgentEyes = Object.freeze({
   clearWorldWatchHistory() {
     return clearPhysicalWorldWatchHistory();
   },
+  interpretWorldWatch(input) {
+    return copySerializable(interpretWorldWatchCommand(
+      input,
+      worldWatchCommandContext(),
+      runtime.worldWatches,
+      Date.now()
+    ));
+  },
+  processWorldWatchCommand(input) {
+    return processWorldWatchCommand(input);
+  },
+  getAgentBriefings(limit = 50) {
+    return copySerializable(runtime.agentBriefings.slice(0, Math.max(1, Math.min(50, Number(limit || 50)))));
+  },
+  getPendingAgentBriefings() {
+    return copySerializable(pendingAgentBriefings(runtime.agentBriefings));
+  },
+  acknowledgeAgentBriefing(id) {
+    return acknowledgePhysicalAgentBriefing(id);
+  },
+  clearAgentBriefings() {
+    return clearPhysicalAgentBriefings();
+  },
   queryPhysicalWorld(query) {
     return runPhysicalWorldQuery(query);
   },
@@ -1634,6 +1657,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeWorldWatches(listener) {
     worldWatchListeners.add(listener);
     return () => worldWatchListeners.delete(listener);
+  },
+  subscribeAgentBriefings(listener) {
+    agentBriefingListeners.add(listener);
+    return () => agentBriefingListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -8487,6 +8514,7 @@ await initializeAnomalyState();
 await initializeAttentionState();
 await initializeWorldQueries();
 await initializeWorldWatches();
+await initializeAgentBriefings();
 runtime.agentContext = currentAgentContext({}, Date.now());
 renderAll();
 renderEventFeed();
