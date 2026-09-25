@@ -8674,3 +8674,12 @@ renderEventFeed();
 renderRoomState();
 setHealth('standby');
 setInterval(updateClock, 1000);
+setInterval(() => {
+  const now = Date.now();
+  const due = runtime.agentBriefings.some((item) => (
+    !['acknowledged','expired','surfaced'].includes(item.deliveryState) &&
+    Number(item.retryAt || 0) > 0 &&
+    Number(item.retryAt) <= now
+  ));
+  if (due) void reevaluateAgentBriefingDelivery({}, 'delivery-timer', now);
+}, 15000);
