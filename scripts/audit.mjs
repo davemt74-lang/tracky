@@ -53,7 +53,9 @@ const requiredFiles = [
   'src/spatial-memory-core.js',
   'src/privacy-policy-core.js',
   'src/attention-core.js',
-  'src/attention-store.js'
+  'src/attention-store.js',
+  'src/anomaly-store.js',
+  'src/anomaly-core.js'
 ];
 
 const runtimeJs = [
@@ -96,7 +98,9 @@ const runtimeJs = [
   'src/spatial-memory-core.js',
   'src/privacy-policy-core.js',
   'src/attention-core.js',
-  'src/attention-store.js'
+  'src/attention-store.js',
+  'src/anomaly-store.js',
+  'src/anomaly-core.js'
 ];
 
 const htmlContracts = [
@@ -122,8 +126,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.7.0') {
-  fail('package.json version must be 1.7.0');
+if (packageJson.version !== '1.8.0') {
+  fail('package.json version must be 1.8.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -170,7 +174,9 @@ for (const file of [
   'src/spatial-memory-store.js',
   'src/privacy-policy-core.js',
   'src/attention-core.js',
-  'src/attention-store.js'
+  'src/attention-store.js',
+  'src/anomaly-core.js',
+  'src/anomaly-store.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -598,7 +604,7 @@ for (const symbol of [
   'attentionSnapshot'
 ]) {
   if (!attentionCore.includes(symbol)) {
-    fail('Attention core is missing required V1.7 interface: ' + symbol);
+    fail('Attention core is missing required V1.8 interface: ' + symbol);
   }
 }
 for (const mode of [
@@ -625,10 +631,53 @@ for (const symbol of ['loadAttentionState','saveAttentionState']) {
   }
 }
 
+const anomalyCore = read('src/anomaly-core.js');
+for (const symbol of [
+  'ANOMALY_TYPES',
+  'createAnomalyState',
+  'observeAnomalySignals',
+  'deriveAnomalySignals',
+  'acknowledgeAnomaly',
+  'dismissAnomaly',
+  'anomalySnapshot',
+  'proactiveAwarenessSummary'
+]) {
+  if (!anomalyCore.includes(symbol)) {
+    fail('Anomaly core is missing required V1.8 interface: ' + symbol);
+  }
+}
+for (const anomalyType of [
+  'world-contradiction',
+  'environment-unrecognized',
+  'environment-structural-drift',
+  'camera-pose-shift',
+  'camera-quality-degraded',
+  'expected-location-deviation',
+  'expected-object-missing',
+  'new-object-presence'
+]) {
+  if (!anomalyCore.includes("'" + anomalyType + "'")) {
+    fail('Anomaly core is missing anomaly type: ' + anomalyType);
+  }
+}
+if (!/minimumObservations/.test(anomalyCore) || !/persistenceMs/.test(anomalyCore)) {
+  fail('Anomaly confirmation must require explicit persistence/evidence thresholds');
+}
+if (!/allowObjectObservation/.test(anomalyCore)) {
+  fail('Anomaly derivation must respect room object-observation privacy policy');
+}
+
+const anomalyStore = read('src/anomaly-store.js');
+for (const symbol of ['loadAnomalyState','saveAnomalyState']) {
+  if (!anomalyStore.includes(symbol)) {
+    fail('Anomaly store is missing persistence interface: ' + symbol);
+  }
+}
+
 const environmentStorePolicy = read('src/environment-store.js');
 for (const symbol of ['loadEnvironmentPolicy','saveEnvironmentPolicy','defaultObservationPolicy']) {
   if (!environmentStorePolicy.includes(symbol)) {
-    fail('Environment policy store is missing V1.7 interface: ' + symbol);
+    fail('Environment policy store is missing V1.8 interface: ' + symbol);
   }
 }
 
@@ -645,6 +694,46 @@ if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
 }
 if (!/tracky:perception/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level perception events');
+}
+
+for (const symbol of [
+  'getAnomalyState',
+  'getProactiveAwareness',
+  'acknowledgeAnomaly',
+  'dismissAnomaly',
+  'subscribeAnomalies'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing proactive awareness Agent API: ' + symbol);
+  }
+}
+if (!/tracky:anomaly-state/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level anomaly state');
+}
+if (!/renderProactiveAwareness/.test(agentEyes)) {
+  fail('Agent Eyes must render proactive anomaly state');
+}
+for (const id of [
+  'eyesAnomalyStatus',
+  'proactiveStatus',
+  'proactiveActiveList',
+  'proactiveCandidateList',
+  'proactiveHistoryList'
+]) {
+  if (!indexHtml.includes('id="' + id + '"')) {
+    fail('Agent Eyes proactive awareness UI is missing #' + id);
+  }
+}
+for (const eventName of [
+  'anomaly.confirmed',
+  'anomaly.cleared',
+  'anomaly.acknowledged',
+  'anomaly.dismissed',
+  'proactive_awareness.updated'
+]) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing proactive awareness event: ' + eventName);
+  }
 }
 if (!/saveDialogueTurn/.test(agentEyes)) {
   fail('Agent Eyes must persist accepted dialogue turns');
@@ -776,7 +865,7 @@ for (const symbol of [
   'renderPrivacyMasks'
 ]) {
   if (!agentEyes.includes(symbol)) {
-    fail('Agent Eyes is missing V1.7 privacy interface: ' + symbol);
+    fail('Agent Eyes is missing V1.8 privacy interface: ' + symbol);
   }
 }
 if (!/privacyPolicyStatus/.test(indexHtml) || !/privacyRegionForm/.test(indexHtml)) {
@@ -796,7 +885,7 @@ for (const eventName of [
   'perception.budget_changed'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.7 attention event: ' + eventName);
+    fail('Perception core is missing V1.8 attention event: ' + eventName);
   }
 }
 for (const symbol of [
@@ -810,7 +899,7 @@ for (const symbol of [
   'subscribeAttention'
 ]) {
   if (!agentEyes.includes(symbol)) {
-    fail('Agent Eyes is missing V1.7 attention API: ' + symbol);
+    fail('Agent Eyes is missing V1.8 attention API: ' + symbol);
   }
 }
 if (!/attentionTaskForm/.test(indexHtml) || !/attentionQueueList/.test(indexHtml)) {
@@ -858,7 +947,7 @@ for (const eventName of [
   'spatial_memory.ignored'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.7 spatial memory event: ' + eventName);
+    fail('Perception core is missing V1.8 spatial memory event: ' + eventName);
   }
 }
 if (!/globalRoomMap/.test(indexHtml) || !/topologyConnectForm/.test(indexHtml)) {
@@ -878,7 +967,7 @@ for (const eventName of [
   'visibility.changed'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.7 world event: ' + eventName);
+    fail('Perception core is missing V1.8 world event: ' + eventName);
   }
 }
 for (const eventName of [
@@ -931,14 +1020,14 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.7-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.7 deploy ZIP');
+if (!/tracky-v1\.8-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.8 deploy ZIP');
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
-  fail('CI V1.7 deploy package must include attention core and store');
+  fail('CI V1.8 deploy package must include attention core and store');
 }
 if (!workflow.includes('src/privacy-policy-core.js')) {
-  fail('CI V1.7 deploy package must include privacy policy core');
+  fail('CI V1.8 deploy package must include privacy policy core');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -968,5 +1057,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
