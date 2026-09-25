@@ -1231,12 +1231,50 @@ function updateSpatialMemory(now = Date.now()) {
     ? 'session-' + runtime.startedAt
     : 'session-' + Math.floor(now / 60000);
 
+  const memoryWorld = multiRoomSnapshot(runtime.multiRoomWorld);
+  for (const [id, participant] of Object.entries(memoryWorld.participants || {})) {
+    if (!spatialMemoryRetentionAllowed(
+      policyForRoom(participant.roomId || participant.lastKnownRoomId),
+      participant.roomPosition
+    )) {
+      delete memoryWorld.participants[id];
+    }
+  }
+  for (const [id, object] of Object.entries(memoryWorld.objects || {})) {
+    if (!spatialMemoryRetentionAllowed(
+      policyForRoom(object.roomId || object.lastKnownRoomId),
+      object.roomPosition
+    )) {
+      delete memoryWorld.objects[id];
+    }
+  }
+
+  const graph = sceneGraphSnapshot(runtime.sceneGraph);
+  const activePolicy = policyForRoom(graph.roomId);
+  const allowedGraphNodes = new Set(
+    (graph.nodes || [])
+      .filter((node) => (
+        !node.position ||
+        spatialMemoryRetentionAllowed(activePolicy, node.position)
+      ))
+      .map((node) => node.id)
+  );
+  graph.edges = (graph.edges || []).filter((edge) => (
+    allowedGraphNodes.has(edge.subjectId) &&
+    allowedGraphNodes.has(edge.objectId)
+  ));
+
   observeSpatialMemory(runtime.spatialMemory, {
     sessionId,
-    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    multiRoom: memoryWorld,
     landmarksByRoom: spatialLandmarksByRoom(),
-    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
-    transitions: runtime.multiRoomEvents || []
+    sceneGraph: graph,
+    transitions: (runtime.multiRoomEvents || []).filter((transition) => (
+      spatialMemoryRetentionAllowed(
+        policyForRoom(transition.toRoomId || transition.fromRoomId),
+        null
+      )
+    ))
   }, now);
 
   for (const proposal of runtime.spatialMemory.proposals) {
@@ -6213,13 +6251,26 @@ async function drainAudioQueue() {
 async function processSpeechSegment(segment) {
   if (!segmentIsCurrent(segment)) return;
 
-  const voiceReady = await ensureVoice();
-  if (!voiceReady || !segmentIsCurrent(segment)) return;
+  const policy = policyForRoom(primaryCameraConfig()?.roomId);
+  if (!policy.allowRoomAudio) return;
 
-  const embedding = await runtime.voiceEngine.embedding(segment.samples);
-  if (!segmentIsCurrent(segment)) return;
+  let voiceMatch = {
+    matched: false,
+    participant: null,
+    similarity: 0,
+    secondSimilarity: 0,
+    margin: 0,
+    ambiguous: false
+  };
 
-  const voiceMatch = bestVoiceMatch(embedding, runtime.participants);
+  if (policy.allowVoiceMatching) {
+    const voiceReady = await ensureVoice();
+    if (!voiceReady || !segmentIsCurrent(segment)) return;
+    const embedding = await runtime.voiceEngine.embedding(segment.samples);
+    if (!segmentIsCurrent(segment)) return;
+    voiceMatch = bestVoiceMatch(embedding, runtime.participants);
+  }
+
   const participant = voiceMatch.matched ? voiceMatch.participant : null;
   const tracks = segment.roomTracks || [];
   const groups = buildConversationGroups(tracks);
@@ -6243,35 +6294,42 @@ async function processSpeechSegment(segment) {
   const groupId = group
     ? (group.tracks.length > 1 ? group.id : 'SOLO')
     : null;
+  const position = track ? roomPosition(track) : null;
 
   emit('voice.activity_started', {
     participantId: participant?.id || null,
     participantName: participant?.name || null,
     trackId: track?.id || null,
     confidence: voiceMatch.matched ? voiceMatch.similarity : 0,
-    source: 'voice-profile',
-    roomPosition: track ? roomPosition(track) : null,
+    source: policy.allowVoiceMatching ? 'voice-profile' : 'room-audio',
+    roomPosition: position,
     nearbyParticipants: nearby,
     conversationGroup: groupId,
     evidence: {
       signalDb: gate.signalDb,
       ambiguous: voiceMatch.ambiguous,
-      bodyConfirmed: Boolean(track)
+      bodyConfirmed: Boolean(track),
+      voiceMatchingAllowed: policy.allowVoiceMatching
     }
   });
 
-  if (participant) {
+  if (participant && policy.allowVoiceMatching) {
     emit('voice.matched', {
       participantId: participant.id,
       participantName: participant.name,
       trackId: track?.id || null,
       confidence: voiceMatch.similarity,
       source: 'voice-profile',
+      roomPosition: position,
       conversationGroup: groupId
     });
   }
 
-  if (gate.accept && segmentIsCurrent(segment)) {
+  if (
+    policy.allowLiveTranscription &&
+    gate.accept &&
+    segmentIsCurrent(segment)
+  ) {
     const transcriptionReady = await ensureTranscriber();
     if (transcriptionReady && segmentIsCurrent(segment)) {
       const text = await runtime.transcriber.transcribe(segment.samples);
@@ -6284,7 +6342,7 @@ async function processSpeechSegment(segment) {
           source: participant
             ? (track ? 'voice+body' : 'voice-profile')
             : 'unattributed',
-          roomPosition: track ? roomPosition(track) : null,
+          roomPosition: position,
           nearbyParticipants: nearby,
           conversationGroup: groupId,
           evidence: {
@@ -6296,23 +6354,29 @@ async function processSpeechSegment(segment) {
           data: { text }
         });
 
-        try {
-          await saveDialogueTurn({
-            id: event.id,
-            participantId: participant?.id || null,
-            participantName: participant?.name || null,
-            trackId: track?.id || null,
-            groupId,
-            confidence: gate.confidence,
-            voiceConfidence: voiceMatch.similarity,
-            signalConfidence: gate.confidence,
-            nearbyParticipantNames: nearby,
-            transcript: text,
-            createdAt: new Date(event.timestamp).toISOString(),
-            sessionId: roomState.roomId
-          });
-        } catch (error) {
-          console.error('Could not persist Agent Eyes dialogue turn', error);
+        if (
+          event &&
+          transcriptRetentionAllowed(policy, position) &&
+          event.privacy?.retentionAllowed !== false
+        ) {
+          try {
+            await saveDialogueTurn({
+              id: event.id,
+              participantId: event.participantId || null,
+              participantName: event.participantName || null,
+              trackId: event.trackId || null,
+              groupId: event.conversationGroup || null,
+              confidence: event.confidence,
+              voiceConfidence: voiceMatch.similarity,
+              signalConfidence: gate.confidence,
+              nearbyParticipantNames: event.nearbyParticipants || [],
+              transcript: event.data?.text || text,
+              createdAt: new Date(event.timestamp).toISOString(),
+              sessionId: roomState.roomId
+            });
+          } catch (error) {
+            console.error('Could not persist Agent Eyes dialogue turn', error);
+          }
         }
       }
     }
@@ -6322,13 +6386,22 @@ async function processSpeechSegment(segment) {
     participantId: participant?.id || null,
     participantName: participant?.name || null,
     trackId: track?.id || null,
-    source: 'voice-profile',
+    roomPosition: position,
+    source: policy.allowVoiceMatching ? 'voice-profile' : 'room-audio',
     conversationGroup: groupId
   });
 }
 
 async function startRoomAudio() {
   if (runtime.audioActive) return;
+
+  const policy = policyForRoom(primaryCameraConfig()?.roomId);
+  if (!policy.allowRoomAudio) {
+    ui.micStatus.textContent = 'Disabled by privacy';
+    ui.dialogueStatus.textContent = 'Room audio disabled by policy';
+    renderPrivacyPolicy();
+    return;
+  }
 
   runtime.audioGeneration += 1;
 
@@ -6354,7 +6427,7 @@ async function startRoomAudio() {
     ui.dialogueStatus.classList.add('ok');
     emitSensor('microphone', 'online');
     renderAll();
-    void ensureVoice();
+    if (policy.allowVoiceMatching) void ensureVoice();
   } catch (error) {
     console.error(error);
     ui.micStatus.textContent = window.isSecureContext ? 'Unavailable' : 'HTTPS required';
