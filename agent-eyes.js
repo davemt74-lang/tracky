@@ -1337,6 +1337,7 @@ function refreshAgentContext(reason = 'runtime-update', now = Date.now()) {
   if (!delta.changed) return copySerializable({ context: next, delta });
 
   void evaluatePhysicalWorldWatches(previous, next, delta, reason, now);
+  void evaluatePhysicalGoalsRuntime(previous, next, reason, now);
   const detail = copySerializable({ context: next, delta, reason });
   for (const listener of agentContextListeners) listener(detail);
   window.dispatchEvent(new CustomEvent('tracky:agent-context', { detail }));
@@ -1887,6 +1888,35 @@ window.TrackyAgentEyes = Object.freeze({
   clearWorldWatchHistory() {
     return clearPhysicalWorldWatchHistory();
   },
+  addPhysicalGoal(input = {}) {
+    return addPhysicalGoal(input);
+  },
+  removePhysicalGoal(id) {
+    return removePhysicalGoal(id);
+  },
+  getPhysicalGoals() {
+    return copySerializable(runtime.physicalGoals);
+  },
+  getPhysicalGoalHistory(limit = 50) {
+    return copySerializable(runtime.physicalGoalHistory.slice(0, Math.max(1, Math.min(50, Number(limit || 50)))));
+  },
+  clearPhysicalGoalHistory() {
+    return clearPhysicalGoalHistory();
+  },
+  interpretPhysicalGoal(input, options = {}) {
+    return copySerializable(interpretPhysicalGoalCommand(
+      input,
+      physicalGoalCommandContext(options, Date.now()),
+      runtime.physicalGoals,
+      Date.now()
+    ));
+  },
+  processPhysicalGoalCommand(input, options = {}) {
+    return processPhysicalGoalCommand(input, options);
+  },
+  runPhysicalRoutine(id) {
+    return runPhysicalRoutine(id);
+  },
   interpretWorldWatch(input) {
     return copySerializable(interpretWorldWatchCommand(
       input,
@@ -2039,6 +2069,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAgentDelivery(listener) {
     agentDeliveryListeners.add(listener);
     return () => agentDeliveryListeners.delete(listener);
+  },
+  subscribePhysicalGoals(listener) {
+    physicalGoalListeners.add(listener);
+    return () => physicalGoalListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -8893,7 +8927,9 @@ await initializeAttentionState();
 await initializeWorldQueries();
 await initializeWorldWatches();
 await initializeAgentBriefings();
+await initializePhysicalGoals();
 runtime.agentContext = currentAgentContext({}, Date.now());
+await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now());
 renderAll();
 renderEventFeed();
 renderRoomState();
