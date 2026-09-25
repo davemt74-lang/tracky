@@ -1802,6 +1802,7 @@ async function startEyes(deviceId = '') {
 
     runtime.running = true;
     runtime.startedAt = Date.now();
+    runtime.environmentStartupChecked = false;
     ui.offline.hidden = true;
     ui.startEyes.disabled = true;
     ui.stop.disabled = false;
@@ -1860,6 +1861,8 @@ function stopCamera() {
   runtime.cameraObservations.clear();
   runtime.cameraStatuses.clear();
   runtime.worldTrails.clear();
+  runtime.environmentStartupChecked = false;
+  runtime.environmentCheckPending = false;
   runtime.fusionState = {
     schemaVersion: 1,
     roomId: primaryCameraConfig()?.roomId || 'ROOM01',
@@ -2717,6 +2720,30 @@ async function scanRoom() {
     publishPrimaryCameraObservation(fusionNow);
     updateCameraFusion(fusionNow, false);
     updateSceneIntelligence(fusionNow);
+
+    const sessionAge = runtime.startedAt
+      ? fusionNow - runtime.startedAt
+      : 0;
+    if (
+      !runtime.environmentStartupChecked &&
+      sessionAge >= 1400
+    ) {
+      runtime.environmentStartupChecked = true;
+      void refreshEnvironmentObservation({
+        reason: 'agent-engaged',
+        persistHistory: true
+      });
+    } else if (
+      runtime.environmentStartupChecked &&
+      !runtime.environmentCheckPending &&
+      fusionNow - Number(runtime.environmentLastCheckedAt || 0) >= 60000
+    ) {
+      void refreshEnvironmentObservation({
+        reason: 'periodic-environment-check',
+        persistHistory: true
+      });
+    }
+
     drawOverlay();
     renderAll();
 
@@ -4975,6 +5002,24 @@ ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory()
 ui.cameraRegistryForm.addEventListener('submit', (event) => void addCameraConfig(event));
 ui.cameraCalibrationForm.addEventListener('submit', (event) => void saveCameraCalibrationForm(event));
 ui.closeCameraCalibration.addEventListener('click', closeCameraCalibration);
+ui.capturePrimaryEnvironment.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'capture-primary', persistHistory: false });
+  await saveCurrentEnvironmentView(true);
+})());
+ui.saveAlternateEnvironment.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'capture-alternate', persistHistory: false });
+  await saveCurrentEnvironmentView(false);
+})());
+ui.scanEnvironment.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'mapping-scan', persistHistory: false });
+  await scanEnvironmentMapping();
+})());
+ui.promoteEnvironmentPrimary.addEventListener('click', () => void (async () => {
+  await refreshEnvironmentObservation({ reason: 'promote-primary', persistHistory: false });
+  await promoteCurrentEnvironmentToPrimary();
+})());
+ui.acceptEnvironmentMap.addEventListener('click', () => void acceptEnvironmentMapping());
+ui.discardEnvironmentMap.addEventListener('click', discardEnvironmentMapping);
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
 ui.objectOverlay.addEventListener('change', drawOverlay);
@@ -4996,6 +5041,7 @@ if (navigator.mediaDevices?.addEventListener) {
 
 await reloadParticipants();
 await reloadCameraRegistry();
+await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
 renderAll();
