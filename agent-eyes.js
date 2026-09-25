@@ -228,6 +228,19 @@ import {
   listAgentBriefings,
   saveAgentBriefing
 } from './src/agent-briefing-store.js';
+import {
+  deliveryHandoff,
+  normalizeDeliveryContext
+} from './src/briefing-delivery-policy.js';
+import {
+  acknowledgeQueuedBriefing,
+  buildBriefingDigest,
+  deferBriefing,
+  enqueueBriefing,
+  markBriefingSurfaced,
+  readyBriefings,
+  reevaluateBriefingQueue
+} from './src/briefing-queue-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -529,6 +542,7 @@ const worldQueryListeners = new Set();
 const agentContextListeners = new Set();
 const worldWatchListeners = new Set();
 const agentBriefingListeners = new Set();
+const agentDeliveryListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -630,7 +644,8 @@ const runtime = {
   agentContext: null,
   worldWatches: [],
   worldWatchHistory: [],
-  agentBriefings: []
+  agentBriefings: [],
+  agentDeliveryContext: normalizeDeliveryContext({}, Date.now())
 };
 
 const SCAN_INTERVAL_MS = 550;
