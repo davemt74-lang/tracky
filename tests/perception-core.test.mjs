@@ -360,3 +360,18 @@ test('lost objects are pruned from long-running room state after retention', () 
 
   assert.equal(state.objects.O001, undefined);
 });
+
+
+test('camera fusion events are accepted by the perception event bus', () => {
+  const bus = new PerceptionEventBus();
+  const seen = [];
+  bus.subscribe('camera.handoff', (event) => seen.push(event));
+  bus.emit('camera.handoff', {
+    participantId:'p1',
+    participantName:'Dave',
+    confidence:0.91,
+    data:{fromCameraId:'CAM01',toCameraId:'CAM02'}
+  }, {timestamp:1});
+  assert.equal(seen.length,1);
+  assert.equal(seen[0].data.toCameraId,'CAM02');
+});
