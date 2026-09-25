@@ -102,8 +102,12 @@ import {
 } from './src/environment-store.js';
 import {
   buildRoomSceneGraph,
+  confirmGraphEdge,
+  confirmGraphNode,
   createSceneGraph,
+  graphFactsForEntity,
   markGraphFactsStale,
+  nearestGraphNode,
   sceneGraphSnapshot
 } from './src/scene-graph-core.js';
 import {
@@ -468,6 +472,40 @@ window.TrackyAgentEyes = Object.freeze({
   },
   refreshEnvironment() {
     return refreshEnvironmentObservation({ reason: 'agent-request' });
+  },
+  teachPhysicalEntity(input = {}) {
+    const node = confirmGraphNode(runtime.sceneGraph, {
+      ...input,
+      source: input.source || 'agent-teaching'
+    });
+    updatePhysicalWorldModel(Date.now());
+    return copySerializable(node);
+  },
+  teachPhysicalRelationship(input = {}) {
+    const edge = confirmGraphEdge(runtime.sceneGraph, {
+      ...input,
+      source: input.source || 'agent-teaching'
+    });
+    updatePhysicalWorldModel(Date.now());
+    return copySerializable(edge);
+  },
+  teachAtPoint(input = {}) {
+    const match = nearestGraphNode(
+      runtime.sceneGraph,
+      { x: input.x, y: input.y },
+      { types: input.types, maxDistance: input.maxDistance }
+    );
+    if (!match) return null;
+    const node = confirmGraphNode(runtime.sceneGraph, {
+      ...match.node,
+      label: input.label || match.node.label,
+      source: input.source || 'teach-by-pointing'
+    });
+    updatePhysicalWorldModel(Date.now());
+    return copySerializable({ node, distance: match.distance });
+  },
+  getPhysicalFacts(entityId) {
+    return copySerializable(graphFactsForEntity(runtime.sceneGraph, entityId));
   },
   eventTypes: PERCEPTION_EVENT_TYPES,
   sceneChangeTypes: SCENE_CHANGE_TYPES
