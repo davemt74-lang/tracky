@@ -160,7 +160,14 @@ export function rankWorldAttention(input = {}) {
     });
   }
 
-  if (Number(input.environment?.drift?.structuralDrift || 0) >= 0.35) {
+  if (input.environment?.drift?.likelyCameraShift) {
+    items.push({
+      priority: 0.86,
+      type: 'camera-pose-shift',
+      summary: 'Camera position appears to have shifted',
+      data: input.environment.drift
+    });
+  } else if (Number(input.environment?.drift?.structuralDrift || 0) >= 0.35) {
     items.push({
       priority: 0.84,
       type: 'structural-drift',
