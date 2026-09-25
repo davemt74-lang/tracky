@@ -23,9 +23,14 @@ test('resolves here to active room',()=>{
  const r=interpretWorldWatchCommand('Tell me when Sarah enters here',context(),[],1000);
  assert.equal(r.status,'ready'); assert.equal(r.watch.roomId,'ROOM01');
 });
-test('supports unscoped someone-entered-room watches',()=>{
+test('supports unscoped someone-entered-room watches without matching objects',()=>{
  const r=interpretWorldWatchCommand('Tell me when someone enters the office',context(),[],1000);
  assert.equal(r.status,'ready'); assert.equal(r.watch.subjectId,null); assert.equal(r.watch.roomId,'ROOM01');
+ assert.equal(r.watch.subjectKind,'person');
+});
+test('supports unscoped object language with object-only scope',()=>{
+ const r=interpretWorldWatchCommand('Tell me when something moves',context(),[],1000);
+ assert.equal(r.status,'ready'); assert.equal(r.watch.subjectId,null); assert.equal(r.watch.subjectKind,'object');
 });
 test('parses object movement watch',()=>{
  const r=interpretWorldWatchCommand('Tell me when the keys move',context(),[],1000);
