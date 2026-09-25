@@ -57,6 +57,7 @@ const requiredFiles = [
   'src/anomaly-store.js',
   'src/world-query-store.js',
   'src/world-query-core.js',
+  'src/agent-context-core.js',
   'src/anomaly-core.js'
 ];
 
@@ -130,8 +131,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.9.0') {
-  fail('package.json version must be 1.9.0');
+if (packageJson.version !== '2.0.0') {
+  fail('package.json version must be 2.0.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -182,7 +183,8 @@ for (const file of [
   'src/anomaly-core.js',
   'src/anomaly-store.js',
   'src/world-query-core.js',
-  'src/world-query-store.js'
+  'src/world-query-store.js',
+  'src/agent-context-core.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -732,6 +734,28 @@ for (const symbol of [
   }
 }
 
+const agentContextCore = read('src/agent-context-core.js');
+for (const symbol of [
+  'AGENT_CONTEXT_SCHEMA_VERSION',
+  'sanitizeAgentContext',
+  'buildAgentContext',
+  'diffAgentContext'
+]) {
+  if (!agentContextCore.includes(symbol)) {
+    fail('Agent context core is missing required V2.0 interface: ' + symbol);
+  }
+}
+for (const boundary of [
+  'semantic-context-only',
+  'no-raw-sensor-payloads',
+  'no-autonomous-physical-control',
+  'privacy-policy-remains-authoritative'
+]) {
+  if (!agentContextCore.includes(boundary)) {
+    fail('Agent context core is missing authority boundary: ' + boundary);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -767,6 +791,26 @@ for (const symbol of [
   if (!agentEyes.includes(symbol)) {
     fail('Agent Eyes is missing V1.9 world recall API: ' + symbol);
   }
+}
+
+for (const symbol of [
+  'getAgentContext',
+  'getAgentContextDelta',
+  'subscribeAgentContext'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V2.0 Agent context API: ' + symbol);
+  }
+}
+if (!/tracky:agent-context/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level V2.0 Agent context deltas');
+}
+if (!/from ['"]\.\/src\/world-query-core\.js['"]/.test(agentEyes) ||
+    !/from ['"]\.\/src\/world-query-store\.js['"]/.test(agentEyes)) {
+  fail('Agent Eyes must explicitly import the V1.9 world-query runtime dependencies');
+}
+if (!/from ['"]\.\/src\/agent-context-core\.js['"]/.test(agentEyes)) {
+  fail('Agent Eyes must explicitly import the V2.0 Agent context core');
 }
 if (!/worldQueryForm/.test(indexHtml) || !/worldQueryAnswer/.test(indexHtml) || !/worldQueryEvidence/.test(indexHtml)) {
   fail('Agent Eyes must expose V1.9 recall query and evidence UI');
@@ -1121,14 +1165,17 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.9-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.9 deploy ZIP');
+if (!/tracky-v2\.0-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V2.0 deploy ZIP');
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
   fail('CI V1.9 deploy package must include attention core and store');
 }
 if (!workflow.includes('src/anomaly-core.js') || !workflow.includes('src/anomaly-store.js')) {
   fail('CI V1.9 deploy package must include anomaly core and store');
+}
+if (!workflow.includes('src/agent-context-core.js')) {
+  fail('CI V2.0 deploy package must include Agent context core');
 }
 if (!workflow.includes('src/privacy-policy-core.js')) {
   fail('CI V1.9 deploy package must include privacy policy core');
