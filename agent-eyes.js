@@ -96,7 +96,9 @@ import {
 } from './src/environment-runtime.js';
 import {
   listEnvironmentRooms,
+  loadEnvironmentPolicy,
   saveEnvironmentHistory,
+  saveEnvironmentPolicy,
   saveEnvironmentRoom,
   saveEnvironmentView
 } from './src/environment-store.js';
@@ -144,6 +146,18 @@ import {
   loadSpatialMemory,
   saveSpatialMemory
 } from './src/spatial-memory-store.js';
+import {
+  applyObjectObservationPolicy,
+  applyParticipantObservationPolicy,
+  defaultObservationPolicy,
+  imageMaskRegions,
+  imageRetentionAllowed,
+  normalizeObservationPolicy,
+  normalizePrivacyRegion,
+  privacySummary,
+  sanitizeEventPayload,
+  transcriptRetentionAllowed
+} from './src/privacy-policy-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -175,6 +189,7 @@ const ui = {
   worldStatus: $('#eyesWorldStatus'),
   multiRoomTopStatus: $('#eyesMultiRoomStatus'),
   spatialMemoryTopStatus: $('#eyesSpatialMemoryStatus'),
+  privacyTopStatus: $('#eyesPrivacyStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -453,7 +468,12 @@ const runtime = {
   multiRoomEvents: [],
   selectedGlobalRoomId: null,
   spatialMemory: createSpatialMemoryState(),
-  spatialMemoryLastSavedAt: 0
+  spatialMemoryLastSavedAt: 0,
+  roomPolicies: {},
+  privacyStats: {
+    suppressedEvents: 0,
+    anonymizedEvents: 0
+  }
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -463,9 +483,44 @@ const GESTURE_COOLDOWN_MS = 2500;
 const OBJECT_GRACE_MS = OBJECT_TRACK_GRACE_MS;
 const INTERACTION_COOLDOWN_MS = 900;
 
+function policyForRoom(roomId) {
+  const id = roomId || primaryCameraConfig()?.roomId || roomState.roomId || 'ROOM01';
+  return runtime.roomPolicies[id] || defaultObservationPolicy(id);
+}
+
+function eventRoomId(payload = {}) {
+  return payload.data?.roomId ||
+    payload.data?.toRoomId ||
+    payload.roomId ||
+    primaryCameraConfig()?.roomId ||
+    roomState.roomId ||
+    'ROOM01';
+}
+
 function emit(type, payload = {}) {
-  return bus.emit(type, payload, {
-    roomId: roomState.roomId,
+  if (type === 'privacy.policy_changed') {
+    return bus.emit(type, payload, {
+      roomId: eventRoomId(payload),
+      timestamp: Date.now()
+    });
+  }
+
+  const policy = policyForRoom(eventRoomId(payload));
+  const sanitized = sanitizeEventPayload(type, payload, policy);
+  if (sanitized.suppressed) {
+    runtime.privacyStats.suppressedEvents += 1;
+    renderPrivacyPolicy();
+    return null;
+  }
+  if (
+    sanitized.payload?.participantId == null &&
+    payload.participantId != null
+  ) {
+    runtime.privacyStats.anonymizedEvents += 1;
+  }
+
+  return bus.emit(type, sanitized.payload, {
+    roomId: policy.roomId,
     timestamp: Date.now()
   });
 }
