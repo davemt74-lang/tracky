@@ -70,11 +70,11 @@ export function parseWorldWatchCommand(input){
   if(m) return result('create',{raw,watchType:'entity-moved',subjectText:txt(m[1],100),cooldownMs:cooldown});
 
   if(/\banomal(?:y|ies)\b/i.test(body)&&/\b(?:clear|clears|cleared|resolve|resolves|resolved|goes away)\b/i.test(body)){
-    const type=body.match(/\b(?:anomaly|anomalies)\s+(?:type\s+)?([a-z0-9_-]+)\b/i)?.[1]||null;
+    const type=body.match(/\b(?:anomaly|anomalies)\s+type\s+([a-z0-9_-]+)\b/i)?.[1]||null;
     return result('create',{raw,watchType:'anomaly-cleared',anomalyText:type?txt(type,100):null,cooldownMs:cooldown});
   }
   if(/\banomal(?:y|ies)\b/i.test(body)&&/\b(?:active|appears?|happens?|starts?|detected|shows up)\b/i.test(body)){
-    const type=body.match(/\b(?:anomaly|anomalies)\s+(?:type\s+)?([a-z0-9_-]+)\b/i)?.[1]||null;
+    const type=body.match(/\b(?:anomaly|anomalies)\s+type\s+([a-z0-9_-]+)\b/i)?.[1]||null;
     return result('create',{raw,watchType:'anomaly-active',anomalyText:type?txt(type,100):null,cooldownMs:cooldown});
   }
 
