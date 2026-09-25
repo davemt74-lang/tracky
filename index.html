@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.6 — Agent Eyes</title>
+  <title>Tracky V1.7 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.6 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.7 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -40,6 +40,7 @@
     <div><span>MULTI-ROOM</span><b id="eyesMultiRoomStatus">Standby</b></div>
     <div><span>SPATIAL MEMORY</span><b id="eyesSpatialMemoryStatus">Learning</b></div>
     <div><span>PRIVACY</span><b id="eyesPrivacyStatus">Policy ready</b></div>
+    <div><span>TASK / ATTENTION</span><b id="eyesTaskStatus">General awareness</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -404,6 +405,72 @@
         <span><b>IGNORE</b> suppresses observations.</span>
         <span><b>ANONYMOUS</b> preserves presence but strips identity.</span>
         <span><b>LIVE ONLY</b> permits live state but blocks retention/learning.</span>
+      </div>
+    </article>
+  </section>
+
+  <section class="attention-controller-grid">
+    <article class="hud-panel attention-task-panel">
+      <div class="hud-panel-head">
+        <div><small>TASK-CONDITIONED PERCEPTION</small><h2>Agent attention task</h2></div>
+        <span id="attentionTaskStatus" class="status-chip">General awareness</span>
+      </div>
+
+      <form id="attentionTaskForm" class="attention-task-form">
+        <label>Mode
+          <select id="attentionTaskMode">
+            <option value="general">General awareness</option>
+            <option value="find-object">Find object</option>
+            <option value="follow-participant">Follow participant</option>
+            <option value="conversation">Conversation</option>
+            <option value="environment-watch">Environment watch</option>
+            <option value="mapping">Mapping</option>
+            <option value="low-power">Low power</option>
+          </select>
+        </label>
+        <label>Target
+          <input id="attentionTarget" maxlength="80" placeholder="WO014, p1, phone, Dave">
+        </label>
+        <label>Room
+          <input id="attentionRoom" maxlength="32" placeholder="Optional ROOM01">
+        </label>
+        <label>Duration min
+          <input id="attentionDuration" type="number" min="0" max="1440" step="1" value="0">
+        </label>
+        <label class="switch-row compact-switch attention-sticky-row">
+          <input id="attentionSticky" type="checkbox">
+          Persist task across reload
+        </label>
+        <button class="hud-button primary" type="submit">Start task</button>
+        <button id="clearAttentionTask" class="hud-button" type="button">Return to general</button>
+      </form>
+
+      <p class="privacy-note">Tasks change priority and compute effort only. They cannot enable a camera, microphone, identity, transcript, memory, or observation capability blocked by the room privacy policy.</p>
+    </article>
+
+    <article class="hud-panel attention-budget-panel">
+      <div class="hud-panel-head">
+        <div><small>ADAPTIVE PERCEPTION BUDGET</small><h2>Compute allocation</h2></div>
+        <span id="attentionBudgetStatus" class="status-chip">Balanced</span>
+      </div>
+
+      <div class="attention-budget-summary">
+        <div><span>MAIN CAMERA</span><b id="attentionBudgetMain">550 ms</b></div>
+        <div><span>SECONDARY</span><b id="attentionBudgetSecondary">850 ms</b></div>
+        <div><span>ENV CHECK</span><b id="attentionBudgetEnvironment">60 s</b></div>
+        <div><span>INTENSITY</span><b id="attentionBudgetIntensity">balanced</b></div>
+      </div>
+      <div id="attentionBudgetCaps" class="attention-cap-list"></div>
+    </article>
+
+    <article class="hud-panel attention-queue-panel">
+      <div class="hud-panel-head">
+        <div><small>AGENT ATTENTION QUEUE</small><h2>What deserves attention</h2></div>
+        <span id="attentionQueueStatus" class="status-chip">0 pending</span>
+      </div>
+
+      <div id="attentionQueueList" class="attention-queue-list">
+        <div class="agent-empty">No task-conditioned attention items.</div>
       </div>
     </article>
   </section>
