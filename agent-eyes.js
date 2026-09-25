@@ -72,6 +72,7 @@ import {
   cameraCalibrationValid,
   cameraCoveragePolygon,
   cameraWithCoverage,
+  mapCameraBox,
   mapCameraPoint,
   normalizeCameraConfig
 } from './src/camera-core.js';
@@ -1380,15 +1381,25 @@ async function resolveIdentity(track, excludedParticipantIds) {
 }
 
 function roomPosition(track) {
-  return {
+  const camera = primaryCameraConfig();
+  if (!camera) {
+    return {
+      x: Number(track.cx || 0.5),
+      y: Number(track.cy || 0.5),
+      box: track.box ? { ...track.box } : null,
+      cameraId: null
+    };
+  }
+
+  const point = mapCameraPoint(camera, {
     x: Number(track.cx || 0.5),
-    y: Number(track.cy || 0.5),
-    box: track.box ? {
-      x: track.box.x,
-      y: track.box.y,
-      width: track.box.width,
-      height: track.box.height
-    } : null
+    y: Number(track.cy || 0.5)
+  });
+
+  return {
+    ...point,
+    box: track.box ? mapCameraBox(camera, track.box) : null,
+    cameraId: camera.id
   };
 }
 
@@ -1736,15 +1747,25 @@ function analyzeBehaviors(now) {
 
 
 function objectRoomPosition(objectTrack) {
-  return {
+  const camera = primaryCameraConfig();
+  if (!camera) {
+    return {
+      x: Number(objectTrack.cx || 0.5),
+      y: Number(objectTrack.cy || 0.5),
+      box: objectTrack.box ? { ...objectTrack.box } : null,
+      cameraId: null
+    };
+  }
+
+  const point = mapCameraPoint(camera, {
     x: Number(objectTrack.cx || 0.5),
-    y: Number(objectTrack.cy || 0.5),
-    box: objectTrack.box ? {
-      x: objectTrack.box.x,
-      y: objectTrack.box.y,
-      width: objectTrack.box.width,
-      height: objectTrack.box.height
-    } : null
+    y: Number(objectTrack.cy || 0.5)
+  });
+
+  return {
+    ...point,
+    box: objectTrack.box ? mapCameraBox(camera, objectTrack.box) : null,
+    cameraId: camera.id
   };
 }
 
