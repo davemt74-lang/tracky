@@ -4135,6 +4135,9 @@ ui.closeObjectInspector.addEventListener('click', closeObjectEvidenceInspector);
 ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
 ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
 ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
+ui.cameraRegistryForm.addEventListener('submit', (event) => void addCameraConfig(event));
+ui.cameraCalibrationForm.addEventListener('submit', (event) => void saveCameraCalibrationForm(event));
+ui.closeCameraCalibration.addEventListener('click', closeCameraCalibration);
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
 ui.objectOverlay.addEventListener('change', drawOverlay);
@@ -4148,7 +4151,15 @@ window.addEventListener('resize', () => {
 });
 window.addEventListener('beforeunload', stopPerception);
 
+if (navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    void enumerateCameras();
+  });
+}
+
 await reloadParticipants();
+await reloadCameraRegistry();
+await enumerateCameras();
 await initializeSceneMemory();
 renderAll();
 renderEventFeed();
