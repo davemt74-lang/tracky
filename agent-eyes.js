@@ -228,6 +228,19 @@ import {
   listAgentBriefings,
   saveAgentBriefing
 } from './src/agent-briefing-store.js';
+import {
+  deliveryHandoff,
+  normalizeDeliveryContext
+} from './src/briefing-delivery-policy.js';
+import {
+  acknowledgeQueuedBriefing,
+  buildBriefingDigest,
+  deferBriefing,
+  enqueueBriefing,
+  markBriefingSurfaced,
+  readyBriefings,
+  reevaluateBriefingQueue
+} from './src/briefing-queue-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -529,6 +542,7 @@ const worldQueryListeners = new Set();
 const agentContextListeners = new Set();
 const worldWatchListeners = new Set();
 const agentBriefingListeners = new Set();
+const agentDeliveryListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -630,7 +644,8 @@ const runtime = {
   agentContext: null,
   worldWatches: [],
   worldWatchHistory: [],
-  agentBriefings: []
+  agentBriefings: [],
+  agentDeliveryContext: normalizeDeliveryContext({}, Date.now())
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -839,9 +854,92 @@ function worldWatchCommandContext() {
   };
 }
 
+function currentAgentDeliveryContext(now = Date.now()) {
+  const activeRoomId = runtime.agentDeliveryContext.activeRoomId ||
+    primaryCameraConfig()?.roomId ||
+    runtime.fusionState.roomId ||
+    roomState.roomId ||
+    null;
+  const taskMode = runtime.agentDeliveryContext.taskMode !== 'general'
+    ? runtime.agentDeliveryContext.taskMode
+    : runtime.attention.activeTask?.mode || 'general';
+  return normalizeDeliveryContext({
+    ...runtime.agentDeliveryContext,
+    activeRoomId,
+    taskMode
+  }, now);
+}
+
+async function persistAgentBriefingQueue() {
+  for (const briefing of runtime.agentBriefings.slice(0, 50)) {
+    try {
+      await saveAgentBriefing(briefing);
+    } catch (error) {
+      console.error('Could not persist Agent briefing queue record', error);
+    }
+  }
+}
+
+function publishAgentDeliveryReady(briefing, reason = 'policy-ready', now = Date.now()) {
+  const plan = {
+    state: briefing.deliveryState,
+    reason: briefing.deliveryReason || reason,
+    ready: briefing.deliveryReady === true,
+    interrupt: briefing.interrupt === true,
+    voiceEligible: briefing.voiceEligible === true
+  };
+  const handoff = deliveryHandoff(
+    briefing,
+    plan,
+    currentAgentDeliveryContext(now),
+    now
+  );
+  const detail = copySerializable({ briefing, handoff, reason });
+  for (const listener of agentDeliveryListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:agent-delivery-ready', { detail }));
+  return detail;
+}
+
+async function reevaluateAgentBriefingDelivery(update = {}, reason = 'context-update', now = Date.now(), options = {}) {
+  const prior = new Map(runtime.agentBriefings.map((item) => [
+    item.id,
+    { state: item.deliveryState, ready: item.deliveryReady === true }
+  ]));
+  runtime.agentDeliveryContext = normalizeDeliveryContext({
+    ...runtime.agentDeliveryContext,
+    ...update
+  }, now);
+  runtime.agentBriefings = reevaluateBriefingQueue(
+    runtime.agentBriefings,
+    currentAgentDeliveryContext(now),
+    now
+  ).slice(0, 50);
+  await persistAgentBriefingQueue();
+
+  if (options.dispatchReady !== false) {
+    for (const briefing of readyBriefings(runtime.agentBriefings)) {
+      const before = prior.get(briefing.id);
+      if (!before?.ready || before.state !== 'ready') {
+        publishAgentDeliveryReady(briefing, reason, now);
+      }
+    }
+  }
+  return copySerializable({
+    context: currentAgentDeliveryContext(now),
+    ready: readyBriefings(runtime.agentBriefings),
+    queue: runtime.agentBriefings
+  });
+}
+
 async function initializeAgentBriefings() {
   try {
     runtime.agentBriefings = await listAgentBriefings(50);
+    runtime.agentBriefings = reevaluateBriefingQueue(
+      runtime.agentBriefings,
+      currentAgentDeliveryContext(Date.now()),
+      Date.now()
+    ).slice(0, 50);
+    await persistAgentBriefingQueue();
   } catch (error) {
     console.error('Could not load Agent briefings', error);
     runtime.agentBriefings = [];
@@ -850,29 +948,60 @@ async function initializeAgentBriefings() {
 
 async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
   const briefing = buildAgentBriefing(event, watch || {}, now);
+  const result = enqueueBriefing(
+    runtime.agentBriefings,
+    briefing,
+    currentAgentDeliveryContext(now),
+    now
+  );
+  runtime.agentBriefings = result.queue.slice(0, 50);
   try {
-    await saveAgentBriefing(briefing);
+    await saveAgentBriefing(result.entry);
   } catch (error) {
     console.error('Could not persist Agent briefing', error);
   }
-  runtime.agentBriefings = [
-    briefing,
-    ...runtime.agentBriefings.filter((item) => item.id !== briefing.id)
-  ].slice(0, 50);
-  const detail = copySerializable({ briefing, reason });
+
+  const detail = copySerializable({
+    briefing: result.entry,
+    reason,
+    coalesced: result.coalesced
+  });
   for (const listener of agentBriefingListeners) listener(detail);
   window.dispatchEvent(new CustomEvent('tracky:agent-briefing', { detail }));
-  return copySerializable(briefing);
+
+  if (result.entry.deliveryReady) {
+    publishAgentDeliveryReady(result.entry, reason, now);
+  }
+  return copySerializable(result.entry);
 }
 
 async function acknowledgePhysicalAgentBriefing(id, now = Date.now()) {
   const current = runtime.agentBriefings.find((item) => item.id === id);
   if (!current) return null;
-  const updated = acknowledgeAgentBriefing(current, now);
+  runtime.agentBriefings = acknowledgeQueuedBriefing(runtime.agentBriefings, id, now);
+  const updated = runtime.agentBriefings.find((item) => item.id === id);
   await saveAgentBriefing(updated);
-  runtime.agentBriefings = runtime.agentBriefings.map((item) => (
-    item.id === id ? updated : item
-  ));
+  return copySerializable(updated);
+}
+
+async function markPhysicalAgentBriefingSurfaced(id, now = Date.now()) {
+  const current = runtime.agentBriefings.find((item) => item.id === id);
+  if (!current) return null;
+  runtime.agentBriefings = markBriefingSurfaced(runtime.agentBriefings, id, now);
+  const updated = runtime.agentBriefings.find((item) => item.id === id);
+  await saveAgentBriefing(updated);
+  return copySerializable(updated);
+}
+
+async function deferPhysicalAgentBriefing(id, delayMs = 300000, reason = 'user-deferred', now = Date.now()) {
+  const current = runtime.agentBriefings.find((item) => item.id === id);
+  if (!current) return null;
+  const manualReason = String(reason || 'deferred').startsWith('user-')
+    ? String(reason)
+    : 'user-' + String(reason || 'deferred');
+  runtime.agentBriefings = deferBriefing(runtime.agentBriefings, id, delayMs, manualReason, now);
+  const updated = runtime.agentBriefings.find((item) => item.id === id);
+  await saveAgentBriefing(updated);
   return copySerializable(updated);
 }
 
@@ -1554,6 +1683,30 @@ window.TrackyAgentEyes = Object.freeze({
   getPendingAgentBriefings() {
     return copySerializable(pendingAgentBriefings(runtime.agentBriefings));
   },
+  getAgentDeliveryContext() {
+    return copySerializable(currentAgentDeliveryContext(Date.now()));
+  },
+  setAgentDeliveryContext(context = {}) {
+    return reevaluateAgentBriefingDelivery(context, 'agent-delivery-context');
+  },
+  getAgentBriefingQueue(limit = 50) {
+    return copySerializable(runtime.agentBriefings.slice(0, Math.max(1, Math.min(50, Number(limit || 50)))));
+  },
+  getReadyAgentBriefings() {
+    return copySerializable(readyBriefings(runtime.agentBriefings));
+  },
+  getNextAgentBriefing() {
+    return copySerializable(readyBriefings(runtime.agentBriefings)[0] || null);
+  },
+  getAgentBriefingDigest(limit = 8) {
+    return copySerializable(buildBriefingDigest(runtime.agentBriefings, limit, Date.now()));
+  },
+  markAgentBriefingSurfaced(id) {
+    return markPhysicalAgentBriefingSurfaced(id);
+  },
+  deferAgentBriefing(id, delayMs = 300000, reason = 'user-deferred') {
+    return deferPhysicalAgentBriefing(id, delayMs, reason);
+  },
   acknowledgeAgentBriefing(id) {
     return acknowledgePhysicalAgentBriefing(id);
   },
@@ -1661,6 +1814,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAgentBriefings(listener) {
     agentBriefingListeners.add(listener);
     return () => agentBriefingListeners.delete(listener);
+  },
+  subscribeAgentDelivery(listener) {
+    agentDeliveryListeners.add(listener);
+    return () => agentDeliveryListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -8521,3 +8678,12 @@ renderEventFeed();
 renderRoomState();
 setHealth('standby');
 setInterval(updateClock, 1000);
+setInterval(() => {
+  const now = Date.now();
+  const due = runtime.agentBriefings.some((item) => (
+    !['acknowledged','expired','surfaced'].includes(item.deliveryState) &&
+    Number(item.retryAt || 0) > 0 &&
+    Number(item.retryAt) <= now
+  ));
+  if (due) void reevaluateAgentBriefingDelivery({}, 'delivery-timer', now);
+}, 15000);

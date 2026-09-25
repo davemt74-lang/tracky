@@ -3,6 +3,97 @@
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
 
+## V2.3 — Proactive Agent Briefing Queue & Delivery Policy
+
+V2.3 adds a governed delivery layer above V2.2 Agent briefings. Tracky now decides when a briefing is ready to hand off, when it should wait, when it belongs in a digest, and how it should recover after disconnects.
+
+Tracky still does not speak, render, interrupt, or execute physical actions on its own. The downstream Agent supplies live delivery context and remains responsible for presentation and voice.
+
+### Delivery context
+
+The Agent can provide:
+
+- connected / disconnected state
+- active conversation state
+- voice-enabled state
+- do-not-disturb state
+- active room
+- active task mode
+- Agent idle time
+- delivery channel
+
+A missing context defaults to disconnected, preventing Tracky from assuming that a downstream Agent is available.
+
+### Delivery policy
+
+Briefings can be:
+
+- queued
+- ready
+- deferred
+- digest
+- surfaced
+- acknowledged
+- expired
+
+High-urgency items can become delivery-ready during an active conversation and are marked as interruption-eligible. Medium items defer during conversation. Low/info items normally enter the digest path. DND defers non-high items.
+
+Low-confidence non-high briefings defer rather than being surfaced as if they were certain.
+
+### Queue, coalescing, and recovery
+
+Related briefing events inside the coalescing window are merged into one queue record with an occurrence count.
+
+The queue is persisted through the existing local Agent briefing store. V2.2-era pending records are migrated into the V2.3 queue when loaded.
+
+When the Agent is disconnected, briefings remain durable. When the Agent later reports that it is connected, the queue is re-evaluated immediately and newly-ready items emit a delivery-ready handoff.
+
+User deferrals such as `tell me later` remain deferred until their requested retry time. Automatic deferrals caused by disconnects, conversation, DND, or context can recover as soon as the blocking condition clears.
+
+### Digest mode
+
+Low-urgency physical-world updates can be pulled as a bounded semantic digest, suitable for a downstream Agent to present as a concise “while you were away” update.
+
+### Voice-ready handoff, not TTS authority
+
+A delivery-ready handoff can declare that voice is eligible and provide compact text to speak.
+
+It also explicitly declares:
+
+- `delivery-policy-only`
+- `no-direct-tts`
+- `no-ui-interruption-authority`
+- `no-autonomous-physical-control`
+
+Tracky never calls TTS merely because voice is enabled. The downstream Agent chooses whether and how to speak.
+
+### V2.3 Agent APIs
+
+```js
+TrackyAgentEyes.getAgentDeliveryContext()
+TrackyAgentEyes.setAgentDeliveryContext(context)
+
+TrackyAgentEyes.getAgentBriefingQueue(limit)
+TrackyAgentEyes.getReadyAgentBriefings()
+TrackyAgentEyes.getNextAgentBriefing()
+TrackyAgentEyes.getAgentBriefingDigest(limit)
+
+TrackyAgentEyes.markAgentBriefingSurfaced(id)
+TrackyAgentEyes.deferAgentBriefing(id, delayMs, reason)
+TrackyAgentEyes.acknowledgeAgentBriefing(id)
+
+TrackyAgentEyes.subscribeAgentDelivery(handler)
+```
+
+Browser integrations receive:
+
+```text
+tracky:agent-delivery-ready
+```
+
+The event contains the governed briefing plus a delivery handoff describing why it is ready, whether interruption is permitted, and whether voice is eligible.
+
+
 ## V2.2 — Natural-Language Watches & Agent Briefing Delivery
 
 V2.2 lets the Agent turn ordinary language into the governed V2.1 physical-world watch model and deliver triggered watches as compact Agent briefings.
