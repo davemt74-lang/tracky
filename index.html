@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.1 — Agent Eyes</title>
+  <title>Tracky V1.2 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,9 +13,9 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.1 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.2 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
-        <p>Live visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
+        <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
     </div>
     <nav class="jarvis-nav">
@@ -34,6 +34,7 @@
     <div><span>BEHAVIOR</span><b id="eyesBehaviorStatus">Standby</b></div>
     <div><span>OBJECTS</span><b id="eyesObjectStatus">Standby</b></div>
     <div><span>SCENE MEMORY</span><b id="eyesSceneStatus">Standby</b></div>
+    <div><span>CAMERA FUSION</span><b id="eyesFusionStatus">Single camera</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -41,7 +42,7 @@
     <button id="startEyes" class="hud-button primary">Enable Agent Eyes</button>
     <button id="startEars" class="hud-button">Enable room audio</button>
     <button id="stopPerception" class="hud-button" disabled>Stop perception</button>
-    <label>Camera
+    <label>Main camera
       <select id="eyesCameraSelect" disabled>
         <option>Default camera</option>
       </select>
@@ -170,6 +171,66 @@
         <pre id="roomStateJson" class="room-state-json" tabindex="0">{}</pre>
       </section>
     </aside>
+  </section>
+
+  <section class="multi-camera-grid">
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>CAMERA NETWORK</small><h2>Room cameras</h2></div>
+        <span id="cameraNetworkStatus" class="status-chip">0 configured</span>
+      </div>
+
+      <form id="cameraRegistryForm" class="camera-registry-form">
+        <label>Device
+          <select id="cameraRegistryDevice">
+            <option value="">Select camera</option>
+          </select>
+        </label>
+        <label>Name
+          <input id="cameraRegistryName" maxlength="40" placeholder="Door camera">
+        </label>
+        <label>Room
+          <input id="cameraRegistryRoom" maxlength="32" value="ROOM01">
+        </label>
+        <label>X %
+          <input id="cameraCoverageX" type="number" min="0" max="100" step="1" value="0">
+        </label>
+        <label>Y %
+          <input id="cameraCoverageY" type="number" min="0" max="100" step="1" value="0">
+        </label>
+        <label>Width %
+          <input id="cameraCoverageWidth" type="number" min="2" max="100" step="1" value="100">
+        </label>
+        <label>Height %
+          <input id="cameraCoverageHeight" type="number" min="2" max="100" step="1" value="100">
+        </label>
+        <button class="hud-button primary" type="submit">Add camera</button>
+      </form>
+
+      <div id="cameraRegistryList" class="camera-registry-list">
+        <div class="agent-empty">Start Agent Eyes to discover cameras, then add secondary room sensors.</div>
+      </div>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>FUSED ROOM COORDINATES</small><h2>World map</h2></div>
+        <span id="worldMapStatus" class="status-chip">Single camera</span>
+      </div>
+      <div class="world-map" id="worldMap">
+        <div class="world-map-grid" aria-hidden="true"></div>
+        <div id="worldMapCoverage" class="world-map-coverage"></div>
+        <div id="worldMapEntities" class="world-map-entities"></div>
+        <span class="world-map-label">ROOM COORDINATES · MULTI-CAMERA FUSION</span>
+      </div>
+      <div class="world-map-summary">
+        <div><span>CAMERAS ONLINE</span><b id="worldCameraCount">0</b></div>
+        <div><span>FUSED PEOPLE</span><b id="worldPersonCount">0</b></div>
+        <div><span>FUSED OBJECTS</span><b id="worldObjectCount">0</b></div>
+        <div><span>OVERLAPS</span><b id="worldOverlapCount">0</b></div>
+      </div>
+      <p class="privacy-note">Known identities can hand off between cameras through enrolled face identity. Unknown bodies may be deduplicated in overlapping calibrated views, but geometry alone is never promoted to personal identity.</p>
+    </article>
   </section>
 
   <section class="scene-intelligence-grid">
@@ -363,6 +424,44 @@
       <strong>Agent-readable</strong>
     </div>
     <pre id="sceneInspectorJson" class="room-state-json">{}</pre>
+  </section>
+</aside>
+
+<aside id="cameraCalibrationInspector" class="evidence-inspector" hidden aria-label="Camera calibration inspector">
+  <div class="evidence-inspector-head">
+    <div>
+      <small>CAMERA CALIBRATION</small>
+      <strong id="cameraCalibrationName">Camera</strong>
+      <span id="cameraCalibrationMeta">Map camera corners into shared room coordinates.</span>
+    </div>
+    <button id="closeCameraCalibration" class="hud-button" type="button">Close</button>
+  </div>
+
+  <form id="cameraCalibrationForm" class="camera-calibration-form">
+    <div class="camera-calibration-corners">
+      <label>Top-left X %<input id="cameraTLX" type="number" min="0" max="100" step=".1"></label>
+      <label>Top-left Y %<input id="cameraTLY" type="number" min="0" max="100" step=".1"></label>
+      <label>Top-right X %<input id="cameraTRX" type="number" min="0" max="100" step=".1"></label>
+      <label>Top-right Y %<input id="cameraTRY" type="number" min="0" max="100" step=".1"></label>
+      <label>Bottom-right X %<input id="cameraBRX" type="number" min="0" max="100" step=".1"></label>
+      <label>Bottom-right Y %<input id="cameraBRY" type="number" min="0" max="100" step=".1"></label>
+      <label>Bottom-left X %<input id="cameraBLX" type="number" min="0" max="100" step=".1"></label>
+      <label>Bottom-left Y %<input id="cameraBLY" type="number" min="0" max="100" step=".1"></label>
+    </div>
+    <label class="switch-row compact-switch">
+      <input id="cameraCalibrationEnabled" type="checkbox" checked>
+      Camera enabled
+    </label>
+    <button class="hud-button primary" type="submit">Save calibration</button>
+  </form>
+
+  <section class="evidence-block">
+    <div class="evidence-block-head">
+      <small>CALIBRATION MODEL</small>
+      <strong>4-point homography</strong>
+    </div>
+    <p class="scene-inspector-summary">Each camera's four image corners map into normalized shared-room coordinates. Rectangle coverage is the quick setup; these corner controls allow perspective-aware quadrilateral calibration.</p>
+    <pre id="cameraCalibrationJson" class="room-state-json">{}</pre>
   </section>
 </aside>
 
