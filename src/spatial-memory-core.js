@@ -240,7 +240,10 @@ function recordRelationshipEvidence(state, input, now) {
     evidence.observations >= 6 &&
     sessions >= 3 &&
     avg >= 0.72 &&
-    !['near','left-of','right-of','above','below'].includes(input.predicate)
+    ![
+      'near','left-of','right-of','above','below',
+      'owned-by','belongs-to','located-in','contains','has-portal'
+    ].includes(input.predicate)
   ) {
     upsertProposal(state, {
       type: 'stable-relationship',
@@ -432,6 +435,57 @@ export function expectedLocationFor(state, entityIdValue) {
 
 export function entityHistory(state, entityIdValue, limit = 50) {
   return (state.entities[entityIdValue]?.history || []).slice(-Math.max(1, limit));
+}
+
+
+export function entityJourney(state, entityIdValue, limit = 30) {
+  const history = entityHistory(state, entityIdValue, 200);
+  const journey = [];
+
+  for (const entry of history) {
+    const key = [
+      entry.roomId || '',
+      entry.anchorId || '',
+      entry.holderParticipantId || '',
+      entry.event || ''
+    ].join('|');
+    const previous = journey[journey.length - 1];
+    if (previous?.key === key) {
+      previous.lastObservedAt = entry.timestamp;
+      previous.observations += 1;
+      previous.confidence = Math.max(previous.confidence, Number(entry.confidence || 0));
+      continue;
+    }
+
+    journey.push({
+      key,
+      roomId: entry.roomId || null,
+      anchorId: entry.anchorId || null,
+      anchorLabel: entry.anchorLabel || null,
+      holderParticipantId: entry.holderParticipantId || null,
+      event: entry.event || 'observed',
+      firstObservedAt: entry.timestamp,
+      lastObservedAt: entry.timestamp,
+      observations: 1,
+      confidence: Number(entry.confidence || 0)
+    });
+  }
+
+  return journey.slice(-Math.max(1, limit));
+}
+
+export function expectedLocationStatus(state, entity, landmarks = []) {
+  if (!entity?.id) return { state:'unknown', expected:null, currentAnchor:null };
+  const expected = expectedLocationFor(state, entity.id);
+  if (!expected) return { state:'unlearned', expected:null, currentAnchor:null };
+
+  const currentAnchor = nearestAnchor(entity.roomPosition, landmarks);
+  const targetId = currentAnchor?.id || ('ROOM:' + entity.roomId);
+  return {
+    state: targetId === expected.targetId ? 'at-expected' : 'away-from-expected',
+    expected,
+    currentAnchor
+  };
 }
 
 export function spatialMemorySnapshot(state) {
