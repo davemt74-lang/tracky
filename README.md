@@ -3,6 +3,69 @@
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
 
+## V2.1 — Physical-World Watches & Agent Briefing Triggers
+
+V2.1 adds durable, local-first watch conditions above the V2.0 governed Agent-context stream.
+
+A watch never reads raw camera/audio/provider payloads directly. It evaluates only the privacy-governed semantic context and its semantic delta.
+
+Supported watch types:
+
+- `entity-enters-room`
+- `entity-leaves-room`
+- `entity-moved`
+- `anomaly-active`
+- `anomaly-cleared`
+- `priority-threshold`
+
+Examples:
+
+- tell me when the keys move
+- tell me when someone enters the office
+- tell me when a specific anomaly clears
+- alert the Agent when a governed priority crosses a threshold
+
+### Durable local watches
+
+Watch definitions and recent trigger history are stored locally in IndexedDB. Definitions are bounded to 100 watches and history to 250 trigger records.
+
+Each watch can include:
+
+- subject ID or exact semantic label
+- room ID
+- anomaly signature or anomaly type
+- priority threshold
+- enabled state
+- cooldown duration
+- last-triggered timestamp
+
+Cooldown is applied before a trigger is produced, preventing repeated semantic updates from creating trigger storms.
+
+### Agent APIs
+
+```js
+TrackyAgentEyes.addWorldWatch(input)
+TrackyAgentEyes.removeWorldWatch(id)
+TrackyAgentEyes.getWorldWatches()
+TrackyAgentEyes.getWorldWatchHistory(limit)
+TrackyAgentEyes.clearWorldWatchHistory()
+TrackyAgentEyes.subscribeWorldWatches(handler)
+```
+
+Browser integrations can listen for:
+
+```text
+tracky:world-watch
+```
+
+Watch triggers contain only compact semantic evidence and explicitly declare:
+
+- `semantic-context-only`
+- `privacy-governed-context`
+- `no-autonomous-physical-control`
+
+The watch layer can inform the Agent Brain that something meaningful happened, but it cannot execute a physical action.
+
 ## V2.0 — Governed Agent Context & Situation Briefing
 
 V2.0 turns Tracky's physical-world perception, recall, privacy, attention, and anomaly layers into a compact semantic context stream that an Agent Brain can consume directly.
