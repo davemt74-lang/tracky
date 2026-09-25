@@ -695,7 +695,11 @@ function meaningfulAttentionEvent(type) {
     'anomaly.confirmed',
     'anomaly.cleared',
     'anomaly.acknowledged',
-    'anomaly.dismissed'
+    'anomaly.dismissed',
+    'verification.started',
+    'verification.completed',
+    'verification.blocked',
+    'verification.cancelled'
   ]).has(type);
 }
 
@@ -840,6 +844,7 @@ function updateAnomalyAwareness(now = Date.now()) {
   }));
   renderProactiveAwareness();
   void persistAnomalyState(false);
+  syncVerificationRequests(now);
   return snapshot;
 }
 
@@ -879,6 +884,7 @@ function dismissActiveAnomaly(signature, suppressMs = 60 * 60 * 1000) {
     confidence: anomaly.confidence,
     data: anomaly
   });
+  cancelActiveVerification(signature);
   updateAttentionController(Date.now());
   renderProactiveAwareness();
   void persistAnomalyState(true);
@@ -7703,6 +7709,23 @@ function eventLabel(event) {
     case 'proactive_awareness.updated':
       return 'Proactive awareness updated · ' +
         String(event.data?.activeCount || 0) + ' active';
+    case 'verification.started':
+      return 'Verification started · ' +
+        String(event.data?.anomalyType || 'physical-world evidence');
+    case 'verification.evidence_added':
+      return 'Verification evidence · ' +
+        String(event.data?.evidenceCount || 0) + ' observations / ' +
+        String(event.data?.sourceCount || 0) + ' sources';
+    case 'verification.completed':
+      return 'Verification ' +
+        String(event.data?.verificationResult || event.data?.result || 'completed') +
+        ' · ' + String(event.data?.anomalyType || 'physical-world evidence');
+    case 'verification.blocked':
+      return 'Verification blocked by observation policy · ' +
+        String(event.data?.anomalyType || 'physical-world evidence');
+    case 'verification.cancelled':
+      return 'Verification cancelled · ' +
+        String(event.data?.anomalyType || 'physical-world evidence');
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -7865,6 +7888,7 @@ function renderSignals() {
 
 function renderAll() {
   renderProactiveAwareness();
+  renderVerification();
   renderAttentionController();
   renderEnvironmentPanel();
   renderPrivacyPolicy();
@@ -8315,6 +8339,7 @@ await enumerateCameras();
 await initializeSceneMemory();
 await initializeSpatialMemory();
 await initializeAnomalyState();
+await initializeVerificationState();
 await initializeAttentionState();
 renderAll();
 renderEventFeed();
