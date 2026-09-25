@@ -44,6 +44,21 @@ test('startup loads durable briefings before the Agent-context baseline',()=>{
   assert.ok(briefings>=0);assert.ok(baseline>briefings);
 });
 
+test('startup persists migrated briefing queue records',()=>{
+  const start=source.indexOf('async function initializeAgentBriefings()');
+  const end=source.indexOf('async function deliverAgentBriefing(',start);
+  const block=source.slice(start,end);
+  assert.match(block,/await persistAgentBriefingQueue\(\)/);
+});
+
+test('manual Agent defer is normalized to a user-owned defer reason',()=>{
+  const start=source.indexOf('async function deferPhysicalAgentBriefing(');
+  const end=source.indexOf('async function clearPhysicalAgentBriefings(',start);
+  const block=source.slice(start,end);
+  assert.match(block,/startsWith\('user-'\)/);
+  assert.match(block,/'user-' \+ String/);
+});
+
 test('delivery timer re-evaluates due deferred records',()=>{
   assert.match(source,/delivery-timer/);
   assert.match(source,/Number\(item\.retryAt\) <= now/);
