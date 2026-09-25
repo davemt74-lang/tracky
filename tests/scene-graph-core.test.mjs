@@ -99,3 +99,17 @@ test('later vision evidence cannot downgrade user-confirmed node or edge',()=>{
   assert.equal(graph.edges['WO1::home-location::L1'].state,'user-confirmed');
   assert.ok(graph.nodes.L1.confidence>=.98);
 });
+
+
+test('detector refresh cannot rename a user-confirmed physical entity',()=>{
+  const graph=createSceneGraph('ROOM01');
+  confirmGraphNode(graph,{id:'L1',type:'landmark',label:'Dave desk',position:{x:.3,y:.4}},1000);
+  upsertGraphNode(graph,{
+    id:'L1',type:'landmark',label:'table',state:'observed',
+    confidence:.8,position:{x:.31,y:.4},
+    properties:{detectorLabel:'table'}
+  });
+  assert.equal(graph.nodes.L1.label,'Dave desk');
+  assert.equal(graph.nodes.L1.properties.detectorLabel,'table');
+  assert.equal(graph.nodes.L1.state,'user-confirmed');
+});
