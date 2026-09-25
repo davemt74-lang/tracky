@@ -53,7 +53,8 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'visibility.changed',
   'spatial_memory.proposed',
   'spatial_memory.confirmed',
-  'spatial_memory.ignored'
+  'spatial_memory.ignored',
+  'privacy.policy_changed'
 ]);
 
 const KNOWN_TYPES = new Set(PERCEPTION_EVENT_TYPES);
@@ -136,6 +137,13 @@ export function createRoomState(roomId = 'default-room') {
     health: {
       perception: 'standby',
       warnings: []
+    },
+    privacy: {
+      mode: 'observe',
+      regionCount: 0,
+      identity: true,
+      transcriptStorage: true,
+      spatialMemory: true
     }
   };
 }
@@ -520,6 +528,13 @@ export function applyPerceptionEvent(state, event) {
       }
       break;
 
+    case 'privacy.policy_changed':
+      state.privacy = {
+        ...state.privacy,
+        ...(event.data?.summary || {})
+      };
+      break;
+
     case 'sensor.status':
       if (event.data?.sensor && event.data?.status) {
         state.sensors[event.data.sensor] = event.data.status;
@@ -563,6 +578,7 @@ export function roomStateSnapshot(state) {
     health: {
       perception: state.health.perception,
       warnings: Array.from(state.health.warnings || [])
-    }
+    },
+    privacy: { ...(state.privacy || {}) }
   };
 }
