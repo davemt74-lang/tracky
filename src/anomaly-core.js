@@ -308,6 +308,14 @@ export function dismissAnomaly(state, signature, now = Date.now(), suppressMs = 
   return dismissed;
 }
 
+function roomPolicyAllowsEnvironment(context, roomId) {
+  const policy = context.policies?.[roomId];
+  return !policy || (
+    policy.allowVisualObservation !== false &&
+    policy.allowEnvironmentComparison !== false
+  );
+}
+
 function roomPolicyAllowsObject(context, roomId) {
   const policy = context.policies?.[roomId];
   return !policy || (
@@ -354,7 +362,11 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
   }
 
   const environment = context.environment;
-  if (environment?.classification === 'unknown') {
+  const environmentAllowed = roomPolicyAllowsEnvironment(
+    context,
+    context.activeRoomId
+  );
+  if (environmentAllowed && environment?.classification === 'unknown') {
     signals.push({
       type: 'environment-unrecognized',
       confidence: Math.max(0.55, 1 - Number(environment.best?.score || 0)),
@@ -369,7 +381,7 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
     });
   }
 
-  const drift = environment?.drift;
+  const drift = environmentAllowed ? environment?.drift : null;
   if (drift?.likelyCameraShift) {
     signals.push({
       type: 'camera-pose-shift',
@@ -394,7 +406,9 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
     });
   }
 
-  const quality = context.currentEnvironment?.quality;
+  const quality = environmentAllowed
+    ? context.currentEnvironment?.quality
+    : null;
   if (quality && Number(quality.score || 0) < 0.22) {
     signals.push({
       type: 'camera-quality-degraded',
