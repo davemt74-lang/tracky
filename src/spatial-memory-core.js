@@ -333,7 +333,10 @@ export function observeSpatialMemory(state, input = {}, now = Date.now()) {
       anchorId: anchor?.id,
       holderParticipantId: object.holderParticipantId
     });
-    if (now - Number(state.lastEvidenceAt[dedupe] || 0) < MIN_EVIDENCE_INTERVAL_MS) continue;
+    if (
+      state.lastEvidenceAt[dedupe] != null &&
+      now - Number(state.lastEvidenceAt[dedupe]) < MIN_EVIDENCE_INTERVAL_MS
+    ) continue;
     state.lastEvidenceAt[dedupe] = now;
 
     appendEntityHistory(state, id, {
@@ -374,7 +377,10 @@ export function observeSpatialMemory(state, input = {}, now = Date.now()) {
       roomId: participant.roomId,
       anchorId: anchor?.id
     });
-    if (now - Number(state.lastEvidenceAt[dedupe] || 0) < MIN_EVIDENCE_INTERVAL_MS) continue;
+    if (
+      state.lastEvidenceAt[dedupe] != null &&
+      now - Number(state.lastEvidenceAt[dedupe]) < MIN_EVIDENCE_INTERVAL_MS
+    ) continue;
     state.lastEvidenceAt[dedupe] = now;
 
     appendEntityHistory(state, id, {
@@ -404,7 +410,8 @@ export function observeSpatialMemory(state, input = {}, now = Date.now()) {
       relation: edge.predicate
     });
     if (
-      now - Number(state.lastEvidenceAt[relationEvidenceKey] || 0) <
+      state.lastEvidenceAt[relationEvidenceKey] != null &&
+      now - Number(state.lastEvidenceAt[relationEvidenceKey]) <
       MIN_EVIDENCE_INTERVAL_MS
     ) continue;
     state.lastEvidenceAt[relationEvidenceKey] = now;
