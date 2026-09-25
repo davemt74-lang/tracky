@@ -1269,6 +1269,7 @@ function publishMultiRoomEvent(event) {
 }
 
 function updateRoomVisibility() {
+  const previousVisibility = runtime.roomVisibility || {};
   const visibility = {};
 
   for (const [roomId, room] of Object.entries(runtime.roomFusionStates)) {
@@ -1310,6 +1311,43 @@ function updateRoomVisibility() {
   }
 
   runtime.roomVisibility = visibility;
+
+  for (const [roomId, state] of Object.entries(visibility)) {
+    for (const [entityId, result] of Object.entries(state.participants || {})) {
+      const prior = previousVisibility?.[roomId]?.participants?.[entityId];
+      if (prior?.state && prior.state !== result.state) {
+        emit('visibility.changed', {
+          source: 'multi-room-visibility',
+          confidence: result.confidence,
+          data: {
+            roomId,
+            entityType: 'participant',
+            entityId,
+            state: result.state,
+            previousState: prior.state,
+            expectedCameraIds: result.expectedCameraIds
+          }
+        });
+      }
+    }
+    for (const [entityId, result] of Object.entries(state.objects || {})) {
+      const prior = previousVisibility?.[roomId]?.objects?.[entityId];
+      if (prior?.state && prior.state !== result.state) {
+        emit('visibility.changed', {
+          source: 'multi-room-visibility',
+          confidence: result.confidence,
+          data: {
+            roomId,
+            entityType: 'object',
+            entityId,
+            state: result.state,
+            previousState: prior.state,
+            expectedCameraIds: result.expectedCameraIds
+          }
+        });
+      }
+    }
+  }
 }
 
 function publishRoomStates() {
