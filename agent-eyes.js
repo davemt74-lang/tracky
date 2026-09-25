@@ -1568,6 +1568,19 @@ function eventLabel(event) {
       return (event.participantName || event.trackId || 'Face') + ' face out of view';
     case 'conversation.participant_joined':
       return (event.participantName || event.trackId) + ' joined ' + event.conversationGroup;
+    case 'behavior.changed':
+      return (event.participantName || event.trackId || 'Participant') + ' behavior → ' +
+        [
+          event.data?.behavior?.posture,
+          event.data?.behavior?.motion,
+          event.data?.behavior?.orientation
+        ].filter(Boolean).join(' · ');
+    case 'attention.changed':
+      return (event.participantName || event.trackId || 'Participant') + ' attention → ' +
+        (event.data?.attention?.targetName || event.data?.attention?.targetType || 'unknown');
+    case 'gesture.detected':
+      return (event.participantName || event.trackId || 'Participant') + ' gesture → ' +
+        String(event.data?.gesture || 'gesture');
     case 'transcript.turn':
       return (event.participantName || 'Unknown speaker') + ': ' + String(event.data?.text || '');
     case 'sensor.status':
@@ -1700,6 +1713,12 @@ function renderSignals() {
       : runtime.audioPath === 'script-processor-fallback'
         ? 'Compatibility'
         : 'Offline';
+  ui.poseCount.textContent = String(
+    runtime.tracks.filter((track) => track.behaviorEvidence?.poseConfidence >= 0.28).length
+  );
+  ui.attentionCount.textContent = String(
+    runtime.tracks.filter((track) => Number(track.behaviorEvidence?.attention?.confidence || 0) >= 0.32).length
+  );
 }
 
 function renderAll() {
