@@ -2,6 +2,181 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.5 — Spatial Memory & Learned Physical Knowledge
+
+V1.5 adds a conservative learning layer above the V1.4 multi-room world.
+
+The goal is not to make observations magically become truth. The learning pipeline is:
+
+```text
+observation
+  → repeated evidence
+  → learned proposal
+  → explicit review
+  → confirmed physical knowledge
+```
+
+### Semantic spatial memory
+
+Tracky now keeps bounded semantic history for world entities without storing continuous video.
+
+For an object or participant, history can record:
+
+- room
+- nearest stable landmark
+- holder when relevant
+- confidence
+- normalized position
+- semantic event
+- timestamp
+- source
+
+Repeated identical states are compressed into semantic journeys rather than exposed as frame-by-frame telemetry.
+
+### Expected locations
+
+Confirmed, unheld objects can accumulate evidence for where they are normally observed.
+
+Evidence is tied to:
+
+- room
+- nearest stable landmark when available
+- observation count
+- distinct perception sessions
+- average confidence
+- first/last observation time
+
+A candidate expected location requires at least several observations across several independent sessions before a proposal can exist.
+
+Held objects do **not** train a home location.
+
+An observed candidate and an authoritative expected location are different things:
+
+- `getExpectedLocationEvidence(entityId)` returns the strongest learned candidate evidence
+- `getExpectedLocation(entityId)` returns only a user-confirmed learned expectation
+
+### Learned relationships
+
+Stable scene-graph relationships may accumulate evidence across sessions and become proposals.
+
+The learning engine explicitly refuses to learn ownership from passive observation.
+
+Relationships such as:
+
+- `owned-by`
+- `belongs-to`
+
+are never promoted from repeated visual evidence.
+
+Ephemeral spatial relationships such as `near`, `left-of`, or `right-of` are also excluded from durable relationship learning.
+
+### Circulation patterns
+
+Verified participant room transitions can build evidence for recurring movement paths.
+
+Example:
+
+```text
+Office → Hallway
+6 observed transitions
+3 independent sessions
+```
+
+This becomes an observational `circulation-pattern` proposal only.
+
+It does not claim intent and it does not create or alter physical room topology.
+
+### Proposal governance
+
+Learned knowledge appears in a Review Required panel.
+
+Each proposal may be:
+
+- Confirmed
+- Ignored
+
+Confirmed expected-location/stable-relationship proposals may become user-confirmed scene-graph facts when their entities are present in the active graph.
+
+Ignored proposals are remembered so the same learned suggestion is not immediately recreated.
+
+### User authority
+
+V1.5 preserves the V1.3 authority hierarchy:
+
+```text
+user-confirmed fact
+  > confirmed learned proposal
+  > repeated learned evidence
+  > inferred relationship
+  > single observation
+```
+
+Clearing learned spatial memory removes learned evidence, journeys, recurring-route evidence, and unconfirmed proposals.
+
+It does not erase already user-confirmed physical scene-graph facts.
+
+### Entity journeys
+
+Agent Eyes exposes compressed semantic journeys such as:
+
+```text
+phone
+Office · Desk
+  → Dave holding
+  → Kitchen · Counter
+```
+
+This is intended to answer questions such as:
+
+- Where has this object been?
+- Where was it last observed?
+- Who was holding it?
+- Which room/landmark was it associated with?
+
+without replaying raw sensor history.
+
+### Local persistence
+
+Spatial memory is stored in a separate local IndexedDB database.
+
+The memory state contains:
+
+- bounded entity histories
+- expected-location evidence
+- stable-relationship evidence
+- circulation evidence
+- proposals
+- ignored proposal keys
+
+Learning evidence is time-gated so high-frequency camera/model refreshes cannot inflate confidence.
+
+### Agent API
+
+V1.5 adds:
+
+```js
+TrackyAgentEyes.getSpatialMemory()
+TrackyAgentEyes.getExpectedLocation(entityId)
+TrackyAgentEyes.getExpectedLocationEvidence(entityId)
+TrackyAgentEyes.getEntityHistory(entityId, limit)
+TrackyAgentEyes.getEntityJourney(entityId, limit)
+TrackyAgentEyes.subscribeSpatialMemory(handler)
+TrackyAgentEyes.confirmMemoryProposal(key)
+TrackyAgentEyes.ignoreMemoryProposal(key)
+```
+
+Spatial memory updates are also dispatched as:
+
+```text
+tracky:spatial-memory
+```
+
+Proposal lifecycle events include:
+
+- `spatial_memory.proposed`
+- `spatial_memory.confirmed`
+- `spatial_memory.ignored`
+
 ## V1.4 — Multi-Room World & Cross-Room Continuity
 
 V1.4 moves Agent Eyes above a single-room model and maintains a coherent physical world across multiple mapped rooms.

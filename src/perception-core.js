@@ -50,7 +50,10 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'object.room_transition',
   'portal.crossing',
   'world.topology_changed',
-  'visibility.changed'
+  'visibility.changed',
+  'spatial_memory.proposed',
+  'spatial_memory.confirmed',
+  'spatial_memory.ignored'
 ]);
 
 const KNOWN_TYPES = new Set(PERCEPTION_EVENT_TYPES);

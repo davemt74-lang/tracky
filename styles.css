@@ -2189,3 +2189,136 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
   .topology-connect-form button{grid-column:auto}
   .global-room-map{min-height:420px}
 }
+
+/* V1.5 — learned spatial memory */
+.spatial-memory-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(340px,.8fr) minmax(320px,.8fr);
+  gap:12px;
+  margin-top:12px;
+  align-items:start;
+}
+.spatial-memory-summary{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:1px;
+  border:1px solid rgba(78,232,255,.09);
+  background:rgba(78,232,255,.09);
+}
+.spatial-memory-summary>div{
+  padding:7px;
+  background:rgba(1,9,13,.96);
+}
+.spatial-memory-summary span,
+.spatial-memory-summary b{display:block}
+.spatial-memory-summary span{
+  color:var(--muted);
+  font-size:.42rem;
+  font-weight:900;
+}
+.spatial-memory-summary b{
+  margin-top:2px;
+  color:var(--cyan);
+  font-size:.66rem;
+}
+.spatial-memory-facts,
+.spatial-proposal-list,
+.spatial-journey-list{
+  display:grid;
+  gap:5px;
+  margin-top:8px;
+  max-height:330px;
+  overflow:auto;
+}
+.spatial-memory-fact,
+.spatial-proposal-row,
+.spatial-journey-row{
+  padding:8px;
+  border:1px solid rgba(78,232,255,.11);
+  border-radius:8px;
+  background:rgba(2,11,15,.48);
+}
+.spatial-memory-fact.confirmed{
+  border-left:2px solid var(--green);
+  background:rgba(7,28,18,.22);
+}
+.spatial-memory-fact strong,
+.spatial-memory-fact span{display:block}
+.spatial-memory-fact strong{font-size:.59rem}
+.spatial-memory-fact span{
+  margin-top:3px;
+  color:var(--muted);
+  font-size:.47rem;
+  line-height:1.35;
+}
+.spatial-memory-actions{
+  display:flex;
+  justify-content:flex-end;
+  margin-top:8px;
+}
+.spatial-proposal-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  border-left:2px solid var(--amber);
+}
+.spatial-proposal-row small,
+.spatial-proposal-row strong,
+.spatial-proposal-row span{display:block}
+.spatial-proposal-row small{
+  color:var(--amber);
+  font-size:.44rem;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.spatial-proposal-row strong{
+  margin-top:2px;
+  font-size:.59rem;
+}
+.spatial-proposal-row span{
+  margin-top:3px;
+  color:var(--muted);
+  font-size:.46rem;
+}
+.spatial-proposal-actions{
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.spatial-journey-row>strong{
+  display:block;
+  margin-bottom:6px;
+  font-size:.58rem;
+}
+.spatial-journey-path{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+  align-items:center;
+}
+.spatial-journey-path span{
+  padding:4px 6px;
+  border:1px solid rgba(184,120,255,.14);
+  border-radius:999px;
+  color:#d7b9f8;
+  background:rgba(20,8,28,.25);
+  font-size:.45rem;
+}
+.spatial-journey-path span:not(:last-child)::after{
+  content:' →';
+  margin-left:5px;
+  color:var(--muted);
+}
+@media(max-width:1280px){
+  .spatial-memory-grid{grid-template-columns:1fr 1fr}
+  .spatial-memory-grid>article:first-child{grid-column:1/-1}
+}
+@media(max-width:800px){
+  .spatial-memory-grid{grid-template-columns:1fr}
+  .spatial-memory-grid>article:first-child{grid-column:auto}
+}
+@media(max-width:600px){
+  .spatial-memory-summary{grid-template-columns:1fr 1fr}
+  .spatial-proposal-row{grid-template-columns:1fr}
+}

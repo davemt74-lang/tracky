@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.4 — Agent Eyes</title>
+  <title>Tracky V1.5 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.4 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.5 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -38,6 +38,7 @@
     <div><span>ENVIRONMENT</span><b id="eyesEnvironmentStatus">No baseline</b></div>
     <div><span>WORLD MODEL</span><b id="eyesWorldStatus">Standby</b></div>
     <div><span>MULTI-ROOM</span><b id="eyesMultiRoomStatus">Standby</b></div>
+    <div><span>SPATIAL MEMORY</span><b id="eyesSpatialMemoryStatus">Learning</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -327,6 +328,51 @@
       </div>
       <div id="multiRoomTransitionFeed" class="multi-room-transition-feed">
         <div class="agent-empty">No cross-room transitions recorded.</div>
+      </div>
+    </article>
+  </section>
+
+  <section class="spatial-memory-grid">
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>LEARNED PHYSICAL KNOWLEDGE</small><h2>Spatial memory</h2></div>
+        <span id="spatialMemoryStatus" class="status-chip">Learning</span>
+      </div>
+
+      <div class="spatial-memory-summary">
+        <div><span>ENTITIES</span><b id="spatialMemoryEntityCount">0</b></div>
+        <div><span>EXPECTED LOCATIONS</span><b id="spatialExpectedCount">0</b></div>
+        <div><span>ROUTES</span><b id="spatialRouteCount">0</b></div>
+        <div><span>PROPOSALS</span><b id="spatialProposalCount">0</b></div>
+      </div>
+
+      <div id="spatialMemoryFacts" class="spatial-memory-facts">
+        <div class="agent-empty">Repeated physical-world observations will build expected-location and relationship evidence.</div>
+      </div>
+
+      <div class="spatial-memory-actions">
+        <button id="clearSpatialMemory" class="hud-button" type="button">Clear learned memory</button>
+      </div>
+      <p class="privacy-note">Spatial memory stores semantic evidence and learned proposals locally. It does not infer ownership and never promotes a learned proposal without confirmation.</p>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>REVIEW REQUIRED</small><h2>Learning proposals</h2></div>
+        <span id="spatialProposalStatus" class="status-chip">0 pending</span>
+      </div>
+      <div id="spatialProposalList" class="spatial-proposal-list">
+        <div class="agent-empty">No learned physical facts are waiting for confirmation.</div>
+      </div>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>SEMANTIC HISTORY</small><h2>Entity journeys</h2></div>
+        <span id="spatialJourneyStatus" class="status-chip">No history</span>
+      </div>
+      <div id="spatialJourneyList" class="spatial-journey-list">
+        <div class="agent-empty">Object and participant journeys will appear after repeated observations.</div>
       </div>
     </article>
   </section>
