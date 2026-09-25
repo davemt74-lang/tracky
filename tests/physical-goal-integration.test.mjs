@@ -42,6 +42,9 @@ test('goal context requires broad calibrated live camera coverage for empty asse
   const end=source.indexOf('function physicalGoalCommandContext(',start);
   const block=source.slice(start,end);
   assert.match(block,/allowVisualObservation !== false/);
+  assert.match(block,/allowAnonymousTracking !== false/);
+  assert.match(block,/hasParticipantBlindSpot/);
+  assert.match(block,/region\.mode === 'ignore'/);
   assert.match(block,/roomCoverageConfidence\[room\.id\].*>= 0\.85/s);
 });
 
