@@ -12,11 +12,16 @@ function id(prefix,now=Date.now()){
 }
 function arr(value){ return Array.isArray(value)?value:[]; }
 function subjectKey(item){ return String(item?.participantId||item?.objectId||item?.subjectId||item?.id||''); }
+function subjectKind(item){
+  if(item?.participantId) return 'person';
+  if(item?.objectId) return 'object';
+  return null;
+}
 function allEntities(context={}){
   return [...arr(context.people),...arr(context.objects)];
 }
 function matchingEntities(context,watch){
-  const entities=allEntities(context);
+  const entities=allEntities(context).filter((item)=>!watch.subjectKind||subjectKind(item)===watch.subjectKind);
   if(watch.subjectId) return entities.filter((item)=>subjectKey(item)===watch.subjectId);
   if(watch.subjectLabel){
     const matches=entities.filter((item)=>txt(item.label,80).toLowerCase()===watch.subjectLabel.toLowerCase());
@@ -27,12 +32,18 @@ function matchingEntities(context,watch){
 function findEntity(context,watch){
   return matchingEntities(context,watch)[0]||null;
 }
+function matchingAnomalies(context,watch){
+  return arr(context?.anomalies).filter((item)=>{
+    if(watch.anomalySignature) return item.signature===watch.anomalySignature;
+    if(watch.anomalyType) return item.type===watch.anomalyType;
+    return true;
+  });
+}
 function findAnomaly(context,watch){
-  return arr(context?.anomalies).find((item)=>{
-    if(watch.anomalySignature&&item.signature===watch.anomalySignature) return true;
-    if(watch.anomalyType&&item.type===watch.anomalyType) return true;
-    return !watch.anomalySignature&&!watch.anomalyType;
-  })||null;
+  return matchingAnomalies(context,watch)[0]||null;
+}
+function anomalyKey(item){
+  return String(item?.signature||[item?.type||'anomaly',item?.roomId||'',item?.subjectId||item?.objectId||item?.participantId||''].join('::'));
 }
 function trigger(watch,type,summary,now,evidence={}){
   return {
@@ -57,6 +68,7 @@ export function normalizeWorldWatch(input={},now=Date.now()){
     enabled:input.enabled!==false,
     subjectId:txt(input.subjectId||'',120)||null,
     subjectLabel:txt(input.subjectLabel||'',80)||null,
+    subjectKind:['person','object'].includes(String(input.subjectKind||''))?String(input.subjectKind):null,
     roomId:txt(input.roomId||'',120)||null,
     anomalySignature:txt(input.anomalySignature||'',140)||null,
     anomalyType:txt(input.anomalyType||'',100)||null,
@@ -131,20 +143,34 @@ export function evaluateWorldWatch(input,previous={},current={},delta={},now=Dat
   }
 
   if(watch.type==='anomaly-active'){
+    const scoped=Boolean(watch.anomalySignature||watch.anomalyType);
     const before=findAnomaly(previous,watch);
     const after=findAnomaly(current,watch);
-    if(after&&!before){
+    if(scoped&&after&&!before){
       return trigger(watch,watch.type,after.summary||'A watched anomaly became active.',now,
         {anomalySignature:after.signature,anomalyType:after.type,roomId:after.roomId,confidence:after.confidence});
+    }
+    if(!scoped){
+      const beforeKeys=new Set(matchingAnomalies(previous,watch).map(anomalyKey));
+      const added=matchingAnomalies(current,watch).find((item)=>!beforeKeys.has(anomalyKey(item)));
+      if(added) return trigger(watch,watch.type,added.summary||'An anomaly became active.',now,
+        {anomalySignature:added.signature,anomalyType:added.type,roomId:added.roomId,confidence:added.confidence});
     }
   }
 
   if(watch.type==='anomaly-cleared'){
+    const scoped=Boolean(watch.anomalySignature||watch.anomalyType);
     const before=findAnomaly(previous,watch);
     const after=findAnomaly(current,watch);
-    if(before&&!after){
+    if(scoped&&before&&!after){
       return trigger(watch,watch.type,(before.summary||before.type||'Watched anomaly')+' cleared.',now,
         {anomalySignature:before.signature,anomalyType:before.type,roomId:before.roomId,confidence:before.confidence});
+    }
+    if(!scoped){
+      const afterKeys=new Set(matchingAnomalies(current,watch).map(anomalyKey));
+      const cleared=matchingAnomalies(previous,watch).find((item)=>!afterKeys.has(anomalyKey(item)));
+      if(cleared) return trigger(watch,watch.type,(cleared.summary||cleared.type||'Anomaly')+' cleared.',now,
+        {anomalySignature:cleared.signature,anomalyType:cleared.type,roomId:cleared.roomId,confidence:cleared.confidence});
     }
   }
 

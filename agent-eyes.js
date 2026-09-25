@@ -215,6 +215,19 @@ import {
   saveWorldWatch,
   saveWorldWatchTrigger
 } from './src/world-watch-store.js';
+import {
+  interpretWorldWatchCommand
+} from './src/world-watch-language-core.js';
+import {
+  acknowledgeAgentBriefing,
+  buildAgentBriefing,
+  pendingAgentBriefings
+} from './src/agent-briefing-core.js';
+import {
+  clearAgentBriefings as clearAgentBriefingsStore,
+  listAgentBriefings,
+  saveAgentBriefing
+} from './src/agent-briefing-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -515,6 +528,7 @@ const anomalyListeners = new Set();
 const worldQueryListeners = new Set();
 const agentContextListeners = new Set();
 const worldWatchListeners = new Set();
+const agentBriefingListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -615,7 +629,8 @@ const runtime = {
   recentWorldQueries: [],
   agentContext: null,
   worldWatches: [],
-  worldWatchHistory: []
+  worldWatchHistory: [],
+  agentBriefings: []
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -812,6 +827,116 @@ async function initializeWorldWatches() {
   }
 }
 
+function worldWatchCommandContext() {
+  const context = currentAgentContext({}, Date.now());
+  return {
+    ...context,
+    rooms: runtime.environmentRooms.map((room) => ({
+      id: room.id,
+      name: room.name || room.label || room.id,
+      label: room.label || room.name || room.id
+    }))
+  };
+}
+
+async function initializeAgentBriefings() {
+  try {
+    runtime.agentBriefings = await listAgentBriefings(50);
+  } catch (error) {
+    console.error('Could not load Agent briefings', error);
+    runtime.agentBriefings = [];
+  }
+}
+
+async function deliverAgentBriefing(event, watch, reason, now = Date.now()) {
+  const briefing = buildAgentBriefing(event, watch || {}, now);
+  try {
+    await saveAgentBriefing(briefing);
+  } catch (error) {
+    console.error('Could not persist Agent briefing', error);
+  }
+  runtime.agentBriefings = [
+    briefing,
+    ...runtime.agentBriefings.filter((item) => item.id !== briefing.id)
+  ].slice(0, 50);
+  const detail = copySerializable({ briefing, reason });
+  for (const listener of agentBriefingListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:agent-briefing', { detail }));
+  return copySerializable(briefing);
+}
+
+async function acknowledgePhysicalAgentBriefing(id, now = Date.now()) {
+  const current = runtime.agentBriefings.find((item) => item.id === id);
+  if (!current) return null;
+  const updated = acknowledgeAgentBriefing(current, now);
+  await saveAgentBriefing(updated);
+  runtime.agentBriefings = runtime.agentBriefings.map((item) => (
+    item.id === id ? updated : item
+  ));
+  return copySerializable(updated);
+}
+
+async function clearPhysicalAgentBriefings() {
+  await clearAgentBriefingsStore();
+  runtime.agentBriefings = [];
+  return true;
+}
+
+async function processWorldWatchCommand(input) {
+  const interpreted = interpretWorldWatchCommand(
+    input,
+    worldWatchCommandContext(),
+    runtime.worldWatches,
+    Date.now()
+  );
+  if (interpreted.status !== 'ready') return copySerializable(interpreted);
+
+  if (interpreted.intent === 'create') {
+    const watch = await addPhysicalWorldWatch(interpreted.watch);
+    return copySerializable({
+      ...interpreted,
+      watch,
+      message: 'Watch created: ' + watch.label + '.'
+    });
+  }
+  if (interpreted.intent === 'list') {
+    return copySerializable({
+      ...interpreted,
+      watches: runtime.worldWatches,
+      message: runtime.worldWatches.length
+        ? 'You have ' + runtime.worldWatches.length + ' physical-world watch' + (runtime.worldWatches.length === 1 ? '.' : 'es.')
+        : 'You have no physical-world watches.'
+    });
+  }
+  if (interpreted.intent === 'remove') {
+    await removePhysicalWorldWatch(interpreted.watch.id);
+    return copySerializable({
+      ...interpreted,
+      message: 'Watch removed: ' + interpreted.watch.label + '.'
+    });
+  }
+  if (interpreted.intent === 'pause' || interpreted.intent === 'resume') {
+    const enabled = interpreted.intent === 'resume';
+    const watch = await addPhysicalWorldWatch({
+      ...interpreted.watch,
+      enabled
+    });
+    return copySerializable({
+      ...interpreted,
+      watch,
+      message: (enabled ? 'Watch resumed: ' : 'Watch paused: ') + watch.label + '.'
+    });
+  }
+  if (interpreted.intent === 'clear-history') {
+    await clearPhysicalWorldWatchHistory();
+    return copySerializable({
+      ...interpreted,
+      message: 'Physical-world watch trigger history cleared.'
+    });
+  }
+  return copySerializable(interpreted);
+}
+
 async function evaluatePhysicalWorldWatches(previous, current, delta, reason, now = Date.now()) {
   const events = evaluateWorldWatches(runtime.worldWatches, previous || {}, current || {}, delta, now);
   if (!events.length) return [];
@@ -827,6 +952,7 @@ async function evaluatePhysicalWorldWatches(previous, current, delta, reason, no
     const detail = copySerializable({ event, reason });
     for (const listener of worldWatchListeners) listener(detail);
     window.dispatchEvent(new CustomEvent('tracky:world-watch', { detail }));
+    await deliverAgentBriefing(event, watch, reason, now);
   }
   return copySerializable(events);
 }
@@ -1411,6 +1537,29 @@ window.TrackyAgentEyes = Object.freeze({
   clearWorldWatchHistory() {
     return clearPhysicalWorldWatchHistory();
   },
+  interpretWorldWatch(input) {
+    return copySerializable(interpretWorldWatchCommand(
+      input,
+      worldWatchCommandContext(),
+      runtime.worldWatches,
+      Date.now()
+    ));
+  },
+  processWorldWatchCommand(input) {
+    return processWorldWatchCommand(input);
+  },
+  getAgentBriefings(limit = 50) {
+    return copySerializable(runtime.agentBriefings.slice(0, Math.max(1, Math.min(50, Number(limit || 50)))));
+  },
+  getPendingAgentBriefings() {
+    return copySerializable(pendingAgentBriefings(runtime.agentBriefings));
+  },
+  acknowledgeAgentBriefing(id) {
+    return acknowledgePhysicalAgentBriefing(id);
+  },
+  clearAgentBriefings() {
+    return clearPhysicalAgentBriefings();
+  },
   queryPhysicalWorld(query) {
     return runPhysicalWorldQuery(query);
   },
@@ -1508,6 +1657,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeWorldWatches(listener) {
     worldWatchListeners.add(listener);
     return () => worldWatchListeners.delete(listener);
+  },
+  subscribeAgentBriefings(listener) {
+    agentBriefingListeners.add(listener);
+    return () => agentBriefingListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -8361,6 +8514,7 @@ await initializeAnomalyState();
 await initializeAttentionState();
 await initializeWorldQueries();
 await initializeWorldWatches();
+await initializeAgentBriefings();
 runtime.agentContext = currentAgentContext({}, Date.now());
 renderAll();
 renderEventFeed();

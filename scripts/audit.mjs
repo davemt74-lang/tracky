@@ -60,6 +60,9 @@ const requiredFiles = [
   'src/agent-context-core.js',
   'src/world-watch-core.js',
   'src/world-watch-store.js',
+  'src/world-watch-language-core.js',
+  'src/agent-briefing-core.js',
+  'src/agent-briefing-store.js',
   'src/anomaly-core.js'
 ];
 
@@ -107,6 +110,12 @@ const runtimeJs = [
   'src/anomaly-store.js',
   'src/world-query-store.js',
   'src/world-query-core.js',
+  'src/agent-context-core.js',
+  'src/world-watch-core.js',
+  'src/world-watch-store.js',
+  'src/world-watch-language-core.js',
+  'src/agent-briefing-core.js',
+  'src/agent-briefing-store.js',
   'src/anomaly-core.js'
 ];
 
@@ -133,8 +142,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '2.1.0') {
-  fail('package.json version must be 2.1.0');
+if (packageJson.version !== '2.2.0') {
+  fail('package.json version must be 2.2.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -188,7 +197,10 @@ for (const file of [
   'src/world-query-store.js',
   'src/agent-context-core.js',
   'src/world-watch-core.js',
-  'src/world-watch-store.js'
+  'src/world-watch-store.js',
+  'src/world-watch-language-core.js',
+  'src/agent-briefing-core.js',
+  'src/agent-briefing-store.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -796,6 +808,51 @@ for (const symbol of [
   }
 }
 
+const worldWatchLanguageCore = read('src/world-watch-language-core.js');
+for (const symbol of [
+  'parseWorldWatchCommand',
+  'resolveWorldWatchCommand',
+  'interpretWorldWatchCommand'
+]) {
+  if (!worldWatchLanguageCore.includes(symbol)) {
+    fail('World watch language core is missing required V2.2 interface: ' + symbol);
+  }
+}
+if (!/ambiguous/.test(worldWatchLanguageCore) || !/not-found/.test(worldWatchLanguageCore)) {
+  fail('V2.2 natural-language watch resolution must preserve ambiguity and unresolved references');
+}
+
+const agentBriefingCore = read('src/agent-briefing-core.js');
+for (const symbol of [
+  'buildAgentBriefing',
+  'acknowledgeAgentBriefing',
+  'pendingAgentBriefings'
+]) {
+  if (!agentBriefingCore.includes(symbol)) {
+    fail('Agent briefing core is missing required V2.2 interface: ' + symbol);
+  }
+}
+for (const boundary of [
+  'semantic-briefing-only',
+  'privacy-governed-context',
+  'no-autonomous-physical-control'
+]) {
+  if (!agentBriefingCore.includes(boundary)) {
+    fail('Agent briefing core is missing authority boundary: ' + boundary);
+  }
+}
+
+const agentBriefingStore = read('src/agent-briefing-store.js');
+for (const symbol of [
+  'saveAgentBriefing',
+  'listAgentBriefings',
+  'clearAgentBriefings'
+]) {
+  if (!agentBriefingStore.includes(symbol)) {
+    fail('Agent briefing store is missing required V2.2 persistence interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -864,6 +921,32 @@ if (!/tracky:world-watch/.test(agentEyes)) {
 if (!/from ['"]\.\/src\/world-watch-core\.js['"]/.test(agentEyes) ||
     !/from ['"]\.\/src\/world-watch-store\.js['"]/.test(agentEyes)) {
   fail('Agent Eyes must explicitly import the V2.1 world-watch runtime dependencies');
+}
+
+for (const symbol of [
+  'interpretWorldWatch',
+  'processWorldWatchCommand',
+  'getAgentBriefings',
+  'getPendingAgentBriefings',
+  'acknowledgeAgentBriefing',
+  'clearAgentBriefings',
+  'subscribeAgentBriefings'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V2.2 conversational-watch/briefing API: ' + symbol);
+  }
+}
+if (!/tracky:agent-briefing/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level V2.2 Agent briefings');
+}
+for (const modulePath of [
+  './src/world-watch-language-core.js',
+  './src/agent-briefing-core.js',
+  './src/agent-briefing-store.js'
+]) {
+  if (!agentEyes.includes("from '" + modulePath + "'")) {
+    fail('Agent Eyes must explicitly import V2.2 runtime dependency: ' + modulePath);
+  }
 }
 if (!/from ['"]\.\/src\/world-query-core\.js['"]/.test(agentEyes) ||
     !/from ['"]\.\/src\/world-query-store\.js['"]/.test(agentEyes)) {
@@ -1225,8 +1308,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v2\.1-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V2.1 deploy ZIP');
+if (!/tracky-v2\.2-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V2.2 deploy ZIP');
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
   fail('CI V1.9 deploy package must include attention core and store');
@@ -1239,6 +1322,16 @@ if (!workflow.includes('src/agent-context-core.js')) {
 }
 if (!workflow.includes('src/world-watch-core.js') || !workflow.includes('src/world-watch-store.js')) {
   fail('CI V2.1 deploy package must include world-watch core and store');
+}
+
+for (const file of [
+  'src/world-watch-language-core.js',
+  'src/agent-briefing-core.js',
+  'src/agent-briefing-store.js'
+]) {
+  if (!workflow.includes(file)) {
+    fail('CI V2.2 deploy package must include ' + file);
+  }
 }
 if (!workflow.includes('src/privacy-policy-core.js')) {
   fail('CI V1.9 deploy package must include privacy policy core');
@@ -1271,5 +1364,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );

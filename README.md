@@ -3,6 +3,75 @@
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
 
+## V2.2 — Natural-Language Watches & Agent Briefing Delivery
+
+V2.2 lets the Agent turn ordinary language into the governed V2.1 physical-world watch model and deliver triggered watches as compact Agent briefings.
+
+Examples:
+
+- `Tell me when Dave gets to the kitchen.`
+- `Let me know when the keys move.`
+- `Alert me when an anomaly clears.`
+- `Alert me when priority is above 85 percent.`
+- `What am I watching?`
+- `Pause watch W1.`
+- `Resume watch W1.`
+- `Stop watching Dave enters Kitchen.`
+
+### Deterministic local interpretation
+
+Natural-language watch commands are parsed locally into the existing V2.1 watch types. Entity and room references are resolved only against the governed semantic context and known room directory.
+
+Tracky does not guess when a reference is ambiguous or unknown. It returns an `ambiguous` or `not-found` result with compact semantic candidates so the Agent can ask the user which one they meant.
+
+Supported conversational intents:
+
+- create watch
+- list watches
+- remove watch
+- pause watch
+- resume watch
+- clear watch trigger history
+
+Optional phrases such as `no more than every 5 minutes` become watch cooldowns.
+
+### Agent briefing delivery
+
+Every V2.1 watch trigger now produces a compact Agent briefing containing:
+
+- pending / acknowledged status
+- urgency
+- watch ID and label
+- semantic summary
+- confidence
+- subject / room / anomaly / priority evidence
+- provenance
+- explicit authority boundaries
+
+Briefings are stored locally in IndexedDB with a bounded 200-record history. No raw frames, embeddings, descriptors, transcripts, audio, or provider payloads are persisted in the briefing layer.
+
+### V2.2 Agent APIs
+
+```js
+TrackyAgentEyes.interpretWorldWatch(text)
+TrackyAgentEyes.processWorldWatchCommand(text)
+
+TrackyAgentEyes.getAgentBriefings(limit)
+TrackyAgentEyes.getPendingAgentBriefings()
+TrackyAgentEyes.acknowledgeAgentBriefing(id)
+TrackyAgentEyes.clearAgentBriefings()
+TrackyAgentEyes.subscribeAgentBriefings(handler)
+```
+
+Browser integrations receive:
+
+```text
+tracky:agent-briefing
+```
+
+V2.2 still has no physical execution authority. Natural language can create or manage semantic watch definitions, but it cannot unlock, move, activate, purchase, send, or otherwise execute physical-world actions.
+
+
 ## V2.1 — Physical-World Watches & Agent Briefing Triggers
 
 V2.1 adds durable, local-first watch conditions above the V2.0 governed Agent-context stream.

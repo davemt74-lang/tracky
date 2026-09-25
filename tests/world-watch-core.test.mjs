@@ -26,6 +26,20 @@ test('generic room watch triggers when any person enters without preselecting id
  assert.equal(e.evidence.subjectId,'p2');
 });
 
+test('person-scoped generic room watch ignores object movement into the room',()=>{
+ const before=base(),after=base();
+ before.objects[0]={...before.objects[0],roomId:'ROOM01',room:'Office'};
+ after.objects[0]={...after.objects[0],roomId:'ROOM02',room:'Kitchen'};
+ const e=evaluateWorldWatch({id:'W-person',type:'entity-enters-room',subjectKind:'person',roomId:'ROOM02',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e,null);
+});
+test('object-scoped generic room watch ignores person entry',()=>{
+ const before=base(),after=base();
+ after.people.push({participantId:'p2',label:'Sarah',roomId:'ROOM02',room:'Kitchen',presence:'confirmed',confidence:.92});
+ const e=evaluateWorldWatch({id:'W-object',type:'entity-enters-room',subjectKind:'object',roomId:'ROOM02',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e,null);
+});
+
 test('ambiguous label-only watch does not guess between same-named objects',()=>{
  const before=base(),after=base();
  before.objects.push({objectId:'O2',label:'keys',roomId:'ROOM01',room:'Office',presence:'confirmed',confidence:.8});
@@ -55,6 +69,27 @@ test('triggers when watched anomaly clears',()=>{
  const e=evaluateWorldWatch({id:'W1',type:'anomaly-cleared',anomalySignature:'A1',cooldownMs:0},before,after,{changed:true},2000);
  assert.equal(e.type,'anomaly-cleared');
 });
+test('generic anomaly-active watch triggers when any new anomaly appears',()=>{
+ const before=base(),after=base();
+ before.anomalies=[{signature:'A1',type:'camera-quality-degraded',summary:'Camera degraded',confidence:.8,roomId:'ROOM01'}];
+ after.anomalies=[
+  ...before.anomalies,
+  {signature:'A2',type:'expected-object-missing',summary:'Keys missing',confidence:.9,roomId:'ROOM01'}
+ ];
+ const e=evaluateWorldWatch({id:'W-any-anomaly',type:'anomaly-active',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e.evidence.anomalySignature,'A2');
+});
+test('generic anomaly-cleared watch triggers when one anomaly clears while another remains',()=>{
+ const before=base(),after=base();
+ before.anomalies=[
+  {signature:'A1',type:'camera-quality-degraded',summary:'Camera degraded',confidence:.8,roomId:'ROOM01'},
+  {signature:'A2',type:'expected-object-missing',summary:'Keys missing',confidence:.9,roomId:'ROOM01'}
+ ];
+ after.anomalies=[before.anomalies[0]];
+ const e=evaluateWorldWatch({id:'W-any-clear',type:'anomaly-cleared',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e.evidence.anomalySignature,'A2');
+});
+
 test('priority watch fires only on an upward threshold crossing',()=>{
  const before=base(),after=base(); before.priorities=[{priority:.7}]; after.priorities=[{priority:.9,summary:'Check office',confidence:.9}];
  assert.ok(evaluateWorldWatch({id:'W1',type:'priority-threshold',priorityThreshold:.8,cooldownMs:0},before,after,{changed:true},2000));
