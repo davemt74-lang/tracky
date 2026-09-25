@@ -210,11 +210,19 @@ export function buildAgentContext(context={},options={},now=Date.now()){
   });
 }
 
+const VOLATILE_DELTA_KEYS=new Set([
+  'freshnessMs','lastObservedAt','lastSeenAt','updatedAt','generatedAt'
+]);
 function stableItem(item){
   if(!item||typeof item!=='object') return item;
   const output={};
   for(const [key,value] of Object.entries(item)){
-    if(key!=='freshnessMs') output[key]=value;
+    if(VOLATILE_DELTA_KEYS.has(key)) continue;
+    if(['confidence','priority','taskPriority'].includes(key)&&Number.isFinite(Number(value))){
+      output[key]=Math.round(Number(value)*20)/20;
+      continue;
+    }
+    output[key]=value;
   }
   return output;
 }
