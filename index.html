@@ -3,68 +3,153 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0b0f0c">
-  <title>Tracky V0.7 — Camera Tracking Core</title>
+  <meta name="theme-color" content="#02070a">
+  <title>Tracky V0.8 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
-<body>
-<main class="shell">
-  <header class="hero">
-    <div><p class="eyebrow">TRACKY · V0.7</p><h1>Camera Tracking Core</h1><p>Track a real green object and turn it into game input.</p></div>
-    <div class="badges" aria-live="polite"><a class="button-link primary" href="./games.html">Games</a><a class="button-link" href="./participants.html">Participants</a><span id="cameraStatus">Ready</span><span id="trackingStatus">No signal</span></div>
+<body class="jarvis-page agent-eyes-page">
+<main class="agent-eyes-shell">
+  <header class="jarvis-topbar agent-eyes-topbar">
+    <div class="jarvis-brand">
+      <span class="jarvis-orb" aria-hidden="true"></span>
+      <div>
+        <small>TRACKY · V0.8 · PERCEPTION RUNTIME</small>
+        <h1>Agent Eyes</h1>
+        <p>Live visual, spatial, voice, and conversation awareness for the Agent system.</p>
+      </div>
+    </div>
+    <nav class="jarvis-nav">
+      <a class="active" href="./index.html">Agent Eyes</a>
+      <a href="./participants.html">Participants</a>
+      <a href="./experiments.html">Experiments</a>
+    </nav>
   </header>
 
-  <section class="panel toolbar">
-    <button id="startCamera" class="primary">Start camera</button>
-    <button id="stopCamera" disabled>Stop</button>
-    <label>Camera<select id="cameraSelect" disabled><option>Default camera</option></select></label>
-    <label class="check"><input id="mirrorCamera" type="checkbox" checked> Mirror</label>
-    <label class="check"><input id="debugOverlay" type="checkbox" checked> Debug overlay</label>
+  <section class="agent-status-strip" aria-live="polite">
+    <div><span>CAMERA</span><b id="eyesCameraStatus">Offline</b></div>
+    <div><span>IDENTITY</span><b id="eyesIdentityStatus">Standby</b></div>
+    <div><span>MICROPHONE</span><b id="eyesMicStatus">Offline</b></div>
+    <div><span>VOICE PROFILE</span><b id="eyesVoiceStatus">Standby</b></div>
+    <div><span>TRANSCRIPTION</span><b id="eyesTranscriptStatus">Standby</b></div>
+    <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
-  <section class="stage-grid">
-    <article class="panel">
-      <div class="section-head"><div><small>INPUT</small><h2>Camera view</h2></div><strong><span id="fpsValue">0.0</span> FPS</strong></div>
-      <div class="stage"><video id="cameraVideo" playsinline muted hidden></video><canvas id="cameraCanvas" width="960" height="540"></canvas></div>
-    </article>
-    <article class="panel">
-      <div class="section-head"><div><small>OUTPUT</small><h2>Game surface</h2></div><i class="dot"></i></div>
-      <div class="stage game"><canvas id="gameCanvas"></canvas></div>
-    </article>
+  <section class="agent-control-bar">
+    <button id="startEyes" class="hud-button primary">Enable Agent Eyes</button>
+    <button id="startEars" class="hud-button">Enable room audio</button>
+    <button id="stopPerception" class="hud-button" disabled>Stop perception</button>
+    <label>Camera
+      <select id="eyesCameraSelect" disabled>
+        <option>Default camera</option>
+      </select>
+    </label>
+    <label class="switch-row compact-switch">
+      <input id="eyesSpokenAcks" type="checkbox" checked>
+      Spoken acknowledgements
+    </label>
+    <span class="agent-runtime-clock" id="agentRuntimeClock">ROOM STANDBY</span>
   </section>
 
-  <section class="lower-grid">
-    <article class="panel">
-      <div class="section-head"><div><small>DETECTION</small><h2>Green filter</h2></div></div>
-      <div class="controls">
-        <label>Hue min <output id="hueMinValue"></output><input id="hueMin" type="range" min="0" max="360" value="70"></label>
-        <label>Hue max <output id="hueMaxValue"></output><input id="hueMax" type="range" min="0" max="360" value="170"></label>
-        <label>Saturation min <output id="satMinValue"></output><input id="satMin" type="range" min="0" max="100" value="35"></label>
-        <label>Brightness min <output id="valMinValue"></output><input id="valMin" type="range" min="0" max="100" value="20"></label>
-        <label>Minimum area <output id="minAreaValue"></output><input id="minArea" type="range" min="0.05" max="5" step="0.05" value="0.20"></label>
-        <label>Smoothing <output id="smoothingValue"></output><input id="smoothing" type="range" min="0.05" max="1" step="0.05" value="0.35"></label>
-        <label>When object is lost<select id="lostBehavior"><option value="hide">Hide cursor</option><option value="hold">Hold last position</option><option value="center">Ease toward center</option></select></label>
+  <section class="agent-eyes-grid">
+    <article class="hud-panel agent-camera-panel">
+      <div class="hud-panel-head">
+        <div>
+          <small>LIVE PERCEPTION</small>
+          <h2>Room view</h2>
+        </div>
+        <div class="agent-room-counts">
+          <span><b id="eyesPeopleCount">0</b> people</span>
+          <span><b id="eyesKnownCount">0</b> known</span>
+          <span><b id="eyesGroupCount">0</b> groups</span>
+        </div>
+      </div>
+
+      <div class="agent-camera-stage" id="agentCameraStage">
+        <video id="eyesVideo" playsinline muted></video>
+        <canvas id="eyesOverlay"></canvas>
+        <div class="agent-camera-offline" id="agentCameraOffline">
+          <span class="scan-icon" aria-hidden="true"></span>
+          <strong>Agent Eyes offline</strong>
+          <p>Enable the camera to begin visual and spatial perception.</p>
+        </div>
+        <div class="agent-scanline" aria-hidden="true"></div>
+        <div class="agent-active-speaker" id="agentActiveSpeaker" hidden>
+          <small>ACTIVE SPEAKER</small>
+          <strong id="agentActiveSpeakerName">—</strong>
+          <span id="agentActiveSpeakerMeta">—</span>
+        </div>
+      </div>
+
+      <div class="agent-signal-strip">
+        <div><span>FACES</span><b id="eyesFaceCount">0</b></div>
+        <div><span>BODIES</span><b id="eyesBodyCount">0</b></div>
+        <div><span>MIC</span><b id="eyesMicDb">— dB</b></div>
+        <div><span>NOISE</span><b id="eyesNoiseDb">— dB</b></div>
+        <div><span>VAD</span><b id="eyesVad">QUIET</b></div>
+        <div><span>AUDIO PATH</span><b id="eyesAudioPath">Offline</b></div>
+      </div>
+
+      <div class="agent-room-radar">
+        <div class="agent-room-radar-head">
+          <small>SPATIAL MODEL</small>
+          <strong>Room map</strong>
+        </div>
+        <div class="room-radar agent-radar-map" id="agentRadar">
+          <div class="radar-crosshair" aria-hidden="true"></div>
+          <div id="agentRadarTracks" class="room-radar-tracks"></div>
+          <span class="radar-label">NORMALIZED ROOM POSITION</span>
+        </div>
       </div>
     </article>
 
-    <article class="panel">
-      <div class="section-head"><div><small>TRACKING API</small><h2>Live telemetry</h2></div></div>
-      <div class="metrics">
-        <div><span>Raw X</span><b id="rawX">—</b></div><div><span>Raw Y</span><b id="rawY">—</b></div>
-        <div><span>Smoothed X</span><b id="smoothX">—</b></div><div><span>Smoothed Y</span><b id="smoothY">—</b></div>
-        <div><span>Velocity X</span><b id="velocityX">—</b></div><div><span>Velocity Y</span><b id="velocityY">—</b></div>
-        <div><span>Speed</span><b id="speedValue">—</b></div><div><span>Confidence</span><b id="confidenceValue">—</b></div>
+    <aside class="agent-side-stack">
+      <section class="hud-panel">
+        <div class="hud-panel-head">
+          <div><small>ROOM ENTITIES</small><h2>Participants</h2></div>
+          <a class="button-link" href="./participants.html">Manage</a>
+        </div>
+        <div id="eyesParticipants" class="agent-participant-list">
+          <div class="agent-empty">No participants are currently tracked.</div>
+        </div>
+      </section>
+
+      <section class="hud-panel agent-state-panel">
+        <div class="hud-panel-head">
+          <div><small>AGENT INTERFACE</small><h2>Current Room State</h2></div>
+          <button id="copyRoomState" class="hud-button">Copy JSON</button>
+        </div>
+        <pre id="roomStateJson" class="room-state-json" tabindex="0">{}</pre>
+      </section>
+    </aside>
+  </section>
+
+  <section class="agent-bottom-grid">
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>PERCEPTION EVENT BUS</small><h2>Live room events</h2></div>
+        <span id="eventBusStatus" class="status-chip ok">Bus online</span>
+      </div>
+      <div id="eyesEventFeed" class="agent-event-feed">
+        <div class="agent-empty">Waiting for perception events.</div>
+      </div>
+    </article>
+
+    <article class="hud-panel">
+      <div class="hud-panel-head">
+        <div><small>CONVERSATION CONTEXT</small><h2>Dialogue</h2></div>
+        <span id="eyesDialogueStatus" class="status-chip">Room audio off</span>
+      </div>
+      <div id="eyesDialogue" class="agent-dialogue-feed">
+        <div class="agent-empty">Enable room audio to begin speaker-attributed dialogue.</div>
       </div>
     </article>
   </section>
 
-  <section class="panel calibrate">
-    <div><small>PLAY AREA</small><h2>Four-point calibration</h2><p id="calibrationText">Optional: map any four physical corners to the full game surface.</p><strong id="calibrationProgress">Not calibrated</strong></div>
-    <div class="actions"><button id="calibrationStart">Start calibration</button><button id="calibrationCapture" class="primary" disabled>Capture point</button><button id="calibrationReset">Reset</button></div>
-  </section>
-
-  <footer>Camera access requires <strong>localhost</strong> or <strong>HTTPS</strong>. Frames stay in your browser.</footer>
+  <footer class="agent-footer">
+    <span>Frames, face profiles, Voice Profiles, and room state are processed locally in the browser.</span>
+    <span>Initial model downloads require network access.</span>
+  </footer>
 </main>
-<script type="module" src="./app.js"></script>
+<script type="module" src="./agent-eyes.js"></script>
 </body>
 </html>
