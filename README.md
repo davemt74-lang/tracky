@@ -2,6 +2,84 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+
+## V2.0 — Governed Agent Context & Situation Briefing
+
+V2.0 turns Tracky's physical-world perception, recall, privacy, attention, and anomaly layers into a compact semantic context stream that an Agent Brain can consume directly.
+
+The Agent context path is:
+
+```text
+governed world state
+  → privacy-policy projection
+  → compact people / objects / changes / anomalies
+  → prioritized Agent context
+  → semantic change delta
+  → browser Agent integration
+```
+
+### Compact Agent context
+
+`TrackyAgentEyes.getAgentContext()` returns a privacy-safe situation briefing with:
+
+- active room and room privacy constraints
+- current confirmed / transitioning people
+- current and permitted last-known objects
+- active task
+- priority items from verified anomalies and the attention controller
+- recent semantic world changes
+- adaptive perception budget
+- provenance
+- explicit authority boundaries
+
+The context is semantic by design. It does not include raw frames, image data URLs, face or voice descriptors, embeddings, audio samples, transcripts, or provider payloads.
+
+### Change-only context stream
+
+`TrackyAgentEyes.getAgentContextDelta(previous)` compares stable semantic state and ignores freshness-only clock drift.
+
+`TrackyAgentEyes.subscribeAgentContext(handler)` receives a `tracky:agent-context` update only when the governed semantic projection changes. This keeps downstream Agent cognition from being flooded by camera scan cadence.
+
+### Privacy remains authoritative
+
+V2.0 does not create a second privacy model. It projects the existing V1.6 observation policy into Agent context:
+
+- participant identity is anonymized where identity is disabled
+- objects are omitted where object observation is disabled
+- last-known object memory is omitted where spatial memory is disabled
+- active-room capability restrictions are explicitly reported to the Agent
+
+### No physical execution authority
+
+The V2.0 context layer is read-only cognition support. It declares these boundaries in every context:
+
+- `semantic-context-only`
+- `no-raw-sensor-payloads`
+- `no-autonomous-physical-control`
+- `privacy-policy-remains-authoritative`
+
+Any future physical action system must remain separately governed and explicitly authorized.
+
+### V1.9 integration repair
+
+During the V2.0 integration audit, the V1.9 world-recall UI/API was found to reference its query functions without importing the query core/store modules. V2.0 repairs those imports and adds a regression test/audit contract so syntax-only CI cannot silently allow the same class of integration defect again.
+
+### V2.0 Agent APIs
+
+```js
+TrackyAgentEyes.getAgentContext(options)
+TrackyAgentEyes.getAgentContextDelta(previous, options)
+TrackyAgentEyes.subscribeAgentContext(handler)
+```
+
+Browser integrations can also listen for:
+
+```text
+tracky:agent-context
+```
+
+The event detail contains the current context, the semantic delta, and the update reason.
+
 ## V1.9 — Physical World Recall, Search & Explainability
 
 V1.9 makes the physical-world model directly queryable without sending room state to a cloud model.
