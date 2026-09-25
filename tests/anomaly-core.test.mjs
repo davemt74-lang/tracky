@@ -150,3 +150,27 @@ test('same environment comparison cannot inflate anomaly observation count',()=>
   observeAnomalySignals(state,[{...signal,evidenceId:'environment:2000'}],13000);
   assert.equal(Object.keys(state.active).length,1);
 });
+
+
+test('environment anomalies stop when environment comparison is disabled',()=>{
+  const signals=deriveAnomalySignals({
+    activeRoomId:'ROOM01',
+    environment:{
+      classification:'unknown',
+      drift:{structuralDrift:.9,likelyCameraShift:false}
+    },
+    currentEnvironment:{capturedAt:1,quality:{score:.1}},
+    policies:{ROOM01:{
+      allowVisualObservation:true,
+      allowEnvironmentComparison:false,
+      allowObjectObservation:true
+    }},
+    confirmedExpectedLocations:[],
+    multiRoom:{objects:{}},
+    landmarksByRoom:{},
+    roomVisibility:{},
+    physicalWorld:{contradictions:[]},
+    sceneChanges:[]
+  },1000);
+  assert.equal(signals.some((item)=>item.category==='environment'),false);
+});
