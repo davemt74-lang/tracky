@@ -87,3 +87,15 @@ test('graph fact query returns incoming and outgoing relationships',()=>{
   const facts=graphFactsForEntity(graph,'A');
   assert.equal(facts.outgoing.length,1);
 });
+
+
+test('later vision evidence cannot downgrade user-confirmed node or edge',()=>{
+  const graph=createSceneGraph('ROOM01');
+  confirmGraphNode(graph,{id:'L1',type:'landmark',label:'My desk',confidence:1},1000);
+  upsertGraphNode(graph,{id:'L1',type:'landmark',label:'desk',state:'observed',confidence:.4,lastObservedAt:2000});
+  confirmGraphEdge(graph,{subjectId:'WO1',predicate:'home-location',objectId:'L1'},1000);
+  upsertGraphEdge(graph,{subjectId:'WO1',predicate:'home-location',objectId:'L1',state:'inferred',confidence:.3,lastObservedAt:2000});
+  assert.equal(graph.nodes.L1.state,'user-confirmed');
+  assert.equal(graph.edges['WO1::home-location::L1'].state,'user-confirmed');
+  assert.ok(graph.nodes.L1.confidence>=.98);
+});
