@@ -160,6 +160,7 @@ const runtime = {
   gestures: [],
   objectCounter: 0,
   activeInteractions: new Map(),
+  interactionCandidates: new Map(),
   relationDistances: new Map(),
   selectedObjectId: null,
   audio: null,
@@ -471,6 +472,7 @@ function stopCamera() {
   runtime.hands = [];
   runtime.gestures = [];
   runtime.activeInteractions.clear();
+  runtime.interactionCandidates.clear();
   runtime.relationDistances.clear();
   runtime.selectedObjectId = null;
   runtime.previousTrackIds.clear();
@@ -1030,9 +1032,30 @@ function synchronizeObjectInteractions(now) {
         ...interaction,
         lastSeenAt: now
       });
+      runtime.interactionCandidates.delete(key);
       continue;
     }
 
+    const candidate = runtime.interactionCandidates.get(key);
+    const nextCandidate = candidate
+      ? {
+          ...candidate,
+          ...interaction,
+          count: Number(candidate.count || 1) + 1,
+          lastSeenAt: now
+        }
+      : {
+          ...interaction,
+          count: 1,
+          firstSeenAt: now,
+          lastSeenAt: now
+        };
+
+    runtime.interactionCandidates.set(key, nextCandidate);
+
+    if (nextCandidate.count < 2) continue;
+
+    runtime.interactionCandidates.delete(key);
     const entry = {
       ...interaction,
       startedAt: now,
@@ -1040,11 +1063,12 @@ function synchronizeObjectInteractions(now) {
     };
     runtime.activeInteractions.set(key, entry);
 
-    emit('interaction.started', interactionPayload(interaction, key));
+    const payload = interactionPayload(interaction, key);
+    emit('interaction.started', payload);
 
     if (interaction.type === 'holding') {
       const object = runtime.objects.find(
-        (candidate) => candidate.id === interaction.objectTrackId
+        (candidateObject) => candidateObject.id === interaction.objectTrackId
       );
       if (object) {
         object.holderTrackId = interaction.participantTrackId || null;
@@ -1053,13 +1077,20 @@ function synchronizeObjectInteractions(now) {
       }
 
       emit('object.picked_up', {
-        ...interactionPayload(interaction, key),
+        ...payload,
         data: {
-          ...interactionPayload(interaction, key).data,
+          ...payload.data,
           objectId: interaction.objectTrackId,
           label: interaction.objectLabel
         }
       });
+    }
+  }
+
+  for (const [key, candidate] of [...runtime.interactionCandidates.entries()]) {
+    if (seen.has(key)) continue;
+    if (now - Number(candidate.lastSeenAt || now) >= SCAN_INTERVAL_MS * 1.6) {
+      runtime.interactionCandidates.delete(key);
     }
   }
 
