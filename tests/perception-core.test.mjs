@@ -389,3 +389,18 @@ test('environment and world events are accepted by perception bus', () => {
   assert.equal(seen.length,1);
   assert.equal(seen[0].data.roomId,'ROOM01');
 });
+
+
+test('multi-room world events are accepted by perception bus', () => {
+  const bus = new PerceptionEventBus();
+  const seen = [];
+  bus.subscribe('participant.room_transition', (event) => seen.push(event));
+  bus.emit('participant.room_transition', {
+    participantId:'p1',
+    participantName:'Dave',
+    confidence:.94,
+    data:{fromRoomId:'ROOM01',toRoomId:'ROOM02'}
+  }, {timestamp:3});
+  assert.equal(seen.length,1);
+  assert.equal(seen[0].data.toRoomId,'ROOM02');
+});
