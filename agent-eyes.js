@@ -1253,11 +1253,16 @@ function renderParticipants() {
     const signals = document.createElement('div');
     signals.className = 'agent-entity-signals';
 
+    const behavior = track.behaviorEvidence;
     const rows = [
       ['FACE', track.face ? Math.round((track.similarity || track.quality || 0) * 100) + '%' : 'NOT VISIBLE'],
       ['BODY', track.status === 'occluded' ? 'MEMORY' : 'LOCK'],
       ['VOICE', participant ? (voice.ready ? 'PROFILE READY' : voice.embeddingCount + '/3') : 'UNKNOWN'],
-      ['GROUP', track.conversationGroupId || '—']
+      ['POSE', behavior ? Math.round((behavior.poseConfidence || 0) * 100) + '%' : '—'],
+      ['FACING', behavior?.orientation?.horizontal || '—'],
+      ['POSTURE', behavior?.posture?.posture || '—'],
+      ['MOTION', behavior?.motion?.motion || '—'],
+      ['ATTENTION', behavior?.attention?.targetName || behavior?.attention?.targetType || '—']
     ];
 
     for (const [label, value] of rows) {
@@ -1273,15 +1278,26 @@ function renderParticipants() {
     copy.append(name, meta, signals);
     card.append(portrait, copy);
 
+    const actions = document.createElement('div');
+    actions.className = 'agent-entity-actions';
+
+    const inspect = document.createElement('button');
+    inspect.className = 'agent-entity-action';
+    inspect.type = 'button';
+    inspect.textContent = 'Inspect';
+    inspect.addEventListener('click', () => openEvidenceInspector(track.id));
+    actions.append(inspect);
+
     if (!track.participantId && track.embedding && track.latestPhoto) {
-      const action = document.createElement('button');
-      action.className = 'agent-entity-action';
-      action.type = 'button';
-      action.textContent = 'Identify';
-      action.addEventListener('click', () => enrollUnknownTrack(track));
-      card.append(action);
+      const identify = document.createElement('button');
+      identify.className = 'agent-entity-action';
+      identify.type = 'button';
+      identify.textContent = 'Identify';
+      identify.addEventListener('click', () => enrollUnknownTrack(track));
+      actions.append(identify);
     }
 
+    card.append(actions);
     ui.participants.append(card);
   }
 }
