@@ -1,5 +1,6 @@
 import { faceQuality, normalizeBox } from './participant-core.js';
 import { bodyDetection } from './room-tracking-core.js';
+import { objectDetection } from './object-core.js';
 import { HUMAN_ESM_URL, HUMAN_MODEL_BASE } from './model-config.js';
 
 export class IdentityEngine {
@@ -44,9 +45,20 @@ export class IdentityEngine {
             maxDetected: 8,
             minConfidence: 0.25
           },
-          hand: { enabled: false },
-          object: { enabled: false },
-          gesture: { enabled: false },
+          hand: {
+            enabled: true,
+            rotation: true,
+            landmarks: true,
+            maxDetected: 12,
+            minConfidence: 0.35
+          },
+          object: {
+            enabled: true,
+            maxDetected: 24,
+            minConfidence: 0.35,
+            iouThreshold: 0.45
+          },
+          gesture: { enabled: true },
           segmentation: { enabled: false }
         });
 
@@ -80,9 +92,47 @@ export class IdentityEngine {
       rotation: face.rotation || null
     }));
 
-    const bodies = (result.body || []).map((body) => bodyDetection(body, frameWidth, frameHeight));
+    const bodies = (result.body || []).map(
+      (body) => bodyDetection(body, frameWidth, frameHeight)
+    );
 
-    return { faces, bodies, raw: result };
+    const objects = (result.object || [])
+      .map((object) => objectDetection(object, frameWidth, frameHeight))
+      .filter((object) => object.label !== 'person');
+
+    const hands = (result.hand || []).map((hand) => {
+      const rawBox = hand.boxRaw || hand.box;
+      const box = hand.boxRaw
+        ? normalizeBox(
+            [
+              Number(rawBox?.[0] || 0) * frameWidth,
+              Number(rawBox?.[1] || 0) * frameHeight,
+              Number(rawBox?.[2] || 0) * frameWidth,
+              Number(rawBox?.[3] || 0) * frameHeight
+            ],
+            frameWidth,
+            frameHeight
+          )
+        : normalizeBox(rawBox, frameWidth, frameHeight);
+
+      return {
+        id: hand.id ?? null,
+        label: hand.label || 'hand',
+        score: Number(hand.score || 0),
+        box,
+        landmarks: hand.landmarks || null,
+        annotations: hand.annotations || null
+      };
+    });
+
+    return {
+      faces,
+      bodies,
+      objects,
+      hands,
+      gestures: result.gesture || [],
+      raw: result
+    };
   }
 
   async detect(input) {
