@@ -6495,6 +6495,176 @@ function parseAttentionTaskForm() {
   };
 }
 
+
+function anomalyMeta(anomaly) {
+  return [
+    String(anomaly.severity || 'medium').toUpperCase(),
+    Math.round(Number(anomaly.confidence || 0) * 100) + '% confidence',
+    anomaly.roomId || null,
+    anomaly.subjectId || null
+  ].filter(Boolean).join(' · ');
+}
+
+function renderProactiveAwareness() {
+  const snapshot = anomalySnapshot(runtime.anomalyState);
+  const summary = proactiveAwarenessSummary(runtime.anomalyState);
+  const active = snapshot.active || [];
+  const candidates = snapshot.candidates || [];
+  const history = (snapshot.history || []).slice(-16).reverse();
+
+  ui.proactiveActiveCount.textContent = String(summary.activeCount || 0);
+  ui.proactiveCriticalCount.textContent = String(summary.critical || 0);
+  ui.proactiveHighCount.textContent = String(summary.high || 0);
+  ui.proactiveMediumCount.textContent = String(summary.medium || 0);
+
+  const headline = summary.top
+    ? String(summary.top.severity || 'anomaly').toUpperCase() +
+      ' · ' + String(summary.top.type || 'physical change')
+    : 'Quiet';
+  ui.proactiveStatus.textContent = headline;
+  ui.anomalyTopStatus.textContent = headline;
+
+  ui.proactiveActiveList.replaceChildren();
+  if (!active.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No persistent physical-world anomalies.';
+    ui.proactiveActiveList.append(empty);
+  } else {
+    for (const anomaly of active) {
+      const row = document.createElement('article');
+      row.className = 'proactive-anomaly-row severity-' +
+        String(anomaly.severity || 'medium');
+      if (anomaly.status === 'acknowledged') row.classList.add('acknowledged');
+
+      const copy = document.createElement('div');
+      const head = document.createElement('div');
+      const type = document.createElement('strong');
+      const meta = document.createElement('span');
+      type.textContent = anomaly.type;
+      meta.textContent = anomalyMeta(anomaly);
+      head.append(type, meta);
+
+      const summaryText = document.createElement('p');
+      summaryText.textContent = anomaly.summary;
+      const evidence = document.createElement('small');
+      evidence.textContent = [
+        anomaly.observations + ' observations',
+        anomaly.status === 'acknowledged' ? 'ACKNOWLEDGED' : 'ACTIVE',
+        anomaly.expectedTargetId
+          ? 'expected ' + anomaly.expectedTargetId
+          : null,
+        anomaly.targetId ? 'current ' + anomaly.targetId : null
+      ].filter(Boolean).join(' · ');
+      copy.append(head, summaryText, evidence);
+
+      const actions = document.createElement('div');
+      actions.className = 'proactive-anomaly-actions';
+
+      if (anomaly.status !== 'acknowledged') {
+        const acknowledge = document.createElement('button');
+        acknowledge.type = 'button';
+        acknowledge.className = 'agent-entity-action';
+        acknowledge.textContent = 'Acknowledge';
+        acknowledge.addEventListener('click', () => (
+          acknowledgeActiveAnomaly(anomaly.signature)
+        ));
+        actions.append(acknowledge);
+      }
+
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'agent-entity-action';
+      dismiss.textContent = 'Dismiss 1h';
+      dismiss.addEventListener('click', () => (
+        dismissActiveAnomaly(anomaly.signature, 60 * 60 * 1000)
+      ));
+      actions.append(dismiss);
+
+      row.append(copy, actions);
+      ui.proactiveActiveList.append(row);
+    }
+  }
+
+  ui.proactiveCandidateStatus.textContent =
+    candidates.length + ' verifying';
+  ui.proactiveCandidateList.replaceChildren();
+  if (!candidates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No anomaly candidates are currently being verified.';
+    ui.proactiveCandidateList.append(empty);
+  } else {
+    for (const candidate of candidates
+      .sort((a,b) => Number(b.priority || 0) - Number(a.priority || 0))
+      .slice(0, 16)) {
+      const row = document.createElement('article');
+      row.className = 'proactive-candidate-row';
+
+      const head = document.createElement('div');
+      const type = document.createElement('strong');
+      const progress = document.createElement('span');
+      const observationRatio = Math.min(
+        1,
+        Number(candidate.observations || 0) /
+          Math.max(1, Number(candidate.rule?.minimumObservations || 1))
+      );
+      const timeRatio = Number(candidate.rule?.persistenceMs || 0) > 0
+        ? Math.min(
+            1,
+            (Date.now() - Number(candidate.firstSeenAt || Date.now())) /
+              Number(candidate.rule.persistenceMs)
+          )
+        : 1;
+      const verification = Math.round(
+        Math.min(observationRatio, timeRatio) * 100
+      );
+      type.textContent = candidate.type;
+      progress.textContent = verification + '% verified';
+      head.append(type, progress);
+
+      const summaryText = document.createElement('p');
+      summaryText.textContent = candidate.summary;
+      const meta = document.createElement('small');
+      meta.textContent = anomalyMeta(candidate);
+      row.append(head, summaryText, meta);
+      ui.proactiveCandidateList.append(row);
+    }
+  }
+
+  ui.proactiveHistoryStatus.textContent = history.length
+    ? history.length + ' recent'
+    : 'No history';
+  ui.proactiveHistoryList.replaceChildren();
+  if (!history.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Cleared and dismissed anomalies will appear here.';
+    ui.proactiveHistoryList.append(empty);
+  } else {
+    for (const anomaly of history) {
+      const row = document.createElement('article');
+      row.className = 'proactive-history-row';
+      const head = document.createElement('div');
+      const type = document.createElement('strong');
+      const state = document.createElement('span');
+      type.textContent = anomaly.type;
+      state.textContent = String(anomaly.status || 'cleared').toUpperCase();
+      head.append(type, state);
+      const summaryText = document.createElement('p');
+      summaryText.textContent = anomaly.summary;
+      const time = document.createElement('small');
+      const endedAt = anomaly.clearedAt || anomaly.dismissedAt ||
+        anomaly.acknowledgedAt || anomaly.lastSeenAt;
+      time.textContent = endedAt
+        ? new Date(endedAt).toLocaleString()
+        : anomalyMeta(anomaly);
+      row.append(head, summaryText, time);
+      ui.proactiveHistoryList.append(row);
+    }
+  }
+}
+
 function renderAttentionController() {
   const state = attentionSnapshot(runtime.attention);
   const task = state.activeTask || { mode:'general', label:'General awareness' };
@@ -7280,6 +7450,7 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderProactiveAwareness();
   renderAttentionController();
   renderEnvironmentPanel();
   renderPrivacyPolicy();
