@@ -759,6 +759,8 @@ function analyzeBehaviors(now) {
     );
     track.behaviorEvidence = behavior;
 
+    if (!track.presenceAnnounced) continue;
+
     const previous = runtime.behaviorByTrack.get(track.id);
     const signature = behaviorSignature(behavior);
     const previousSignature = previous?.signature || '';
