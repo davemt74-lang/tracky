@@ -11,6 +11,9 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'body.locked',
   'body.occluded',
   'body.reacquired',
+  'behavior.changed',
+  'attention.changed',
+  'gesture.detected',
   'voice.activity_started',
   'voice.activity_stopped',
   'voice.matched',
@@ -121,7 +124,11 @@ function ensureParticipant(state, event) {
     position: null,
     nearbyParticipants: [],
     lastSeenAt: null,
-    lastSpokeAt: null
+    lastSpokeAt: null,
+    behavior: null,
+    attention: null,
+    addressing: null,
+    lastGesture: null
   };
 
   state.participants[participantId] = current;
@@ -140,7 +147,11 @@ function ensureUnknownTrack(state, trackId, event) {
     position: null,
     nearbyParticipants: [],
     firstSeenAt: event.timestamp,
-    lastSeenAt: event.timestamp
+    lastSeenAt: event.timestamp,
+    behavior: null,
+    attention: null,
+    addressing: null,
+    lastGesture: null
   };
 
   state.unknownTracks[trackId] = current;
@@ -239,6 +250,33 @@ export function applyPerceptionEvent(state, event) {
       if (participant) participant.bodyStatus = 'occluded';
       if (unknown) unknown.bodyStatus = 'occluded';
       break;
+
+    case 'behavior.changed': {
+      const target = participant || unknown;
+      if (target) {
+        target.behavior = event.data?.behavior || null;
+        target.addressing = event.data?.addressing || null;
+      }
+      break;
+    }
+
+    case 'attention.changed': {
+      const target = participant || unknown;
+      if (target) target.attention = event.data?.attention || null;
+      break;
+    }
+
+    case 'gesture.detected': {
+      const target = participant || unknown;
+      if (target) {
+        target.lastGesture = {
+          type: event.data?.gesture || null,
+          confidence: event.confidence,
+          timestamp: event.timestamp
+        };
+      }
+      break;
+    }
 
     case 'voice.activity_started':
       state.activeSpeaker = {
