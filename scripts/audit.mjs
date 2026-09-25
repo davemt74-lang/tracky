@@ -6,13 +6,16 @@ const failures = [];
 
 const requiredFiles = [
   'index.html',
-  'games.html',
-  'vertical-motion.html',
+  'agent-eyes.js',
   'participants.html',
-  'app.js',
-  'vertical-motion.js',
   'participants.js',
   'participant-voice.js',
+  'experiments.html',
+  'tracker.html',
+  'tracker-experiment.js',
+  'games.html',
+  'vertical-motion.html',
+  'vertical-motion.js',
   'styles.css',
   'README.md',
   'package.json',
@@ -27,11 +30,13 @@ const requiredFiles = [
   'src/voice-engine.js',
   'src/room-audio-engine.js',
   'src/room-audio-worklet.js',
-  'src/model-config.js'
+  'src/model-config.js',
+  'src/perception-core.js'
 ];
 
 const runtimeJs = [
-  'app.js',
+  'agent-eyes.js',
+  'tracker-experiment.js',
   'vertical-motion.js',
   'participants.js',
   'participant-voice.js',
@@ -46,13 +51,15 @@ const runtimeJs = [
   'src/voice-engine.js',
   'src/room-audio-engine.js',
   'src/room-audio-worklet.js',
-  'src/model-config.js'
+  'src/model-config.js',
+  'src/perception-core.js'
 ];
 
 const htmlContracts = [
-  ['index.html', ['app.js']],
-  ['vertical-motion.html', ['vertical-motion.js']],
-  ['participants.html', ['participants.js', 'participant-voice.js']]
+  ['index.html', ['agent-eyes.js']],
+  ['participants.html', ['participants.js', 'participant-voice.js']],
+  ['tracker.html', ['tracker-experiment.js']],
+  ['vertical-motion.html', ['vertical-motion.js']]
 ];
 
 function fail(message) {
@@ -71,8 +78,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '0.7.0') {
-  fail('package.json version must be 0.7.0');
+if (packageJson.version !== '0.8.0') {
+  fail('package.json version must be 0.8.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -82,6 +89,12 @@ if (!packageJson.scripts?.audit?.includes('scripts/audit.mjs')) {
 }
 if (!packageJson.scripts?.validate) {
   fail('package.json must expose a validate script');
+}
+if (!packageJson.scripts?.test?.includes('agent-eyes.js')) {
+  fail('test script must syntax-check Agent Eyes');
+}
+if (!packageJson.scripts?.test?.includes('src/perception-core.js')) {
+  fail('test script must syntax-check perception core');
 }
 
 for (const file of runtimeJs) {
@@ -97,7 +110,9 @@ for (const file of runtimeJs) {
   ];
 
   for (const [label, pattern] of banned) {
-    if (pattern.test(source)) fail(file + ' contains banned runtime pattern: ' + label);
+    if (pattern.test(source)) {
+      fail(file + ' contains banned runtime pattern: ' + label);
+    }
   }
 
   if (/clone/i.test(source)) {
@@ -124,7 +139,8 @@ for (const file of runtimeJs) {
 
 for (const [htmlFile, jsFiles] of htmlContracts) {
   const html = read(htmlFile);
-  const ids = [...html.matchAll(/\bid\s*=\s*["']([^"']+)["']/gi)].map((match) => match[1]);
+  const ids = [...html.matchAll(/\bid\s*=\s*["']([^"']+)["']/gi)]
+    .map((match) => match[1]);
   const seen = new Set();
 
   for (const id of ids) {
@@ -132,9 +148,12 @@ for (const [htmlFile, jsFiles] of htmlContracts) {
     seen.add(id);
   }
 
-  const externalScripts = [...html.matchAll(/<script[^>]+src\s*=\s*["']([^"']+)["']/gi)]
+  const externalScripts = [
+    ...html.matchAll(/<script[^>]+src\s*=\s*["']([^"']+)["']/gi)
+  ]
     .map((match) => match[1])
     .filter((src) => /^https?:\/\//i.test(src));
+
   if (externalScripts.length) {
     fail(htmlFile + ' contains external script tags: ' + externalScripts.join(', '));
   }
@@ -143,12 +162,20 @@ for (const [htmlFile, jsFiles] of htmlContracts) {
     const source = read(jsFile);
     const refs = new Set();
 
-    for (const match of source.matchAll(/\$\(\s*['"]#([^'"]+)['"]\s*\)/g)) refs.add(match[1]);
-    for (const match of source.matchAll(/document\.querySelector\(\s*['"]#([^'"]+)['"]\s*\)/g)) refs.add(match[1]);
-    for (const match of source.matchAll(/document\.getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)) refs.add(match[1]);
+    for (const match of source.matchAll(/\$\(\s*['"]#([^'"]+)['"]\s*\)/g)) {
+      refs.add(match[1]);
+    }
+    for (const match of source.matchAll(/document\.querySelector\(\s*['"]#([^'"]+)['"]\s*\)/g)) {
+      refs.add(match[1]);
+    }
+    for (const match of source.matchAll(/document\.getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+      refs.add(match[1]);
+    }
 
     for (const id of refs) {
-      if (!seen.has(id)) fail(jsFile + ' references missing ' + htmlFile + ' element #' + id);
+      if (!seen.has(id)) {
+        fail(jsFile + ' references missing ' + htmlFile + ' element #' + id);
+      }
     }
   }
 
@@ -157,8 +184,56 @@ for (const [htmlFile, jsFiles] of htmlContracts) {
     if (!ref.startsWith('./') && !ref.startsWith('../')) continue;
     const clean = ref.split(/[?#]/)[0];
     const resolved = path.resolve(root, path.dirname(htmlFile), clean);
-    if (!fs.existsSync(resolved)) fail(htmlFile + ' references missing asset: ' + ref);
+    if (!fs.existsSync(resolved)) {
+      fail(htmlFile + ' references missing asset: ' + ref);
+    }
   }
+}
+
+for (const htmlFile of ['index.html','participants.html','experiments.html','tracker.html','games.html','vertical-motion.html']) {
+  const html = read(htmlFile);
+  const ids = [...html.matchAll(/\bid\s*=\s*["']([^"']+)["']/gi)].map((match) => match[1]);
+  const seen = new Set();
+  for (const id of ids) {
+    if (seen.has(id)) fail(htmlFile + ' contains duplicate id #' + id);
+    seen.add(id);
+  }
+}
+
+const indexHtml = read('index.html');
+if (!/Agent Eyes/.test(indexHtml) || !/PERCEPTION RUNTIME/.test(indexHtml)) {
+  fail('index.html must be the Agent Eyes perception landing page');
+}
+if (/Camera Tracking Core/.test(indexHtml)) {
+  fail('index.html must not remain the legacy tracker landing page');
+}
+
+const experimentsHtml = read('experiments.html');
+if (!/tracker\.html/.test(experimentsHtml) || !/vertical-motion\.html/.test(experimentsHtml)) {
+  fail('Experiments page must preserve tracker and Vertical Motion entry points');
+}
+
+const perceptionCore = read('src/perception-core.js');
+for (const symbol of [
+  'PerceptionEventBus',
+  'createRoomState',
+  'applyPerceptionEvent',
+  'roomStateSnapshot'
+]) {
+  if (!perceptionCore.includes(symbol)) {
+    fail('Perception core is missing required Agent interface: ' + symbol);
+  }
+}
+
+const agentEyes = read('agent-eyes.js');
+if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
+  fail('Agent Eyes must expose the browser Agent integration interface');
+}
+if (!/tracky:perception/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level perception events');
+}
+if (!/saveDialogueTurn/.test(agentEyes)) {
+  fail('Agent Eyes must persist accepted dialogue turns');
 }
 
 const modelConfig = read('src/model-config.js');
@@ -182,10 +257,11 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v0\.7-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V0.7 deploy ZIP');
+if (!/tracky-v0\.8-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V0.8 deploy ZIP');
 }
-for (const file of requiredFiles.filter((file) => !file.startsWith('README') && file !== 'package.json')) {
+
+for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
   const filename = path.basename(file);
   if (!workflow.includes(filename)) {
     fail('CI deploy manifest does not mention required runtime file: ' + file);
@@ -210,4 +286,7 @@ if (failures.length) {
 }
 
 console.log('Tracky release audit: PASS');
-console.log('Checked ' + requiredFiles.length + ' release files, DOM contracts, imports, model pins, runtime safety, and deploy manifest.');
+console.log(
+  'Checked ' + requiredFiles.length +
+  ' release files, Agent Eyes DOM contracts, imports, perception interfaces, model pins, runtime safety, experiments, and deploy manifest.'
+);
