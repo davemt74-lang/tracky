@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildRoomSceneGraph,
+  confirmGraphEdge,
+  confirmGraphNode,
   createSceneGraph,
+  graphFactsForEntity,
+  nearestGraphNode,
   markGraphFactsStale,
   sceneGraphSnapshot,
   spatialRelation,
@@ -51,4 +55,35 @@ test('graph edges have deterministic IDs',()=>{
   upsertGraphEdge(graph,{subjectId:'A',predicate:'on',objectId:'B',confidence:.9});
   assert.equal(Object.keys(graph.edges).length,1);
   assert.equal(Object.values(graph.edges)[0].confidence,.9);
+});
+
+
+test('user-confirmed teaching outranks inferred graph evidence',()=>{
+  const graph=createSceneGraph('ROOM01');
+  confirmGraphNode(graph,{
+    id:'L9',type:'landmark',label:'Dave desk',
+    position:{x:.4,y:.5}
+  },1000);
+  confirmGraphEdge(graph,{
+    subjectId:'WO1',predicate:'home-location',objectId:'L9'
+  },1000);
+  assert.equal(graph.nodes.L9.state,'user-confirmed');
+  assert.equal(graph.edges['WO1::home-location::L9'].state,'user-confirmed');
+});
+
+test('nearest graph node supports teach-by-pointing targeting',()=>{
+  const graph=createSceneGraph('ROOM01');
+  confirmGraphNode(graph,{id:'L1',type:'landmark',label:'Desk',position:{x:.3,y:.4}},1000);
+  confirmGraphNode(graph,{id:'L2',type:'landmark',label:'Shelf',position:{x:.8,y:.8}},1000);
+  const result=nearestGraphNode(graph,{x:.32,y:.41},{types:['landmark']});
+  assert.equal(result.node.id,'L1');
+});
+
+test('graph fact query returns incoming and outgoing relationships',()=>{
+  const graph=createSceneGraph('ROOM01');
+  confirmGraphNode(graph,{id:'A',type:'object',label:'A'},1000);
+  confirmGraphNode(graph,{id:'B',type:'landmark',label:'B'},1000);
+  confirmGraphEdge(graph,{subjectId:'A',predicate:'on',objectId:'B'},1000);
+  const facts=graphFactsForEntity(graph,'A');
+  assert.equal(facts.outgoing.length,1);
 });
