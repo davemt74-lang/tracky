@@ -50,7 +50,8 @@ const requiredFiles = [
   'src/visibility-core.js',
   'src/room-topology-core.js',
   'src/spatial-memory-store.js',
-  'src/spatial-memory-core.js'
+  'src/spatial-memory-core.js',
+  'src/privacy-policy-core.js'
 ];
 
 const runtimeJs = [
@@ -90,7 +91,8 @@ const runtimeJs = [
   'src/visibility-core.js',
   'src/room-topology-core.js',
   'src/spatial-memory-store.js',
-  'src/spatial-memory-core.js'
+  'src/spatial-memory-core.js',
+  'src/privacy-policy-core.js'
 ];
 
 const htmlContracts = [
@@ -116,8 +118,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.5.0') {
-  fail('package.json version must be 1.5.0');
+if (packageJson.version !== '1.6.0') {
+  fail('package.json version must be 1.6.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -161,7 +163,8 @@ for (const file of [
   'src/visibility-core.js',
   'src/multiroom-core.js',
   'src/spatial-memory-core.js',
-  'src/spatial-memory-store.js'
+  'src/spatial-memory-store.js',
+  'src/privacy-policy-core.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -432,7 +435,9 @@ for (const symbol of [
   'saveEnvironmentRoom',
   'saveEnvironmentView',
   'saveEnvironmentHistory',
-  'defaultEnvironmentPolicy'
+  'defaultEnvironmentPolicy',
+  'loadEnvironmentPolicy',
+  'saveEnvironmentPolicy'
 ]) {
   if (!environmentStore.includes(symbol)) {
     fail('Environment store is missing required persistence/privacy interface: ' + symbol);
@@ -545,6 +550,45 @@ for (const symbol of [
   if (!spatialMemoryStore.includes(symbol)) {
     fail('Spatial memory store is missing required local persistence interface: ' + symbol);
   }
+}
+
+const privacyPolicyCore = read('src/privacy-policy-core.js');
+for (const symbol of [
+  'defaultObservationPolicy',
+  'normalizePrivacyRegion',
+  'normalizeObservationPolicy',
+  'observationDecision',
+  'applyParticipantObservationPolicy',
+  'applyObjectObservationPolicy',
+  'sanitizeEventPayload',
+  'transcriptRetentionAllowed',
+  'spatialMemoryRetentionAllowed',
+  'imageRetentionAllowed',
+  'imageMaskRegions',
+  'privacySummary'
+]) {
+  if (!privacyPolicyCore.includes(symbol)) {
+    fail('Privacy policy core is missing required enforcement interface: ' + symbol);
+  }
+}
+for (const mode of ['ignore','anonymous','live-only']) {
+  if (!privacyPolicyCore.includes("'" + mode + "'")) {
+    fail('Privacy policy core is missing privacy region mode: ' + mode);
+  }
+}
+
+const environmentStorePolicy = read('src/environment-store.js');
+for (const symbol of ['loadEnvironmentPolicy','saveEnvironmentPolicy','defaultObservationPolicy']) {
+  if (!environmentStorePolicy.includes(symbol)) {
+    fail('Environment policy store is missing V1.6 interface: ' + symbol);
+  }
+}
+
+const environmentRuntimePrivacy = read('src/environment-runtime.js');
+const maskIndex = environmentRuntimePrivacy.indexOf('context.fillRect');
+const fingerprintIndex = environmentRuntimePrivacy.indexOf('fingerprintImageData(imageData)');
+if (maskIndex < 0 || fingerprintIndex < 0 || maskIndex > fingerprintIndex) {
+  fail('Sensitive environment pixels must be masked before fingerprint generation');
 }
 
 const agentEyes = read('agent-eyes.js');
@@ -674,6 +718,43 @@ for (const symbol of [
 if (!/tracky:spatial-memory/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level spatial memory state');
 }
+for (const symbol of [
+  'getObservationPolicy',
+  'setObservationPolicy',
+  'getPrivacyStats',
+  'policyForRoom',
+  'saveObservationPolicy',
+  'renderPrivacyPolicy',
+  'renderPrivacyMasks'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V1.6 privacy interface: ' + symbol);
+  }
+}
+if (!/privacyPolicyStatus/.test(indexHtml) || !/privacyRegionForm/.test(indexHtml)) {
+  fail('Agent Eyes must expose privacy policy and sensitive-region controls');
+}
+if (!/privacyCameraMasks/.test(indexHtml) || !/privacyRadarMasks/.test(indexHtml)) {
+  fail('Agent Eyes must visibly expose active sensitive-region masks');
+}
+if (!/privacy\.policy_changed/.test(perceptionCore)) {
+  fail('Perception core must expose privacy.policy_changed');
+}
+if (!/applyParticipantObservationPolicy/.test(agentEyes) || !/applyObjectObservationPolicy/.test(agentEyes)) {
+  fail('Agent Eyes must apply room privacy policy before camera fusion');
+}
+if (!/transcriptRetentionAllowed/.test(agentEyes) || !/event\.privacy\?\.retentionAllowed/.test(agentEyes)) {
+  fail('Transcript persistence must be gated by privacy retention policy');
+}
+if (!/spatialMemoryRetentionAllowed/.test(agentEyes)) {
+  fail('Spatial memory training must be gated by privacy retention policy');
+}
+if (!/allowVisualObservation/.test(agentEyes) || !/Disabled by privacy/.test(agentEyes)) {
+  fail('Agent Eyes must stop visual inference when room visual observation is disabled');
+}
+if (!/getParticipants\(camera\)/.test(read('src/multicamera-runtime.js'))) {
+  fail('Secondary camera identity lookup must receive camera context for room privacy policy');
+}
 if (!/spatialMemoryFacts/.test(indexHtml) || !/spatialProposalList/.test(indexHtml) || !/spatialJourneyList/.test(indexHtml)) {
   fail('Agent Eyes must expose spatial memory facts, proposal review, and journey UI');
 }
@@ -686,7 +767,7 @@ for (const eventName of [
   'spatial_memory.ignored'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.5 spatial memory event: ' + eventName);
+    fail('Perception core is missing V1.6 spatial memory event: ' + eventName);
   }
 }
 if (!/globalRoomMap/.test(indexHtml) || !/topologyConnectForm/.test(indexHtml)) {
@@ -706,7 +787,7 @@ for (const eventName of [
   'visibility.changed'
 ]) {
   if (!perceptionCore.includes(eventName)) {
-    fail('Perception core is missing V1.5 world event: ' + eventName);
+    fail('Perception core is missing V1.6 world event: ' + eventName);
   }
 }
 for (const eventName of [
@@ -759,8 +840,11 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.5-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.5 deploy ZIP');
+if (!/tracky-v1\.6-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.6 deploy ZIP');
+}
+if (!workflow.includes('src/privacy-policy-core.js')) {
+  fail('CI V1.6 deploy package must include privacy policy core');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -790,5 +874,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
