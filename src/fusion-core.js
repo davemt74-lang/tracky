@@ -36,17 +36,28 @@ export function fuseKnownParticipantObservations(observations = []) {
     .sort((a, b) => b.quality - a.quality);
 
   const best = ranked[0];
-  const totalWeight = ranked.reduce(
+  const positionConsistent = ranked.filter((item) => (
+    roomDistance(
+      best.observation.roomPosition,
+      item.observation.roomPosition
+    ) <= KNOWN_FUSION_DISTANCE
+  ));
+  const positionConflict = positionConsistent.length !== ranked.length;
+  const positionSources = positionConsistent.length
+    ? positionConsistent
+    : [best];
+
+  const totalWeight = positionSources.reduce(
     (sum, item) => sum + Math.max(0.05, item.quality),
     0
   );
 
   const roomPosition = {
-    x: ranked.reduce(
+    x: positionSources.reduce(
       (sum, item) => sum + item.observation.roomPosition.x * Math.max(0.05, item.quality),
       0
     ) / totalWeight,
-    y: ranked.reduce(
+    y: positionSources.reduce(
       (sum, item) => sum + item.observation.roomPosition.y * Math.max(0.05, item.quality),
       0
     ) / totalWeight
@@ -66,7 +77,12 @@ export function fuseKnownParticipantObservations(observations = []) {
       ...item.observation,
       fusionQuality: item.quality
     })),
-    overlap: ranked.length > 1
+    overlap: positionSources.length > 1,
+    positionConflict,
+    positionCameraIds: positionSources.map((item) => item.observation.cameraId),
+    conflictingCameraIds: ranked
+      .filter((item) => !positionSources.includes(item))
+      .map((item) => item.observation.cameraId)
   };
 }
 
@@ -194,6 +210,9 @@ export function fuseWorldObjects(previousObjects = [], observations = [], now = 
     for (const observation of items) {
       let target = null;
       for (const cluster of clusters) {
+        if (cluster.some((item) => item.cameraId === observation.cameraId)) {
+          continue;
+        }
         const centroid = {
           x: cluster.reduce((sum, item) => sum + item.roomPosition.x, 0) / cluster.length,
           y: cluster.reduce((sum, item) => sum + item.roomPosition.y, 0) / cluster.length
