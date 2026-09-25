@@ -156,3 +156,29 @@ test('conversation.ended removes stale room groups', () => {
   ));
   assert.equal(state.conversationGroups.G01, undefined);
 });
+
+
+test('conversation start and leave update participant group membership', () => {
+  const state = createRoomState();
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'participant.recognized',
+    { participantId:'p1', participantName:'Dave', trackId:'T001' },
+    { timestamp:1 }
+  ));
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'conversation.started',
+    {
+      conversationGroup:'G01',
+      data:{participantIds:['p1'],trackIds:['T001','T002']}
+    },
+    { timestamp:2 }
+  ));
+  assert.equal(state.participants.p1.conversationGroup, 'G01');
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'conversation.participant_left',
+    { participantId:'p1', trackId:'T001', conversationGroup:'G01' },
+    { timestamp:3 }
+  ));
+  assert.equal(state.participants.p1.conversationGroup, null);
+});
