@@ -31,9 +31,17 @@ export function createGraphNode(input = {}) {
 
 export function upsertGraphNode(graph, input) {
   const existing = graph.nodes[input.id];
+  const preserveConfirmed = (
+    existing?.state === 'user-confirmed' &&
+    input.state !== 'user-confirmed'
+  );
   graph.nodes[input.id] = createGraphNode({
     ...existing,
     ...input,
+    state: preserveConfirmed ? 'user-confirmed' : input.state,
+    confidence: preserveConfirmed
+      ? Math.max(Number(existing?.confidence || 0), Number(input.confidence || 0))
+      : input.confidence,
     firstObservedAt: existing?.firstObservedAt || input.firstObservedAt,
     provenance: mergeProvenance(existing?.provenance || [], input.provenance || [])
   });
@@ -48,13 +56,24 @@ export function edgeId(subjectId, predicate, objectId) {
 export function upsertGraphEdge(graph, input) {
   const id = input.id || edgeId(input.subjectId, input.predicate, input.objectId);
   const existing = graph.edges[id];
+  const preserveConfirmed = (
+    existing?.state === 'user-confirmed' &&
+    input.state !== 'user-confirmed'
+  );
   graph.edges[id] = {
     id,
     subjectId: input.subjectId,
     predicate: input.predicate,
     objectId: input.objectId,
-    state: FACT_STATES.has(input.state) ? input.state : 'observed',
-    confidence: Math.max(0, Math.min(1, Number(input.confidence ?? 0.5))),
+    state: preserveConfirmed
+      ? 'user-confirmed'
+      : (FACT_STATES.has(input.state) ? input.state : 'observed'),
+    confidence: Math.max(0, Math.min(
+      1,
+      preserveConfirmed
+        ? Math.max(Number(existing?.confidence || 0), Number(input.confidence || 0))
+        : Number(input.confidence ?? 0.5)
+    )),
     provenance: mergeProvenance(existing?.provenance || [], input.provenance || []),
     firstObservedAt: existing?.firstObservedAt || Number(input.firstObservedAt || Date.now()),
     lastObservedAt: Number(input.lastObservedAt || Date.now()),
