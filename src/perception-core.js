@@ -188,10 +188,22 @@ function updateLocation(entity, event) {
   }
 }
 
+function pruneLostObjects(state, now, ttlMs = 60000) {
+  for (const [objectId, object] of Object.entries(state.objects || {})) {
+    if (
+      object.status === 'lost' &&
+      now - Number(object.lastSeenAt || 0) > ttlMs
+    ) {
+      delete state.objects[objectId];
+    }
+  }
+}
+
 export function applyPerceptionEvent(state, event) {
   if (!state || !event) return state;
 
   state.updatedAt = event.timestamp;
+  pruneLostObjects(state, event.timestamp);
   state.status = 'active';
   rememberEvent(state, event);
 
