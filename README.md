@@ -176,6 +176,149 @@ V1.7 attention queue / compute budget
 
 This keeps proactive awareness governed by the same attention and privacy architecture as the rest of Agent Eyes.
 
+## V1.8 — Proactive Environmental Awareness & Anomaly Detection
+
+V1.8 turns persistent physical-world deviations into governed Agent attention without treating a single detector result as an anomaly.
+
+### Evidence-gated anomalies
+
+Anomalies move through:
+
+```text
+observation
+→ candidate
+→ persistence / independent evidence checks
+→ confirmed anomaly
+→ acknowledged / cleared / dismissed
+```
+
+Each anomaly type has explicit minimum observations, minimum persistence time, clear grace, severity, and confidence.
+
+Repeated reads of the **same environment comparison** do not count as independent evidence.
+
+### Current anomaly classes
+
+V1.8 can verify:
+
+- physical-world contradictions
+- unrecognized environment
+- persistent structural environment drift
+- persistent camera-pose shift
+- persistently degraded camera-view quality
+- deviation from a **confirmed** expected object location
+- a confirmed expected object missing despite unexpected visibility loss
+- a newly appeared object that remains present in a known environment
+
+These are physical-state observations. The system does not infer motive, ownership, suspiciousness, or abnormal human intent.
+
+### Confirmed expectations only
+
+Expected-location anomalies use only V1.5 spatial-memory proposals that were explicitly confirmed.
+
+An unreviewed learned pattern cannot trigger:
+
+> "This object is in the wrong place."
+
+This preserves the authority ladder:
+
+```text
+repeated observation
+→ learned proposal
+→ human confirmation
+→ confirmed expectation
+→ anomaly comparison
+```
+
+### Persistence and independent evidence
+
+Environment comparisons occur much less frequently than camera tracking.
+
+V1.8 assigns evidence IDs to sampled environment evidence so one comparison cannot be reread hundreds of times by the faster scan loop and accidentally satisfy an anomaly threshold.
+
+Continuous object-location evidence may continue accumulating because each live world observation is new physical evidence.
+
+### Privacy boundaries
+
+Anomaly reasoning respects the active room Observation Policy.
+
+If environment comparison is disabled, stale environment-analysis state does not continue generating environment anomalies.
+
+If object observation is disabled, object-location/new-object anomalies are suppressed.
+
+V1.8 operates on the policy-governed world state rather than bypassing V1.6 privacy enforcement.
+
+### Proactive-awareness lifecycle
+
+Confirmed anomalies emit:
+
+- `anomaly.confirmed`
+- `anomaly.cleared`
+- `anomaly.acknowledged`
+- `anomaly.dismissed`
+- `proactive_awareness.updated`
+
+Active anomalies are fed into the V1.7 Agent Attention Controller with their semantic category and severity priority.
+
+Clearing or dismissing an anomaly resolves its corresponding attention item.
+
+### Acknowledge vs Dismiss
+
+**Acknowledge** records that the anomaly has been seen but keeps it active while the evidence remains true.
+
+**Dismiss 1h** closes the current anomaly and temporarily suppresses the same signature so persistent unchanged evidence does not immediately reopen it.
+
+If the condition remains after suppression expires, it must satisfy the verification gate again.
+
+### Proactive UI
+
+Agent Eyes exposes three separate views:
+
+- **Persistent anomalies** — confirmed current physical deviations
+- **Verification candidates** — evidence still accumulating
+- **Awareness history** — cleared/dismissed outcomes
+
+The UI shows severity, confidence, verification progress, observation counts, room/entity context, and acknowledgment state.
+
+### Persistence
+
+Anomaly history, suppression windows, and statistics are stored locally.
+
+Active/candidate conclusions are **not blindly restored after page reload**. Live evidence has to re-establish the condition.
+
+### Agent APIs
+
+V1.8 adds:
+
+```js
+TrackyAgentEyes.getAnomalyState()
+TrackyAgentEyes.getProactiveAwareness()
+TrackyAgentEyes.acknowledgeAnomaly(signature)
+TrackyAgentEyes.dismissAnomaly(signature, suppressMs)
+TrackyAgentEyes.subscribeAnomalies(handler)
+```
+
+Browser integrations also receive:
+
+```text
+tracky:anomaly-state
+```
+
+`getWorldState()` now includes:
+
+```js
+{
+  proactiveAwareness
+}
+```
+
+This gives a future VP3 Agent Brain a clean distinction between:
+
+- raw perception
+- semantic world facts
+- learned expectations
+- current attention priorities
+- persistent proactive physical-world anomalies
+
 ## V1.7 — Task-Conditioned Perception & Agent Attention Controller
 
 V1.7 adds a governed attention layer above Tracky's existing perception/world stack.
