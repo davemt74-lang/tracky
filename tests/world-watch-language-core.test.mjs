@@ -36,9 +36,18 @@ test('parses object movement watch',()=>{
  const r=interpretWorldWatchCommand('Tell me when the keys move',context(),[],1000);
  assert.equal(r.status,'ready'); assert.equal(r.watch.type,'entity-moved'); assert.equal(r.watch.subjectId,'O1');
 });
-test('parses anomaly clear and active watches',()=>{
- assert.equal(interpretWorldWatchCommand('Alert me when an anomaly clears',context(),[],1000).watch.type,'anomaly-cleared');
- assert.equal(interpretWorldWatchCommand('Notify me when an anomaly appears',context(),[],1000).watch.type,'anomaly-active');
+test('parses generic anomaly clear and active watches without inventing anomaly types',()=>{
+ const cleared=interpretWorldWatchCommand('Alert me when an anomaly clears',context(),[],1000);
+ const active=interpretWorldWatchCommand('Notify me when an anomaly appears',context(),[],1000);
+ assert.equal(cleared.watch.type,'anomaly-cleared');
+ assert.equal(cleared.watch.anomalyType,null);
+ assert.equal(active.watch.type,'anomaly-active');
+ assert.equal(active.watch.anomalyType,null);
+});
+test('parses explicit anomaly type scope',()=>{
+ const r=interpretWorldWatchCommand('Alert me when anomaly type expected-object-missing clears',context(),[],1000);
+ assert.equal(r.status,'ready');
+ assert.equal(r.watch.anomalyType,'expected-object-missing');
 });
 test('parses priority threshold percent',()=>{
  const r=interpretWorldWatchCommand('Alert me when priority is above 85 percent',context(),[],1000);
