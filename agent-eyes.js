@@ -136,6 +136,7 @@ import {
   entityHistory,
   entityJourney,
   expectedLocationFor,
+  nearestAnchor,
   ignoreMemoryProposal,
   observeSpatialMemory,
   resolveMemoryProposal,
@@ -884,6 +885,350 @@ function dismissActiveAnomaly(signature, suppressMs = 60 * 60 * 1000) {
   return copySerializable(anomaly);
 }
 
+
+function currentAnomalyBySignature(signature) {
+  return runtime.anomalyState.active[signature] ||
+    runtime.anomalyState.candidates[signature] ||
+    null;
+}
+
+function recentVerificationFor(signature, now = Date.now(), windowMs = 30000) {
+  return [...runtime.verificationState.history].reverse().find((item) => (
+    item.signature === signature &&
+    now - Number(item.completedAt || item.updatedAt || 0) <= windowMs
+  )) || null;
+}
+
+function verificationCurrentTargets() {
+  const targets = {};
+  const landmarksByRoom = spatialLandmarksByRoom();
+
+  for (const object of Object.values(runtime.multiRoomWorld.objects || {})) {
+    if (!object?.id || !object.roomId) continue;
+    const anchor = nearestAnchor(
+      object.roomPosition,
+      landmarksByRoom[object.roomId] || []
+    );
+    targets[object.id] = anchor?.id || ('ROOM:' + object.roomId);
+  }
+
+  return targets;
+}
+
+function confirmedExpectedLocationMap() {
+  const result = {};
+  for (const expected of confirmedExpectedLocationsForAnomalies()) {
+    result[expected.entityId] = expected;
+  }
+  return result;
+}
+
+function verificationContext(request, now = Date.now()) {
+  return {
+    anomaly: currentAnomalyBySignature(request.signature) || {
+      signature: request.signature,
+      type: request.anomalyType,
+      roomId: request.roomId,
+      subjectId: request.subjectId,
+      objectId: request.objectId,
+      participantId: request.participantId
+    },
+    environment: runtime.environmentAnalysis,
+    currentEnvironment: runtime.currentEnvironment,
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    roomVisibility: runtime.roomVisibility,
+    visibilityUpdatedAt: runtime.fusionState.updatedAt || now,
+    expectedLocations: confirmedExpectedLocationMap(),
+    currentTargets: verificationCurrentTargets(),
+    sceneChanges: sceneState.changes.slice(-40)
+  };
+}
+
+async function persistVerificationState(force = false) {
+  const now = Date.now();
+  if (
+    !force &&
+    now - Number(runtime.verificationLastSavedAt || 0) < 10000
+  ) return;
+
+  runtime.verificationLastSavedAt = now;
+  try {
+    await saveVerificationState(verificationSnapshot(runtime.verificationState));
+  } catch (error) {
+    console.error('Could not persist verification state', error);
+  }
+}
+
+async function initializeVerificationState() {
+  try {
+    const saved = await loadVerificationState();
+    const fresh = createVerificationState();
+    if (saved) {
+      fresh.history = Array.isArray(saved.history)
+        ? saved.history.slice(-200)
+        : [];
+      fresh.stats = {
+        ...fresh.stats,
+        ...(saved.stats || {})
+      };
+    }
+    runtime.verificationState = fresh;
+  } catch (error) {
+    console.error('Could not load verification state', error);
+    runtime.verificationState = createVerificationState();
+  }
+  renderVerification();
+}
+
+function emitVerificationOutcome(request) {
+  if (!request) return;
+
+  if (request.status === 'blocked') {
+    emit('verification.blocked', {
+      source: 'active-verification',
+      confidence: 1,
+      data: request
+    });
+    return;
+  }
+
+  if (request.status === 'cancelled') {
+    emit('verification.cancelled', {
+      source: 'active-verification',
+      confidence: 1,
+      data: request
+    });
+    return;
+  }
+
+  if (['verified','cleared','uncertain'].includes(request.status)) {
+    const quorum = request.quorum || verificationQuorum(request);
+    const confidence = request.status === 'verified'
+      ? quorum.supporting.confidence
+      : request.status === 'cleared'
+        ? quorum.clearing.confidence
+        : Math.max(
+            quorum.supporting.confidence || 0,
+            quorum.clearing.confidence || 0
+          );
+
+    emit('verification.completed', {
+      source: 'active-verification',
+      confidence,
+      data: {
+        ...request,
+        verificationResult: request.status
+      }
+    });
+  }
+}
+
+function requestAnomalyVerification(signature) {
+  const anomaly = currentAnomalyBySignature(signature);
+  if (!anomaly) return null;
+
+  const now = Date.now();
+  const request = startVerification(
+    runtime.verificationState,
+    anomaly,
+    policyForRoom(anomaly.roomId),
+    now
+  );
+
+  if (request.status === 'blocked') {
+    emitVerificationOutcome(request);
+  } else {
+    emit('verification.started', {
+      source: 'active-verification',
+      confidence: anomaly.confidence || 0,
+      data: {
+        requestId: request.id,
+        signature: request.signature,
+        anomalyType: request.anomalyType,
+        roomId: request.roomId,
+        plan: request.plan
+      }
+    });
+  }
+
+  updateAttentionController(now, { forceBudgetEvent: true });
+  renderVerification();
+  void persistVerificationState(true);
+  return copySerializable(request);
+}
+
+function cancelActiveVerification(signature) {
+  const request = cancelVerification(
+    runtime.verificationState,
+    signature,
+    Date.now()
+  );
+  if (!request) return null;
+  emitVerificationOutcome(request);
+  updateAttentionController(Date.now(), { forceBudgetEvent: true });
+  renderVerification();
+  void persistVerificationState(true);
+  return copySerializable(request);
+}
+
+function verificationAttentionItems() {
+  return Object.values(runtime.verificationState.requests || {})
+    .filter((request) => request.status === 'gathering')
+    .map((request) => {
+      const quorum = verificationQuorum(request);
+      return {
+        key: 'verification::' + request.signature,
+        type: 'verification.' + request.anomalyType,
+        category: request.category,
+        priority: Math.max(0.8, Number(request.priority || 0)),
+        confidence: Math.max(
+          Number(quorum.supporting.confidence || 0),
+          Number(quorum.clearing.confidence || 0)
+        ),
+        subjectId: request.subjectId,
+        objectId: request.objectId,
+        participantId: request.participantId,
+        roomId: request.roomId,
+        summary: 'Actively verifying · ' + request.summary,
+        data: {
+          requestId: request.id,
+          signature: request.signature,
+          evidenceCount: request.evidence.length,
+          sourceCount: request.sourceKeys.length,
+          deadlineAt: request.plan.deadlineAt
+        }
+      };
+    });
+}
+
+function publishVerificationState() {
+  const snapshot = verificationSnapshot(runtime.verificationState);
+  for (const listener of verificationListeners) listener(snapshot);
+  window.dispatchEvent(new CustomEvent('tracky:verification-state', {
+    detail: snapshot
+  }));
+  renderVerification();
+  void persistVerificationState(false);
+  return snapshot;
+}
+
+function syncVerificationRequests(now = Date.now()) {
+  const anomalySnapshotValue = anomalySnapshot(runtime.anomalyState);
+  const current = [
+    ...(anomalySnapshotValue.active || []),
+    ...(anomalySnapshotValue.candidates || [])
+  ];
+  const currentSignatures = new Set(current.map((item) => item.signature));
+
+  for (const anomaly of current) {
+    if (runtime.verificationState.requests[anomaly.signature]) continue;
+    if (recentVerificationFor(anomaly.signature, now)) continue;
+
+    const request = startVerification(
+      runtime.verificationState,
+      anomaly,
+      policyForRoom(anomaly.roomId),
+      now
+    );
+    if (request.status === 'blocked') {
+      emitVerificationOutcome(request);
+    } else {
+      emit('verification.started', {
+        source: 'active-verification',
+        confidence: anomaly.confidence || 0,
+        data: {
+          requestId: request.id,
+          signature: request.signature,
+          anomalyType: request.anomalyType,
+          roomId: request.roomId,
+          plan: request.plan,
+          automatic: true
+        }
+      });
+    }
+  }
+
+  for (const request of Object.values(runtime.verificationState.requests || {})) {
+    const before = request.evidence.length;
+    for (const evidence of evidenceFromContext(
+      request,
+      verificationContext(request, now),
+      now
+    )) {
+      addVerificationEvidence(
+        runtime.verificationState,
+        request.signature,
+        evidence,
+        now
+      );
+    }
+
+    if (request.evidence.length > before) {
+      emit('verification.evidence_added', {
+        source: 'active-verification',
+        confidence: 1,
+        data: {
+          requestId: request.id,
+          signature: request.signature,
+          anomalyType: request.anomalyType,
+          added: request.evidence.length - before,
+          evidenceCount: request.evidence.length,
+          sourceCount: request.sourceKeys.length,
+          quorum: verificationQuorum(request)
+        }
+      });
+    }
+
+    if (request.plan.refreshEnvironment) {
+      const lastRefresh = Number(
+        runtime.verificationLastEnvironmentRefresh.get(request.signature) || 0
+      );
+      if (
+        runtime.running &&
+        !runtime.environmentCheckPending &&
+        now - lastRefresh >= 2500
+      ) {
+        runtime.verificationLastEnvironmentRefresh.set(request.signature, now);
+        void refreshEnvironmentObservation({
+          reason: 'active-verification',
+          persistHistory: false
+        });
+      }
+    }
+
+    const completed = evaluateVerification(
+      runtime.verificationState,
+      request.signature,
+      now
+    );
+    if (
+      completed &&
+      ['verified','cleared','uncertain'].includes(completed.status)
+    ) {
+      emitVerificationOutcome(completed);
+      resolveAttentionItem(
+        runtime.attention,
+        'verification::' + request.signature,
+        'resolved',
+        now
+      );
+    }
+  }
+
+  for (const [signature] of runtime.verificationLastEnvironmentRefresh) {
+    if (
+      !runtime.verificationState.requests[signature] &&
+      !currentSignatures.has(signature)
+    ) {
+      runtime.verificationLastEnvironmentRefresh.delete(signature);
+    }
+  }
+
+  publishVerificationState();
+  return verificationSnapshot(runtime.verificationState);
+}
+
 async function persistAttentionState(force = false) {
   const now = Date.now();
   if (
@@ -1019,10 +1364,11 @@ function updateAttentionController(now = Date.now(), options = {}) {
     attentionContext()
   );
   const proactiveItems = anomalyAttentionItems();
+  const verificationItems = verificationAttentionItems();
 
   const items = upsertAttentionItems(
     runtime.attention,
-    [...baseItems, ...taskItems, ...proactiveItems],
+    [...baseItems, ...taskItems, ...proactiveItems, ...verificationItems],
     now,
     { ttlMs: 45000 }
   );
