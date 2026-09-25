@@ -377,7 +377,49 @@ function syncParticipants(state, snapshot, now, options, changes) {
     if (!key) continue;
     activeKeys.add(key);
 
-    const existing = state.participants[key];
+    let existing = state.participants[key];
+
+    if (
+      !existing &&
+      participant.id &&
+      participant.trackId &&
+      state.participants[participant.trackId]?.presence === 'active'
+    ) {
+      const priorKey = participant.trackId;
+      const prior = state.participants[priorKey];
+
+      existing = {
+        ...prior,
+        id: participant.id,
+        name: participant.name || prior.name,
+        trackId: participant.trackId
+      };
+      state.participants[key] = existing;
+      delete state.participants[priorKey];
+
+      if (state.pending.zones[priorKey]) {
+        state.pending.zones[key] = state.pending.zones[priorKey];
+        delete state.pending.zones[priorKey];
+      }
+      if (state.pending.activities[priorKey]) {
+        state.pending.activities[key] = state.pending.activities[priorKey];
+        delete state.pending.activities[priorKey];
+      }
+
+      const oldEpisodeKey = 'activity:' + priorKey;
+      const newEpisodeKey = 'activity:' + key;
+      if (state.activeEpisodes[oldEpisodeKey]) {
+        state.activeEpisodes[newEpisodeKey] = {
+          ...state.activeEpisodes[oldEpisodeKey],
+          key: newEpisodeKey,
+          participantId: participant.id,
+          participantName: participant.name || prior.name,
+          trackId: participant.trackId
+        };
+        delete state.activeEpisodes[oldEpisodeKey];
+      }
+    }
+
     if (!existing || existing.presence === 'left') {
       state.participants[key] = {
         id: participant.id || null,
