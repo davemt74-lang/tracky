@@ -189,6 +189,20 @@ import {
   loadAnomalyState,
   saveAnomalyState
 } from './src/anomaly-store.js';
+import {
+  answerPhysicalWorldQuery,
+  buildEvidenceBundle,
+  buildWorldTimeline
+} from './src/world-query-core.js';
+import {
+  clearWorldQueries,
+  listWorldQueries,
+  saveWorldQuery
+} from './src/world-query-store.js';
+import {
+  buildAgentContext,
+  diffAgentContext
+} from './src/agent-context-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -487,6 +501,7 @@ const spatialMemoryListeners = new Set();
 const attentionListeners = new Set();
 const anomalyListeners = new Set();
 const worldQueryListeners = new Set();
+const agentContextListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -584,7 +599,8 @@ const runtime = {
   anomalyLastSavedAt: 0,
   anomalyTopSignature: null,
   lastWorldQuery: null,
-  recentWorldQueries: []
+  recentWorldQueries: [],
+  agentContext: null
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -752,6 +768,35 @@ function anomalyAttentionItems() {
   }));
 }
 
+
+function agentContextSource() {
+  return {
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || roomState.roomId || null,
+    rooms: runtime.environmentRooms,
+    roomPolicies: runtime.roomPolicies,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    attention: attentionSnapshot(runtime.attention),
+    anomalies: anomalySnapshot(runtime.anomalyState),
+    sceneChanges: sceneState.changes.slice(-40),
+    perceptionBudget: currentPerceptionBudget()
+  };
+}
+
+function currentAgentContext(options = {}, now = Date.now()) {
+  return buildAgentContext(agentContextSource(), options, now);
+}
+
+function refreshAgentContext(reason = 'runtime-update', now = Date.now()) {
+  const next = currentAgentContext({}, now);
+  const delta = diffAgentContext(runtime.agentContext, next);
+  runtime.agentContext = next;
+  if (!delta.changed) return copySerializable({ context: next, delta });
+
+  const detail = copySerializable({ context: next, delta, reason });
+  for (const listener of agentContextListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:agent-context', { detail }));
+  return detail;
+}
 
 function worldQueryContext() {
   return {
@@ -1167,6 +1212,7 @@ bus.subscribe('*', (event) => {
   window.dispatchEvent(new CustomEvent('tracky:perception', {
     detail: event
   }));
+  refreshAgentContext('perception:' + event.type, event.timestamp || Date.now());
   renderEventFeed();
   renderRoomState();
 });
@@ -1272,6 +1318,15 @@ window.TrackyAgentEyes = Object.freeze({
   getProactiveAwareness() {
     return copySerializable(proactiveAwarenessSummary(runtime.anomalyState));
   },
+  getAgentContext(options = {}) {
+    return copySerializable(currentAgentContext(options, Date.now()));
+  },
+  getAgentContextDelta(previous, options = {}) {
+    return copySerializable(diffAgentContext(
+      previous || null,
+      currentAgentContext(options, Date.now())
+    ));
+  },
   queryPhysicalWorld(query) {
     return runPhysicalWorldQuery(query);
   },
@@ -1361,6 +1416,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeWorldQueries(listener) {
     worldQueryListeners.add(listener);
     return () => worldQueryListeners.delete(listener);
+  },
+  subscribeAgentContext(listener) {
+    agentContextListeners.add(listener);
+    return () => agentContextListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
