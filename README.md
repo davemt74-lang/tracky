@@ -2,6 +2,72 @@
 
 Tracky turns real-world movement into browser-game input.
 
+## V0.9 — Attention, Behavior & Perception Inspector
+
+V0.9 makes Agent Eyes reason about participant behavior and makes every conclusion inspectable.
+
+### Pose + behavior
+
+- preserve named body landmarks on persistent person tracks
+- draw live pose skeletons over tracked participants
+- estimate standing, sitting, or uncertain posture from hip/knee/ankle geometry
+- classify participant movement as stationary, shifting, or moving
+- detect left/right/both hand raised from shoulder/wrist geometry
+- detect a simple raised-hand wave from repeated wrist direction reversals
+- use face yaw/pitch for conservative head orientation
+- fall back to shoulder geometry when a face is unavailable
+- never treat body shape alone as identity
+
+### Attention + addressing
+
+Agent Eyes now produces approximate attention relationships from head orientation and room position.
+
+- facing Agent/camera
+- facing left/right
+- likely attention toward another tracked participant
+- room-direction attention when no specific target is strong enough
+- likely addressing relationship only when several signals agree:
+  - participant is speaking
+  - attention target is another participant
+  - both participants share the same conversation group
+
+These are explicitly probabilistic spatial conclusions, not precise eye-gaze claims.
+
+### Explainable perception
+
+Every participant card now exposes live behavior signals and an **Inspect** action.
+
+The Perception Evidence Inspector shows:
+
+- identity evidence
+- body continuity
+- Voice Profile readiness
+- pose confidence
+- head orientation
+- posture
+- movement
+- gesture state
+- attention target
+- addressing conclusion
+- individual landmark confidence
+- a privacy-safe JSON evidence snapshot
+
+The inspector does not expose face embeddings or Voice Profile embeddings.
+
+### Perception events
+
+V0.9 adds:
+
+- `behavior.changed`
+- `attention.changed`
+- `gesture.detected`
+
+Behavior events are gated behind stable participant presence so short detector flicker cannot create phantom Agent events.
+
+### Model grounding
+
+Tracky uses the Human body result's named landmarks and face rotation data. Human exposes body landmarks such as shoulders, wrists, hips, knees and ankles, plus face yaw/pitch rotation. Tracky uses those raw outputs to build conservative higher-level behavior evidence.
+
 ## V0.8 — Agent Eyes / Spatial Perception Runtime
 
 V0.8 changes Tracky's primary purpose from a game/tracker prototype into an experimental perception layer for an Agent system.
