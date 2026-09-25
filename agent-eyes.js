@@ -1746,6 +1746,7 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
 
   if (updateScene) updateSceneIntelligence(now);
   updatePhysicalWorldModel(now);
+  if (runtime.running) updateSpatialMemory(now);
 }
 
 function sceneInputSnapshot() {
@@ -5817,6 +5818,15 @@ function eventLabel(event) {
     case 'visibility.changed':
       return String(event.data?.entityLabel || event.data?.entityId || 'Entity') +
         ' visibility → ' + String(event.data?.state || 'unknown');
+    case 'spatial_memory.proposed':
+      return 'Learned pattern needs review · ' +
+        String(event.data?.proposalType || 'spatial memory');
+    case 'spatial_memory.confirmed':
+      return 'Spatial memory confirmed · ' +
+        String(event.data?.proposalType || 'physical fact');
+    case 'spatial_memory.ignored':
+      return 'Spatial memory proposal ignored · ' +
+        String(event.data?.proposalType || 'physical fact');
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -5924,7 +5934,8 @@ function renderRoomState() {
     physicalWorld: worldStateSnapshot(runtime.physicalWorld),
     topology: runtime.worldTopology,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-    roomVisibility: runtime.roomVisibility
+    roomVisibility: runtime.roomVisibility,
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -6271,7 +6282,8 @@ async function copySnapshot() {
     physicalWorld: worldStateSnapshot(runtime.physicalWorld),
     topology: runtime.worldTopology,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-    roomVisibility: runtime.roomVisibility
+    roomVisibility: runtime.roomVisibility,
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
@@ -6315,6 +6327,7 @@ ui.closeObjectInspector.addEventListener('click', closeObjectEvidenceInspector);
 ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
 ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
 ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
+ui.clearSpatialMemory.addEventListener('click', () => void clearLearnedSpatialMemory());
 ui.cameraRegistryForm.addEventListener('submit', (event) => void addCameraConfig(event));
 ui.topologyConnectForm.addEventListener('submit', (event) => void confirmTopologyConnection(event));
 ui.cameraCalibrationForm.addEventListener('submit', (event) => void saveCameraCalibrationForm(event));
@@ -6361,6 +6374,7 @@ await reloadCameraRegistry();
 await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
+await initializeSpatialMemory();
 renderAll();
 renderEventFeed();
 renderRoomState();
