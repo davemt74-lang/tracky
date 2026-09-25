@@ -674,6 +674,53 @@ for (const symbol of ['loadAnomalyState','saveAnomalyState']) {
   }
 }
 
+const anomalyCore = read('src/anomaly-core.js');
+for (const symbol of [
+  'ANOMALY_TYPES',
+  'createAnomalyState',
+  'deriveAnomalySignals',
+  'observeAnomalySignals',
+  'acknowledgeAnomaly',
+  'dismissAnomaly',
+  'anomalySnapshot',
+  'proactiveAwarenessSummary',
+  'anomalySignature'
+]) {
+  if (!anomalyCore.includes(symbol)) {
+    fail('Anomaly core is missing required V1.8 interface: ' + symbol);
+  }
+}
+for (const anomalyType of [
+  'world-contradiction',
+  'environment-unrecognized',
+  'environment-structural-drift',
+  'camera-pose-shift',
+  'camera-quality-degraded',
+  'expected-location-deviation',
+  'expected-object-missing',
+  'new-object-presence'
+]) {
+  if (!anomalyCore.includes("'" + anomalyType + "'")) {
+    fail('Anomaly core is missing V1.8 anomaly type: ' + anomalyType);
+  }
+}
+if (!/minimumObservations/.test(anomalyCore) || !/persistenceMs/.test(anomalyCore)) {
+  fail('Anomaly engine must enforce observation and persistence thresholds');
+}
+if (!/evidenceId/.test(anomalyCore) || !/lastEvidenceId/.test(anomalyCore)) {
+  fail('Anomaly engine must deduplicate repeated reads of the same evidence');
+}
+if (!/allowEnvironmentComparison/.test(anomalyCore) || !/allowObjectObservation/.test(anomalyCore)) {
+  fail('Anomaly reasoning must preserve room privacy capability caps');
+}
+
+const anomalyStore = read('src/anomaly-store.js');
+for (const symbol of ['loadAnomalyState','saveAnomalyState']) {
+  if (!anomalyStore.includes(symbol)) {
+    fail('Anomaly store is missing persistence interface: ' + symbol);
+  }
+}
+
 const environmentStorePolicy = read('src/environment-store.js');
 for (const symbol of ['loadEnvironmentPolicy','saveEnvironmentPolicy','defaultObservationPolicy']) {
   if (!environmentStorePolicy.includes(symbol)) {
@@ -917,6 +964,43 @@ if (!/setScanIntervalMs/.test(read('src/multicamera-runtime.js'))) {
 if (!/tracky:attention-state/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level attention state');
 }
+for (const eventName of [
+  'anomaly.confirmed',
+  'anomaly.cleared',
+  'anomaly.acknowledged',
+  'anomaly.dismissed',
+  'proactive_awareness.updated'
+]) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing V1.8 anomaly event: ' + eventName);
+  }
+}
+for (const symbol of [
+  'getAnomalyState',
+  'getProactiveAwareness',
+  'acknowledgeAnomaly',
+  'dismissAnomaly',
+  'subscribeAnomalies'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V1.8 proactive-awareness API: ' + symbol);
+  }
+}
+if (!/proactiveActiveList/.test(indexHtml) || !/proactiveCandidateList/.test(indexHtml) || !/proactiveHistoryList/.test(indexHtml)) {
+  fail('Agent Eyes must expose active anomaly, verification, and history UI');
+}
+if (!/renderProactiveAwareness/.test(agentEyes) || !/updateAnomalyAwareness/.test(agentEyes)) {
+  fail('Agent Eyes must render and run proactive anomaly awareness');
+}
+if (!/anomalyAttentionItems/.test(agentEyes)) {
+  fail('Confirmed anomalies must feed the governed Agent attention queue');
+}
+if (!/tracky:anomaly-state/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level anomaly state');
+}
+if (!/proactiveAwareness/.test(agentEyes)) {
+  fail('Current World State must include proactive awareness');
+}
 if (!/applyParticipantObservationPolicy/.test(agentEyes) || !/applyObjectObservationPolicy/.test(agentEyes)) {
   fail('Agent Eyes must apply room privacy policy before camera fusion');
 }
@@ -1025,6 +1109,9 @@ if (!/tracky-v1\.8-deploy\.zip/.test(workflow)) {
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
   fail('CI V1.8 deploy package must include attention core and store');
+}
+if (!workflow.includes('src/anomaly-core.js') || !workflow.includes('src/anomaly-store.js')) {
+  fail('CI V1.8 deploy package must include anomaly core and store');
 }
 if (!workflow.includes('src/privacy-policy-core.js')) {
   fail('CI V1.8 deploy package must include privacy policy core');
