@@ -35,7 +35,11 @@ const requiredFiles = [
   'src/behavior-core.js',
   'src/object-core.js',
   'src/scene-core.js',
-  'src/scene-store.js'
+  'src/scene-store.js',
+  'src/camera-core.js',
+  'src/camera-store.js',
+  'src/fusion-core.js',
+  'src/multicamera-runtime.js'
 ];
 
 const runtimeJs = [
@@ -60,7 +64,11 @@ const runtimeJs = [
   'src/behavior-core.js',
   'src/object-core.js',
   'src/scene-core.js',
-  'src/scene-store.js'
+  'src/scene-store.js',
+  'src/camera-core.js',
+  'src/camera-store.js',
+  'src/fusion-core.js',
+  'src/multicamera-runtime.js'
 ];
 
 const htmlContracts = [
@@ -86,8 +94,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '1.1.0') {
-  fail('package.json version must be 1.1.0');
+if (packageJson.version !== '1.2.0') {
+  fail('package.json version must be 1.2.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -115,6 +123,16 @@ if (!packageJson.scripts?.test?.includes('src/scene-core.js')) {
 }
 if (!packageJson.scripts?.test?.includes('src/scene-store.js')) {
   fail('test script must syntax-check scene store');
+}
+for (const file of [
+  'src/camera-core.js',
+  'src/camera-store.js',
+  'src/fusion-core.js',
+  'src/multicamera-runtime.js'
+]) {
+  if (!packageJson.scripts?.test?.includes(file)) {
+    fail('test script must syntax-check ' + file);
+  }
 }
 
 for (const file of runtimeJs) {
@@ -301,6 +319,52 @@ for (const symbol of [
   }
 }
 
+const cameraCore = read('src/camera-core.js');
+for (const symbol of [
+  'normalizeCameraConfig',
+  'mapCameraPoint',
+  'mapCameraBox',
+  'cameraCoveragePolygon',
+  'cameraCalibrationValid'
+]) {
+  if (!cameraCore.includes(symbol)) {
+    fail('Camera core is missing required room-mapping interface: ' + symbol);
+  }
+}
+
+const cameraStore = read('src/camera-store.js');
+for (const symbol of [
+  'listCameraConfigs',
+  'saveCameraConfig',
+  'deleteCameraConfig',
+  'normalizeCameraList'
+]) {
+  if (!cameraStore.includes(symbol)) {
+    fail('Camera store is missing required registry interface: ' + symbol);
+  }
+}
+
+const fusionCore = read('src/fusion-core.js');
+for (const symbol of [
+  'fuseParticipantObservations',
+  'fuseWorldObjects',
+  'updateWorldFusion',
+  'camera.handoff',
+  'anonymous-spatial-overlap'
+]) {
+  if (!fusionCore.includes(symbol)) {
+    fail('Fusion core is missing required multi-camera interface: ' + symbol);
+  }
+}
+
+const multiCameraRuntime = read('src/multicamera-runtime.js');
+if (!/class MultiCameraSensorRuntime/.test(multiCameraRuntime)) {
+  fail('Secondary camera runtime class is missing');
+}
+if (!/presenceAnnounced/.test(multiCameraRuntime)) {
+  fail('Secondary camera runtime must stabilize body presence before fusion');
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -351,6 +415,29 @@ if (!/getSceneState/.test(agentEyes) || !/subscribeScene/.test(agentEyes) || !/t
 if (!/getWorldState/.test(agentEyes)) {
   fail('Agent Eyes must expose combined Current World State');
 }
+if (!/getCameraFusionState/.test(agentEyes) || !/subscribeCameraFusion/.test(agentEyes)) {
+  fail('Agent Eyes must expose the camera fusion Agent interface');
+}
+if (!/tracky:camera-fusion/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level camera fusion state');
+}
+if (!/cameraCalibrationInspector/.test(indexHtml) || !/openCameraCalibration/.test(agentEyes)) {
+  fail('Agent Eyes must expose four-point camera calibration UI');
+}
+if (!/cameraRegistryForm/.test(indexHtml) || !/renderCameraNetwork/.test(agentEyes)) {
+  fail('Agent Eyes must expose the persisted camera network registry');
+}
+if (!/worldMap/.test(indexHtml) || !/renderWorldMap/.test(agentEyes)) {
+  fail('Agent Eyes must expose the fused room world map');
+}
+if (!/worldMapVectors/.test(indexHtml) || !/updateWorldTrails/.test(agentEyes)) {
+  fail('Agent Eyes must expose fused participant trails');
+}
+for (const eventName of ['camera.status','camera.handoff','camera.overlap_fused']) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing camera event: ' + eventName);
+  }
+}
 
 const identityEngine = read('src/identity-engine.js');
 if (!/object:\s*\{[\s\S]*?enabled:\s*true/.test(identityEngine)) {
@@ -384,8 +471,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v1\.1-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V1.1 deploy ZIP');
+if (!/tracky-v1\.2-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.2 deploy ZIP');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -415,5 +502,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene interfaces, temporal memory, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera interfaces, temporal memory, multi-camera fusion, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
