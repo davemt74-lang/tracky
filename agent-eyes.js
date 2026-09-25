@@ -1038,6 +1038,40 @@ async function clearPhysicalAgentBriefings() {
   return true;
 }
 
+function pointInsideRoomPolygon(point, polygon = []) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = Number(polygon[i]?.x || 0);
+    const yi = Number(polygon[i]?.y || 0);
+    const xj = Number(polygon[j]?.x || 0);
+    const yj = Number(polygon[j]?.y || 0);
+    const crosses = ((yi > point.y) !== (yj > point.y)) &&
+      (point.x < (xj - xi) * (point.y - yi) / ((yj - yi) || Number.EPSILON) + xi);
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function roomCameraCoverageConfidence(roomId) {
+  const cameras = runtime.cameraConfigs.filter((camera) => (
+    camera.roomId === roomId &&
+    camera.enabled &&
+    cameraCalibrationValid(camera) &&
+    ['online','starting'].includes(runtime.cameraStatuses.get(camera.id) || 'offline')
+  ));
+  if (!cameras.length) return 0;
+  const polygons = cameras.map((camera) => cameraCoveragePolygon(camera));
+  const grid = 16;
+  let covered = 0;
+  for (let y = 0; y < grid; y += 1) {
+    for (let x = 0; x < grid; x += 1) {
+      const point = { x:(x + 0.5) / grid, y:(y + 0.5) / grid };
+      if (polygons.some((polygon) => pointInsideRoomPolygon(point, polygon))) covered += 1;
+    }
+  }
+  return covered / (grid * grid);
+}
+
 function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now()) {
   const context = agentContext || currentAgentContext({}, now);
   const currentAnchors = {};
@@ -1045,11 +1079,13 @@ function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now
     if (!['confirmed','transitioning'].includes(String(entity.presence || 'confirmed'))) continue;
     const semanticId = entity.participantId || entity.objectId || null;
     if (!semanticId) continue;
+    if (policyForRoom(entity.roomId).allowSpatialMemory === false) continue;
     const memoryId = entity.participantId ? 'PERSON:' + entity.participantId : entity.objectId;
     const history = runtime.spatialMemory.entities?.[memoryId]?.history || [];
     const latest = history[history.length - 1];
     if (
       latest?.anchorId &&
+      policyForRoom(latest.roomId || entity.roomId).allowSpatialMemory !== false &&
       Number(latest.timestamp || 0) > 0 &&
       now - Number(latest.timestamp) <= 60000
     ) {
@@ -1078,18 +1114,15 @@ function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now
     name: room.name || room.label || room.id,
     label: room.label || room.name || room.id
   }));
-  const multiRoom = multiRoomSnapshot(runtime.multiRoomWorld);
+  const roomCoverageConfidence = Object.fromEntries(
+    rooms.map((room) => [room.id, roomCameraCoverageConfidence(room.id)])
+  );
   const roomObservability = Object.fromEntries(
-    rooms.map((room) => {
-      const cameraIds = multiRoom.rooms?.[room.id]?.cameraIds || [];
-      const hasOnlineCamera = cameraIds.some((cameraId) => (
-        ['online','starting'].includes(runtime.cameraStatuses.get(cameraId) || 'offline')
-      ));
-      return [
-        room.id,
-        policyForRoom(room.id).allowVisualObservation !== false && hasOnlineCamera
-      ];
-    })
+    rooms.map((room) => [
+      room.id,
+      policyForRoom(room.id).allowVisualObservation !== false &&
+      Number(roomCoverageConfidence[room.id] || 0) >= 0.85
+    ])
   );
 
   return {
@@ -1098,6 +1131,7 @@ function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now
     anchors,
     currentAnchors,
     roomObservability,
+    roomCoverageConfidence,
     selfSubjectId: options.selfSubjectId || null
   };
 }
@@ -1125,6 +1159,21 @@ async function addPhysicalGoalDefinition(input = {}) {
     goal
   ];
   return copySerializable(goal);
+}
+
+async function addAndEvaluatePhysicalGoal(input = {}, reason = 'goal-created', now = Date.now()) {
+  const created = await addPhysicalGoalDefinition(input);
+  const stored = runtime.physicalGoals.find((item) => item.id === created.id);
+  const context = physicalGoalCommandContext({}, now);
+  const result = evaluatePhysicalGoal(stored, context, context, now);
+  runtime.physicalGoals = runtime.physicalGoals.map((item) => (
+    item.id === result.goal.id ? result.goal : item
+  ));
+  await savePhysicalGoal(result.goal);
+  for (const event of result.events) {
+    await publishPhysicalGoalEvent(event, result.goal, reason, now);
+  }
+  return copySerializable(result.goal);
 }
 
 async function removePhysicalGoalDefinition(id) {
@@ -1214,7 +1263,7 @@ async function processPhysicalGoalCommandRuntime(input, options = {}) {
   if (interpreted.status !== 'ready') return copySerializable(interpreted);
 
   if (interpreted.intent === 'create') {
-    const goal = await addPhysicalGoalDefinition(interpreted.goal);
+    const goal = await addAndEvaluatePhysicalGoal(interpreted.goal, 'goal-created', Date.now());
     return copySerializable({ ...interpreted, goal, message:'Physical goal created: ' + goal.label + '.' });
   }
   if (interpreted.intent === 'list') {
@@ -1232,7 +1281,9 @@ async function processPhysicalGoalCommandRuntime(input, options = {}) {
   }
   if (interpreted.intent === 'pause' || interpreted.intent === 'resume') {
     const enabled = interpreted.intent === 'resume';
-    const goal = await addPhysicalGoalDefinition({ ...interpreted.goal, enabled });
+    const goal = enabled
+      ? await addAndEvaluatePhysicalGoal({ ...interpreted.goal, enabled:true }, 'goal-resumed', Date.now())
+      : await addPhysicalGoalDefinition({ ...interpreted.goal, enabled:false });
     return copySerializable({ ...interpreted, goal, message:(enabled ? 'Physical goal resumed: ' : 'Physical goal paused: ') + goal.label + '.' });
   }
   if (interpreted.intent === 'run') {
@@ -1902,7 +1953,7 @@ window.TrackyAgentEyes = Object.freeze({
     return clearPhysicalWorldWatchHistory();
   },
   addPhysicalGoal(input = {}) {
-    return addPhysicalGoalDefinition(input);
+    return addAndEvaluatePhysicalGoal(input, 'api-goal-created', Date.now());
   },
   removePhysicalGoal(id) {
     return removePhysicalGoalDefinition(id);
