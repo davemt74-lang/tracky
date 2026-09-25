@@ -207,7 +207,7 @@ test('evidence bundle strips sensitive raw/image/embedding fields',()=>{
   const serialized=JSON.stringify(bundle);
   assert.doesNotMatch(serialized,/embedding/);
   assert.doesNotMatch(serialized,/imageDataUrl/);
-  assert.match(serialized,/safe/);
+  assert.doesNotMatch(serialized,/descriptor/);
 });
 
 test('timeline filters historical events when room spatial memory is disabled',()=>{
