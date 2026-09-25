@@ -120,3 +120,19 @@ test('all enabled sensitive regions become image masks by default',()=>{
     x:100,y:50,width:200,height:100
   });
 });
+
+
+test('anonymous region strips participant identity from object interaction events',()=>{
+  const policy=normalizeObservationPolicy({
+    roomId:'ROOM01',
+    sensitiveRegions:[{id:'R1',mode:'anonymous',x:0,y:0,width:1,height:1}]
+  });
+  const result=sanitizeEventPayload('interaction.started',{
+    participantId:'p1',participantName:'Dave',
+    roomPosition:{x:.4,y:.4},
+    data:{objectId:'O1',type:'holding'}
+  },policy);
+  assert.equal(result.suppressed,false);
+  assert.equal(result.payload.participantId,null);
+  assert.equal(result.payload.participantName,null);
+});
