@@ -461,7 +461,7 @@ function syncObjects(state, snapshot, now, options, changes) {
         lastKnownPosition: object.position || null,
         lastReportedPosition: object.position || null,
         lastMoveReportedAt: now,
-        holderParticipantId: object.holderParticipantId || null
+        holderParticipantId: null
       };
 
       changes.push(appendChange(state, createSceneChange('object.appeared', {
@@ -478,8 +478,6 @@ function syncObjects(state, snapshot, now, options, changes) {
     current.status = 'visible';
     current.lastSeenAt = now;
     current.missingSince = null;
-    current.holderParticipantId = object.holderParticipantId || null;
-
     if (returned) {
       changes.push(appendChange(state, createSceneChange('object.returned', {
         objectId: object.id,
