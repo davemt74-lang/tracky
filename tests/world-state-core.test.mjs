@@ -48,3 +48,17 @@ test('attention ranks unknown environment above ordinary scene change',()=>{
   });
   assert.equal(ranked[0].type,'unknown-environment');
 });
+
+
+test('camera pose shift outranks structural drift classification',()=>{
+  const ranked=rankWorldAttention({
+    environment:{
+      classification:'known-view',
+      drift:{likelyCameraShift:true,structuralDrift:.6,cameraPoseDrift:.7}
+    },
+    contradictions:[],
+    changes:[]
+  });
+  assert.equal(ranked[0].type,'camera-pose-shift');
+  assert.equal(ranked.some((item)=>item.type==='structural-drift'),false);
+});
