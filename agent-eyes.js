@@ -297,25 +297,47 @@ window.TrackyAgentEyes = Object.freeze({
 
 function sceneInputSnapshot() {
   const room = roomStateSnapshot(roomState);
-  const unknownParticipants = (room.unknownTracks || []).map((track) => ({
-    id: null,
-    name: track.trackId,
-    trackId: track.trackId,
-    presence: track.presence,
-    position: track.position,
-    behavior: track.behavior,
-    attention: track.attention,
-    addressing: track.addressing,
-    conversationGroup: track.conversationGroup,
-    voiceStatus: 'quiet'
-  }));
+  const acceptedTrackIds = new Set(
+    runtime.tracks
+      .filter((track) => track.presenceAnnounced)
+      .map((track) => track.id)
+  );
+
+  const knownParticipants = (room.participants || [])
+    .filter((participant) => acceptedTrackIds.has(participant.trackId));
+
+  const unknownParticipants = (room.unknownTracks || [])
+    .filter((track) => acceptedTrackIds.has(track.trackId))
+    .map((track) => ({
+      id: null,
+      name: track.trackId,
+      trackId: track.trackId,
+      presence: track.presence,
+      position: track.position,
+      behavior: track.behavior,
+      attention: track.attention,
+      addressing: track.addressing,
+      conversationGroup: track.conversationGroup,
+      voiceStatus: 'quiet'
+    }));
+
+  const conversationGroups = (room.conversationGroups || [])
+    .map((group) => ({
+      ...group,
+      trackIds: (group.trackIds || []).filter((id) => acceptedTrackIds.has(id)),
+      participantIds: (group.participantIds || []).filter((participantId) => (
+        knownParticipants.some((participant) => participant.id === participantId)
+      ))
+    }))
+    .filter((group) => group.trackIds.length >= 2);
 
   return {
     ...room,
     participants: [
-      ...(room.participants || []),
+      ...knownParticipants,
       ...unknownParticipants
-    ]
+    ],
+    conversationGroups
   };
 }
 
