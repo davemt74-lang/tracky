@@ -1205,6 +1205,207 @@ async function enrollUnknownTrack(track) {
   }
 }
 
+
+function confidenceText(value) {
+  return Number.isFinite(Number(value))
+    ? Math.round(Number(value) * 100) + '%'
+    : '—';
+}
+
+function appendInspectorSignal(label, value, confidence, detail = '') {
+  const row = document.createElement('div');
+  row.className = 'evidence-signal-row';
+
+  const top = document.createElement('div');
+  const key = document.createElement('span');
+  const val = document.createElement('b');
+  key.textContent = label;
+  val.textContent = value + (Number.isFinite(Number(confidence)) ? ' · ' + confidenceText(confidence) : '');
+  top.append(key, val);
+
+  const meter = document.createElement('div');
+  meter.className = 'evidence-confidence-meter';
+  const fill = document.createElement('i');
+  fill.style.width = Math.round(Math.max(0, Math.min(1, Number(confidence || 0))) * 100) + '%';
+  meter.append(fill);
+
+  row.append(top, meter);
+
+  if (detail) {
+    const note = document.createElement('small');
+    note.textContent = detail;
+    row.append(note);
+  }
+
+  ui.inspectorSignals.append(row);
+}
+
+function renderEvidenceInspector() {
+  if (!runtime.selectedTrackId) {
+    ui.inspector.hidden = true;
+    return;
+  }
+
+  const track = runtime.tracks.find(
+    (candidate) => candidate.id === runtime.selectedTrackId
+  );
+
+  if (!track) {
+    runtime.selectedTrackId = null;
+    ui.inspector.hidden = true;
+    return;
+  }
+
+  const participant = track.participantId
+    ? participantById(track.participantId)
+    : null;
+  const voice = voiceProfileReadiness(participant || {});
+  const behavior = track.behaviorEvidence;
+
+  ui.inspector.hidden = false;
+  ui.inspectorName.textContent = track.participantName || 'Unknown participant';
+  ui.inspectorTrack.textContent = track.id + ' · ' + statusText(track);
+  ui.inspectorIdentity.textContent = track.participantId
+    ? confidenceText(track.similarity || 0)
+    : 'UNRESOLVED';
+  ui.inspectorPose.textContent = behavior
+    ? confidenceText(behavior.poseConfidence)
+    : '—';
+  ui.inspectorOrientation.textContent = behavior
+    ? [
+        behavior.orientation?.horizontal,
+        behavior.orientation?.vertical
+      ].filter((value) => value && value !== 'unknown').join(' / ') || 'unknown'
+    : '—';
+  ui.inspectorPosture.textContent = behavior?.posture?.posture || '—';
+  ui.inspectorMotion.textContent = behavior?.motion?.motion || '—';
+  ui.inspectorGesture.textContent = behavior?.gesture?.type || 'none';
+  ui.inspectorAttention.textContent =
+    behavior?.attention?.targetName ||
+    behavior?.attention?.targetType ||
+    'unknown';
+  ui.inspectorAddressing.textContent =
+    behavior?.addressing?.addressing
+      ? 'Likely → ' + (behavior.addressing.targetName || 'participant')
+      : 'Not established';
+
+  ui.inspectorSignals.replaceChildren();
+
+  appendInspectorSignal(
+    'FACE IDENTITY',
+    track.face ? (track.participantName || 'face visible') : 'face not visible',
+    track.face ? (track.similarity || track.quality || 0) : 0,
+    track.face
+      ? 'Face descriptor / enrolled participant evidence.'
+      : 'No current face evidence; body continuity may still preserve identity.'
+  );
+
+  appendInspectorSignal(
+    'BODY CONTINUITY',
+    track.status === 'occluded' ? 'occlusion memory' : 'body track active',
+    track.status === 'occluded'
+      ? 0.55
+      : Math.max(0.4, Number(track.bodyScore || 0)),
+    'Persistent track ' + track.id + ' with motion and bounding-box continuity.'
+  );
+
+  appendInspectorSignal(
+    'VOICE PROFILE',
+    participant
+      ? (voice.ready ? 'profile ready' : voice.embeddingCount + '/3 samples')
+      : 'no enrolled participant',
+    voice.ready ? 0.8 : Math.min(0.65, voice.embeddingCount / 3),
+    'Voice identity is an independent signal and is not inferred from body shape.'
+  );
+
+  appendInspectorSignal(
+    'POSE LANDMARKS',
+    (track.keypoints?.length || 0) + ' landmarks',
+    behavior?.poseConfidence || 0,
+    'Named shoulders, wrists, hips, knees, ankles and head landmarks when visible.'
+  );
+
+  appendInspectorSignal(
+    'HEAD ORIENTATION',
+    behavior?.orientation?.horizontal || 'unknown',
+    behavior?.orientation?.confidence || 0,
+    behavior?.orientation?.source === 'face-rotation'
+      ? 'Derived from face yaw/pitch.'
+      : 'Fallback uses shoulder geometry only; exact left/right is not claimed.'
+  );
+
+  appendInspectorSignal(
+    'POSTURE',
+    behavior?.posture?.posture || 'unknown',
+    behavior?.posture?.confidence || 0,
+    'Uses hip, knee and ankle geometry; partial bodies remain uncertain.'
+  );
+
+  appendInspectorSignal(
+    'ATTENTION',
+    behavior?.attention?.targetName || behavior?.attention?.targetType || 'unknown',
+    behavior?.attention?.confidence || 0,
+    'Approximate head direction + spatial position. This is not precise eye-gaze tracking.'
+  );
+
+  appendInspectorSignal(
+    'ADDRESSING',
+    behavior?.addressing?.addressing
+      ? behavior.addressing.targetName || 'participant'
+      : 'not established',
+    behavior?.addressing?.confidence || 0,
+    'Requires speaking + likely attention target + shared conversation group.'
+  );
+
+  const points = keypointMap(track.keypoints || []);
+  ui.inspectorLandmarks.replaceChildren();
+  ui.inspectorLandmarkCount.textContent = points.size + ' visible';
+
+  for (const point of [...points.values()].sort((a, b) => String(a.part).localeCompare(String(b.part)))) {
+    const chip = document.createElement('span');
+    const name = document.createElement('b');
+    const score = document.createElement('i');
+    name.textContent = point.part;
+    score.textContent = confidenceText(point.score);
+    chip.append(name, score);
+    ui.inspectorLandmarks.append(chip);
+  }
+
+  ui.inspectorJson.textContent = JSON.stringify({
+    trackId: track.id,
+    participantId: track.participantId || null,
+    participantName: track.participantName || null,
+    status: track.status,
+    identity: {
+      source: track.identitySource || null,
+      confidence: track.similarity || 0,
+      faceVisible: Boolean(track.face),
+      bodyScore: track.bodyScore || 0
+    },
+    voiceProfile: {
+      ready: voice.ready,
+      sampleCount: voice.embeddingCount,
+      totalSeconds: voice.totalSeconds
+    },
+    behavior,
+    conversationGroup: track.conversationGroupId || null,
+    roomPosition: roomPosition(track),
+    landmarkCount: points.size
+  }, null, 2);
+}
+
+function openEvidenceInspector(trackId) {
+  runtime.selectedTrackId = trackId;
+  renderEvidenceInspector();
+  drawOverlay();
+}
+
+function closeEvidenceInspector() {
+  runtime.selectedTrackId = null;
+  ui.inspector.hidden = true;
+  drawOverlay();
+}
+
 function renderParticipants() {
   ui.participants.replaceChildren();
 
@@ -1330,6 +1531,15 @@ function renderRadar() {
         : '');
 
     dot.append(label);
+    dot.tabIndex = 0;
+    dot.setAttribute('role', 'button');
+    dot.addEventListener('click', () => openEvidenceInspector(track.id));
+    dot.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openEvidenceInspector(track.id);
+      }
+    });
     ui.radarTracks.append(dot);
   }
 }
@@ -1497,6 +1707,7 @@ function renderAll() {
   renderRadar();
   renderSignals();
   renderRoomState();
+  renderEvidenceInspector();
 }
 
 function suppressMicForSpeech() {
@@ -1810,6 +2021,9 @@ ui.cameraSelect.addEventListener('change', () => {
   if (runtime.running) void startEyes(ui.cameraSelect.value);
 });
 ui.copyState.addEventListener('click', () => void copySnapshot());
+ui.closeInspector.addEventListener('click', closeEvidenceInspector);
+ui.poseOverlay.addEventListener('change', drawOverlay);
+ui.attentionOverlay.addEventListener('change', drawOverlay);
 window.addEventListener('resize', () => {
   resizeOverlay();
   drawOverlay();
