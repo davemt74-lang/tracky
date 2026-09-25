@@ -62,15 +62,23 @@ export function enqueueBriefing(queue=[],briefing={},context={},now=Date.now(),o
 
 export function reevaluateBriefingQueue(queue=[],context={},now=Date.now()){
   const updated=arr(queue).map((item)=>{
-    if(['acknowledged','expired','surfaced'].includes(item.deliveryState)) return {...item};
-    if(Number(item.expiresAt||Infinity)<=now) return {...item,deliveryState:'expired',deliveryReady:false,expiredAt:now};
+    const base={
+      ...item,
+      semanticKey:item.semanticKey||briefingSemanticKey(item),
+      occurrenceCount:Number(item.occurrenceCount||1),
+      firstQueuedAt:Number(item.firstQueuedAt||item.generatedAt||now),
+      lastQueuedAt:Number(item.lastQueuedAt||item.generatedAt||now),
+      expiresAt:Number(item.expiresAt||Number(item.generatedAt||now)+BRIEFING_DEFAULT_TTL_MS)
+    };
+    if(['acknowledged','expired','surfaced'].includes(base.deliveryState)) return base;
+    if(Number(base.expiresAt||Infinity)<=now) return {...base,deliveryState:'expired',deliveryReady:false,expiredAt:now};
     if(
-      item.deliveryState==='deferred' &&
-      String(item.deliveryReason||'').startsWith('user-') &&
-      Number(item.retryAt||0)>now
-    ) return {...item};
-    const plan=planBriefingDelivery(item,context,now);
-    return {...item,deliveryState:plan.state,deliveryReason:plan.reason,deliveryReady:plan.ready===true,interrupt:plan.interrupt===true,voiceEligible:plan.voiceEligible===true,retryAt:plan.retryAt==null?null:Number(plan.retryAt)};
+      base.deliveryState==='deferred' &&
+      String(base.deliveryReason||'').startsWith('user-') &&
+      Number(base.retryAt||0)>now
+    ) return base;
+    const plan=planBriefingDelivery(base,context,now);
+    return {...base,deliveryState:plan.state,deliveryReason:plan.reason,deliveryReady:plan.ready===true,interrupt:plan.interrupt===true,voiceEligible:plan.voiceEligible===true,retryAt:plan.retryAt==null?null:Number(plan.retryAt)};
   });
   return sortQueue(updated);
 }
