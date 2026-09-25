@@ -28,44 +28,45 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf dist tracky-v1.9-deploy.zip
-          mkdir -p dist/tracky-v1.9/src
-          cp index.html agent-eyes.js participants.html participants.js participant-voice.js experiments.html tracker.html tracker-experiment.js games.html vertical-motion.html vertical-motion.js styles.css README.md package.json dist/tracky-v1.9/
-          cp src/tracker-core.js src/movement-core.js src/gameplay-core.js src/participant-core.js src/participant-store.js src/identity-engine.js src/room-tracking-core.js src/voice-core.js src/voice-engine.js src/room-audio-engine.js src/room-audio-worklet.js src/model-config.js src/perception-core.js src/behavior-core.js src/object-core.js src/scene-core.js src/scene-store.js src/camera-core.js src/camera-store.js src/fusion-core.js src/multicamera-runtime.js src/environment-core.js src/environment-runtime.js src/environment-store.js src/scene-graph-core.js src/world-state-core.js src/perception-replay-core.js src/room-topology-core.js src/visibility-core.js src/multiroom-core.js src/spatial-memory-core.js src/spatial-memory-store.js src/privacy-policy-core.js src/attention-core.js src/attention-store.js src/anomaly-core.js src/anomaly-store.js src/world-query-core.js src/world-query-store.js dist/tracky-v1.9/src/
+          rm -rf dist tracky-v2.0-deploy.zip
+          mkdir -p dist/tracky-v2.0/src
+          cp index.html agent-eyes.js participants.html participants.js participant-voice.js experiments.html tracker.html tracker-experiment.js games.html vertical-motion.html vertical-motion.js styles.css README.md package.json dist/tracky-v2.0/
+          cp src/tracker-core.js src/movement-core.js src/gameplay-core.js src/participant-core.js src/participant-store.js src/identity-engine.js src/room-tracking-core.js src/voice-core.js src/voice-engine.js src/room-audio-engine.js src/room-audio-worklet.js src/model-config.js src/perception-core.js src/behavior-core.js src/object-core.js src/scene-core.js src/scene-store.js src/camera-core.js src/camera-store.js src/fusion-core.js src/multicamera-runtime.js src/environment-core.js src/environment-runtime.js src/environment-store.js src/scene-graph-core.js src/world-state-core.js src/perception-replay-core.js src/room-topology-core.js src/visibility-core.js src/multiroom-core.js src/spatial-memory-core.js src/spatial-memory-store.js src/privacy-policy-core.js src/attention-core.js src/attention-store.js src/anomaly-core.js src/anomaly-store.js src/world-query-core.js src/world-query-store.js src/agent-context-core.js dist/tracky-v2.0/src/
           cd dist
-          zip -r ../tracky-v1.9-deploy.zip tracky-v1.9
+          zip -r ../tracky-v2.0-deploy.zip tracky-v2.0
 
       - name: Verify deploy ZIP
         shell: bash
         run: |
           set -euo pipefail
-          unzip -t tracky-v1.9-deploy.zip
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/agent-eyes.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/perception-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/environment-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/environment-runtime.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/environment-store.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/scene-graph-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/world-state-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/perception-replay-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/room-topology-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/visibility-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/multiroom-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/spatial-memory-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/spatial-memory-store.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/privacy-policy-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/attention-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/attention-store.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/anomaly-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/anomaly-store.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/world-query-core.js"
-          unzip -l tracky-v1.9-deploy.zip | grep -F "tracky-v1.9/src/world-query-store.js"
-          sha256sum tracky-v1.9-deploy.zip
+          unzip -t tracky-v2.0-deploy.zip
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/agent-eyes.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/perception-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/environment-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/environment-runtime.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/environment-store.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/scene-graph-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/world-state-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/perception-replay-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/room-topology-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/visibility-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/multiroom-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/spatial-memory-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/spatial-memory-store.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/privacy-policy-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/attention-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/attention-store.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/anomaly-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/anomaly-store.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/world-query-core.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/world-query-store.js"
+          unzip -l tracky-v2.0-deploy.zip | grep -F "tracky-v2.0/src/agent-context-core.js"
+          sha256sum tracky-v2.0-deploy.zip
 
       - name: Upload deploy ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: tracky-v1.9-deploy
-          path: tracky-v1.9-deploy.zip
+          name: tracky-v2.0-deploy
+          path: tracky-v2.0-deploy.zip
           if-no-files-found: error
           retention-days: 30
