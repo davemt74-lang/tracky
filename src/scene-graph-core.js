@@ -38,6 +38,12 @@ export function upsertGraphNode(graph, input) {
   graph.nodes[input.id] = createGraphNode({
     ...existing,
     ...input,
+    type: preserveConfirmed ? existing.type : input.type,
+    label: preserveConfirmed ? existing.label : input.label,
+    properties: {
+      ...(existing?.properties || {}),
+      ...(input.properties || {})
+    },
     state: preserveConfirmed ? 'user-confirmed' : input.state,
     confidence: preserveConfirmed
       ? Math.max(Number(existing?.confidence || 0), Number(input.confidence || 0))
