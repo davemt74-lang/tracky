@@ -2,6 +2,251 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.3 — Environment Baselines, Assisted Mapping & Physical World State
+
+V1.3 gives Agent Eyes a persistent understanding of **where the camera is, what the environment normally looks like, what changed, and which physical facts are currently trustworthy**.
+
+### Primary + Current Environment
+
+Each room can save a local **Primary Environment** reference photo plus alternate view photos.
+
+When Agent Eyes engages it automatically captures a short burst, selects the highest-quality frame, and keeps that frame as the **Current Environment** comparison. Current comparison images are ephemeral by default.
+
+Saving or replacing a Primary Environment remains an explicit user action.
+
+A saved view contains:
+
+- room ID and room name
+- view ID/name and primary/alternate role
+- reference photo
+- visual environment fingerprint
+- baseline quality score
+- camera ID and calibration
+- floor proposal
+- stable landmarks
+- accepted zones
+- portal candidates
+- version number
+
+### Environment recognition
+
+Current Environment is compared with saved views using independent evidence:
+
+- lighting-normalized visual fingerprint similarity
+- stable landmark layout
+- camera identity
+- floor/calibration evidence
+
+The runtime classifies the result as:
+
+- `known-view`
+- `known-room-new-view`
+- `uncertain`
+- `unknown`
+
+A different chair position, person, cup, or laptop does not automatically create a new room because temporary landmarks carry little or no room-identity weight.
+
+### Camera movement vs room change
+
+Landmark displacement is analyzed for coherent movement.
+
+If several stable landmarks shift together in the same direction, Agent Eyes can classify the observation as likely **camera pose drift** rather than claiming the room structure changed.
+
+Environment state therefore exposes separate signals for:
+
+- structural drift
+- visual drift
+- environment-state drift
+- camera-pose drift
+- coherent camera-shift evidence
+
+### Baseline quality
+
+Reference capture scores:
+
+- exposure/brightness
+- contrast
+- sharpness/edge detail
+- obstruction level
+- useful landmark coverage
+
+The Primary/Current panel shows baseline quality before a reference is promoted.
+
+### Assisted room mapping
+
+**Scan / Map Environment** analyzes the current environment plus fused world objects and proposes:
+
+- visible floor region
+- stable landmarks
+- semantic zones
+- portal candidates
+- mapping confidence
+
+Current V1.3 floor inference is deliberately conservative: Human object detections plus a visual floor heuristic propose the map, and the user confirms it.
+
+The mapping-provider contract is separate from the world schema so a future local structural segmentation/depth provider can replace the heuristic without changing stored room facts.
+
+### Physical scene graph
+
+The canonical physical representation is now a provenance-aware graph.
+
+Example:
+
+```text
+ROOM01 Office
+  contains → L001 Desk
+  has-portal → PORTAL-L004
+
+PERSON:p1 Dave
+  located-in → ROOM01
+  near → L001
+
+WO014 phone
+  located-in → ROOM01
+```
+
+Nodes and relationships can be:
+
+- `observed`
+- `inferred`
+- `last-known`
+- `user-confirmed`
+- `contradicted`
+- `expired`
+
+Each fact carries confidence, timestamps, and provenance.
+
+### User-confirmed physical teaching
+
+User-confirmed knowledge outranks detector inference and cannot be silently downgraded by later vision observations.
+
+Agent APIs include:
+
+```js
+TrackyAgentEyes.teachPhysicalEntity(...)
+TrackyAgentEyes.teachPhysicalRelationship(...)
+TrackyAgentEyes.teachAtPoint(...)
+TrackyAgentEyes.getPhysicalFacts(entityId)
+```
+
+The point-teaching hook finds the nearest visible scene-graph entity, providing the foundation for future gesture + voice workflows such as:
+
+> "That's my desk."
+
+### Physical World State Manager
+
+Above the scene graph, V1.3 adds an authoritative World State Manager.
+
+It handles:
+
+- confidence decay over time
+- different staleness rates for people, phones, laptops, furniture, etc.
+- evidence quorum helpers
+- contradiction detection
+- environment uncertainty
+- camera displacement
+- structural drift
+- world-attention prioritization
+
+For example, a phone's location becomes stale quickly while a user-confirmed desk location remains durable.
+
+### Contradictions
+
+The system explicitly detects impossible physical claims instead of silently accepting them.
+
+Example:
+
+```text
+PERSON:p1 located-in ROOM01
+PERSON:p1 located-in ROOM02
+```
+
+becomes conflicting evidence and the relevant facts are downgraded until resolved.
+
+### Physical attention
+
+The World State Manager prioritizes meaningful issues such as:
+
+- unknown environment
+- uncertain environment match
+- camera pose shift
+- structural environment drift
+- contradiction
+- participant arrival
+- important object movement
+
+This forms the future boundary between perception and Agent cognition.
+
+### Privacy + retention architecture
+
+Environment storage includes room-scoped policy defaults.
+
+By default:
+
+- Primary reference images may be retained locally
+- Alternate reference images may be retained locally
+- Current comparison frames are ephemeral
+- change-evidence images are not retained automatically
+- screen-content analysis defaults off
+- sensitive-region masks are represented in policy
+- transcript/identity permissions remain separate
+
+### Environment history
+
+Semantic environment comparisons are stored with bounded history.
+
+History may contain:
+
+- matched room/view
+- match confidence
+- drift evidence
+- semantic changes
+
+The comparison image itself is not retained unless policy explicitly allows it.
+
+### Replay + simulation
+
+V1.3 adds deterministic sanitized observation replay and physical-world scenario simulation.
+
+Built-in test scenarios include:
+
+- camera shift
+- environment change
+- object transfer
+
+This allows newer mapping/world algorithms to be regression-tested without storing or replaying raw continuous video.
+
+### Agent APIs
+
+V1.3 extends the Agent surface with:
+
+```js
+TrackyAgentEyes.getEnvironmentState()
+TrackyAgentEyes.getSceneGraph()
+TrackyAgentEyes.getPhysicalWorldState()
+TrackyAgentEyes.subscribeWorld(handler)
+TrackyAgentEyes.refreshEnvironment()
+```
+
+`getWorldState()` now combines:
+
+```js
+{
+  room,
+  scene,
+  cameraFusion,
+  environment,
+  sceneGraph,
+  physicalWorld
+}
+```
+
+Physical world updates are also emitted through:
+
+```text
+tracky:world-state
+```
+
 ## V1.2 — Room Mapping & Multi-Camera Fusion
 
 V1.2 turns individual camera views into calibrated sensors inside a shared room coordinate system.
