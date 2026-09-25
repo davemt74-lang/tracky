@@ -130,3 +130,23 @@ test('snapshot is bounded to semantic anomaly state',()=>{
   assert.equal(snapshot.active.length,1);
   assert.doesNotThrow(()=>JSON.stringify(snapshot));
 });
+
+
+test('same environment comparison cannot inflate anomaly observation count',()=>{
+  const state=createAnomalyState();
+  const signal={
+    type:'environment-structural-drift',
+    roomId:'ROOM01',
+    confidence:.9,
+    evidenceId:'environment:1000',
+    summary:'drift'
+  };
+  observeAnomalySignals(state,[signal],1000);
+  observeAnomalySignals(state,[signal],12000);
+  const candidate=Object.values(state.candidates)[0];
+  assert.equal(candidate.observations,1);
+  assert.equal(Object.keys(state.active).length,0);
+
+  observeAnomalySignals(state,[{...signal,evidenceId:'environment:2000'}],13000);
+  assert.equal(Object.keys(state.active).length,1);
+});
