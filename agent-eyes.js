@@ -279,6 +279,36 @@ const ui = {
   spatialJourneyStatus: $('#spatialJourneyStatus'),
   spatialJourneyList: $('#spatialJourneyList'),
   clearSpatialMemory: $('#clearSpatialMemory'),
+  privacyPolicyStatus: $('#privacyPolicyStatus'),
+  privacyRoomSelect: $('#privacyRoomSelect'),
+  privacySavePolicy: $('#privacySavePolicy'),
+  privacyVisualObservation: $('#privacyVisualObservation'),
+  privacyIdentity: $('#privacyIdentity'),
+  privacyAnonymousTracking: $('#privacyAnonymousTracking'),
+  privacyObjects: $('#privacyObjects'),
+  privacyBehavior: $('#privacyBehavior'),
+  privacyEnvironmentComparison: $('#privacyEnvironmentComparison'),
+  privacyRoomAudio: $('#privacyRoomAudio'),
+  privacyVoiceMatching: $('#privacyVoiceMatching'),
+  privacyLiveTranscription: $('#privacyLiveTranscription'),
+  privacyTranscriptStorage: $('#privacyTranscriptStorage'),
+  privacySpatialMemory: $('#privacySpatialMemory'),
+  privacyRetainPrimary: $('#privacyRetainPrimary'),
+  privacyRetainAlternate: $('#privacyRetainAlternate'),
+  privacySuppressedCount: $('#privacySuppressedCount'),
+  privacyAnonymizedCount: $('#privacyAnonymizedCount'),
+  privacyRegionCount: $('#privacyRegionCount'),
+  privacyRegionStatus: $('#privacyRegionStatus'),
+  privacyRegionForm: $('#privacyRegionForm'),
+  privacyRegionName: $('#privacyRegionName'),
+  privacyRegionMode: $('#privacyRegionMode'),
+  privacyRegionX: $('#privacyRegionX'),
+  privacyRegionY: $('#privacyRegionY'),
+  privacyRegionWidth: $('#privacyRegionWidth'),
+  privacyRegionHeight: $('#privacyRegionHeight'),
+  privacyRegionList: $('#privacyRegionList'),
+  privacyCameraMasks: $('#privacyCameraMasks'),
+  privacyRadarMasks: $('#privacyRadarMasks'),
   environmentMatchStatus: $('#environmentMatchStatus'),
   environmentPrimaryMeta: $('#environmentPrimaryMeta'),
   environmentPrimaryImage: $('#environmentPrimaryImage'),
@@ -606,6 +636,15 @@ window.TrackyAgentEyes = Object.freeze({
   },
   getSpatialMemory() {
     return spatialMemorySnapshot(runtime.spatialMemory);
+  },
+  getObservationPolicy(roomId) {
+    return copySerializable(policyForRoom(roomId));
+  },
+  setObservationPolicy(policy) {
+    return saveObservationPolicy(policy);
+  },
+  getPrivacyStats() {
+    return copySerializable(runtime.privacyStats);
   },
   getExpectedLocation(entityId) {
     return copySerializable(
@@ -5474,6 +5513,295 @@ function renderSpatialMemory() {
   renderSpatialJourneys();
 }
 
+
+function privacyEditorRoomId() {
+  return ui.privacyRoomSelect.value ||
+    primaryCameraConfig()?.roomId ||
+    runtime.environmentRooms[0]?.id ||
+    'ROOM01';
+}
+
+function populatePrivacyRoomSelect() {
+  const current = ui.privacyRoomSelect.value;
+  const ids = new Set([
+    ...runtime.environmentRooms.map((room) => room.id),
+    ...runtime.cameraConfigs.map((camera) => camera.roomId),
+    primaryCameraConfig()?.roomId || 'ROOM01'
+  ]);
+
+  ui.privacyRoomSelect.replaceChildren();
+  for (const roomId of ids) {
+    const option = document.createElement('option');
+    const room = runtime.environmentRooms.find((item) => item.id === roomId);
+    option.value = roomId;
+    option.textContent = room?.name
+      ? room.name + ' · ' + roomId
+      : roomId;
+    ui.privacyRoomSelect.append(option);
+  }
+
+  if (ids.has(current)) ui.privacyRoomSelect.value = current;
+  else if (ids.has(primaryCameraConfig()?.roomId)) {
+    ui.privacyRoomSelect.value = primaryCameraConfig().roomId;
+  }
+}
+
+function policyFromPrivacyForm(roomId) {
+  const current = policyForRoom(roomId);
+  return normalizeObservationPolicy({
+    ...current,
+    roomId,
+    allowVisualObservation: ui.privacyVisualObservation.checked,
+    allowParticipantIdentity: ui.privacyIdentity.checked,
+    allowAnonymousTracking: ui.privacyAnonymousTracking.checked,
+    allowObjectObservation: ui.privacyObjects.checked,
+    allowBehaviorAnalysis: ui.privacyBehavior.checked,
+    allowEnvironmentComparison: ui.privacyEnvironmentComparison.checked,
+    allowRoomAudio: ui.privacyRoomAudio.checked,
+    allowVoiceMatching: ui.privacyVoiceMatching.checked,
+    allowLiveTranscription: ui.privacyLiveTranscription.checked,
+    allowTranscriptStorage: ui.privacyTranscriptStorage.checked,
+    allowSpatialMemory: ui.privacySpatialMemory.checked,
+    retainPrimaryImages: ui.privacyRetainPrimary.checked,
+    retainAlternateViewImages: ui.privacyRetainAlternate.checked
+  }, roomId);
+}
+
+function purgeRoomAfterPrivacyChange(roomId, policy) {
+  for (const camera of runtime.cameraConfigs.filter((item) => item.roomId === roomId)) {
+    runtime.cameraObservations.delete(camera.id);
+  }
+
+  runtime.roomFusionStates[roomId] = {
+    schemaVersion: 1,
+    roomId,
+    updatedAt: Date.now(),
+    participants: [],
+    objects: []
+  };
+
+  for (const [key, participant] of Object.entries(runtime.multiRoomWorld.participants || {})) {
+    if (
+      participant.roomId === roomId ||
+      participant.lastKnownRoomId === roomId
+    ) {
+      delete runtime.multiRoomWorld.participants[key];
+    }
+  }
+  for (const [key, object] of Object.entries(runtime.multiRoomWorld.objects || {})) {
+    if (object.roomId === roomId || object.lastKnownRoomId === roomId) {
+      delete runtime.multiRoomWorld.objects[key];
+    }
+  }
+
+  if (primaryCameraConfig()?.roomId === roomId) {
+    roomState.participants = {};
+    roomState.unknownTracks = {};
+    roomState.objects = {};
+    roomState.interactions = {};
+    roomState.activeSpeaker = null;
+    roomState.conversationGroups = {};
+    roomState.recentEvents = [];
+    if (!policy.allowTranscriptStorage || !policy.allowLiveTranscription) {
+      roomState.transcript = [];
+    } else if (!policy.allowParticipantIdentity) {
+      roomState.transcript = roomState.transcript.map((turn) => ({
+        ...turn,
+        participantId: null,
+        participantName: null,
+        source: 'privacy-anonymous'
+      }));
+    }
+    runtime.worldTrails.clear();
+  }
+}
+
+async function saveObservationPolicy(input) {
+  const roomId = input?.roomId || privacyEditorRoomId();
+  const policy = normalizeObservationPolicy({
+    ...policyForRoom(roomId),
+    ...(input || {}),
+    roomId
+  }, roomId);
+
+  const saved = await saveEnvironmentPolicy(policy);
+  runtime.roomPolicies[roomId] = normalizeObservationPolicy(saved, roomId);
+  purgeRoomAfterPrivacyChange(roomId, runtime.roomPolicies[roomId]);
+
+  emit('privacy.policy_changed', {
+    source: 'privacy-policy',
+    confidence: 1,
+    data: {
+      roomId,
+      summary: privacySummary(runtime.roomPolicies[roomId])
+    }
+  });
+
+  if (
+    primaryCameraConfig()?.roomId === roomId &&
+    !runtime.roomPolicies[roomId].allowRoomAudio &&
+    runtime.audioActive
+  ) {
+    stopRoomAudio();
+  }
+
+  if (runtime.running) {
+    await startSecondaryCameras();
+    publishPrimaryCameraObservation(Date.now());
+    updateCameraFusion(Date.now(), true);
+  }
+
+  renderPrivacyPolicy();
+  renderRoomState();
+  return copySerializable(runtime.roomPolicies[roomId]);
+}
+
+async function savePrivacyPolicyFromUi() {
+  return saveObservationPolicy(
+    policyFromPrivacyForm(privacyEditorRoomId())
+  );
+}
+
+async function addPrivacyRegion(event) {
+  event.preventDefault();
+  const roomId = privacyEditorRoomId();
+  const policy = policyFromPrivacyForm(roomId);
+  const region = normalizePrivacyRegion({
+    id: 'PRIV-' + Date.now().toString(36),
+    name: ui.privacyRegionName.value.trim() || 'Privacy region',
+    mode: ui.privacyRegionMode.value,
+    x: Number(ui.privacyRegionX.value) / 100,
+    y: Number(ui.privacyRegionY.value) / 100,
+    width: Number(ui.privacyRegionWidth.value) / 100,
+    height: Number(ui.privacyRegionHeight.value) / 100
+  }, policy.sensitiveRegions.length);
+
+  await saveObservationPolicy({
+    ...policy,
+    sensitiveRegions: [...policy.sensitiveRegions, region]
+  });
+
+  ui.privacyRegionName.value = '';
+}
+
+async function removePrivacyRegion(regionId) {
+  const roomId = privacyEditorRoomId();
+  const policy = policyForRoom(roomId);
+  await saveObservationPolicy({
+    ...policy,
+    sensitiveRegions: policy.sensitiveRegions.filter(
+      (region) => region.id !== regionId
+    )
+  });
+}
+
+function renderPrivacyMasks() {
+  ui.privacyCameraMasks.replaceChildren();
+  ui.privacyRadarMasks.replaceChildren();
+
+  const policy = policyForRoom(primaryCameraConfig()?.roomId);
+  for (const region of policy.sensitiveRegions || []) {
+    if (!region.enabled) continue;
+
+    for (const layer of [ui.privacyCameraMasks, ui.privacyRadarMasks]) {
+      const mask = document.createElement('div');
+      mask.className = 'privacy-mask-region ' + region.mode;
+      mask.style.left = (region.x * 100) + '%';
+      mask.style.top = (region.y * 100) + '%';
+      mask.style.width = (region.width * 100) + '%';
+      mask.style.height = (region.height * 100) + '%';
+
+      const label = document.createElement('span');
+      label.textContent = region.name + ' · ' + region.mode.toUpperCase();
+      mask.append(label);
+      layer.append(mask);
+    }
+  }
+}
+
+function renderPrivacyPolicy() {
+  populatePrivacyRoomSelect();
+  const roomId = privacyEditorRoomId();
+  const policy = policyForRoom(roomId);
+
+  ui.privacyVisualObservation.checked = policy.allowVisualObservation;
+  ui.privacyIdentity.checked = policy.allowParticipantIdentity;
+  ui.privacyAnonymousTracking.checked = policy.allowAnonymousTracking;
+  ui.privacyObjects.checked = policy.allowObjectObservation;
+  ui.privacyBehavior.checked = policy.allowBehaviorAnalysis;
+  ui.privacyEnvironmentComparison.checked = policy.allowEnvironmentComparison;
+  ui.privacyRoomAudio.checked = policy.allowRoomAudio;
+  ui.privacyVoiceMatching.checked = policy.allowVoiceMatching;
+  ui.privacyLiveTranscription.checked = policy.allowLiveTranscription;
+  ui.privacyTranscriptStorage.checked = policy.allowTranscriptStorage;
+  ui.privacySpatialMemory.checked = policy.allowSpatialMemory;
+  ui.privacyRetainPrimary.checked = policy.retainPrimaryImages;
+  ui.privacyRetainAlternate.checked = policy.retainAlternateViewImages;
+
+  ui.privacySuppressedCount.textContent =
+    String(runtime.privacyStats.suppressedEvents || 0);
+  ui.privacyAnonymizedCount.textContent =
+    String(runtime.privacyStats.anonymizedEvents || 0);
+  ui.privacyRegionCount.textContent =
+    String(policy.sensitiveRegions.filter((region) => region.enabled).length);
+  ui.privacyRegionStatus.textContent =
+    policy.sensitiveRegions.filter((region) => region.enabled).length + ' regions';
+
+  const restrictive = (
+    !policy.allowVisualObservation ||
+    !policy.allowParticipantIdentity ||
+    !policy.allowObjectObservation ||
+    !policy.allowRoomAudio ||
+    !policy.allowSpatialMemory ||
+    policy.sensitiveRegions.some((region) => region.enabled)
+  );
+  ui.privacyPolicyStatus.textContent = restrictive ? 'Restricted' : 'Standard';
+  if (primaryCameraConfig()?.roomId === roomId) {
+    ui.privacyTopStatus.textContent = restrictive ? 'Restricted' : 'Policy active';
+  }
+
+  ui.privacyRegionList.replaceChildren();
+  if (!policy.sensitiveRegions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No sensitive regions configured for this room.';
+    ui.privacyRegionList.append(empty);
+  } else {
+    for (const region of policy.sensitiveRegions) {
+      const row = document.createElement('div');
+      row.className = 'privacy-region-row';
+
+      const copy = document.createElement('div');
+      const name = document.createElement('strong');
+      const meta = document.createElement('span');
+      name.textContent = region.name;
+      meta.textContent = [
+        region.mode.toUpperCase(),
+        'x ' + Math.round(region.x * 100) + '%',
+        'y ' + Math.round(region.y * 100) + '%',
+        Math.round(region.width * 100) + '×' +
+          Math.round(region.height * 100) + '%'
+      ].join(' · ');
+      copy.append(name, meta);
+
+      const chip = document.createElement('span');
+      chip.className = 'status-chip';
+      chip.textContent = region.enabled ? 'Active' : 'Disabled';
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'agent-entity-action';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => void removePrivacyRegion(region.id));
+
+      row.append(copy, chip, remove);
+      ui.privacyRegionList.append(row);
+    }
+  }
+
+  renderPrivacyMasks();
+}
+
 function renderCameraNetwork() {
   ui.cameraRegistryList.replaceChildren();
 
@@ -6130,6 +6458,7 @@ function renderSignals() {
 
 function renderAll() {
   renderEnvironmentPanel();
+  renderPrivacyPolicy();
   renderMultiRoomWorld();
   renderSpatialMemory();
   renderEnvironmentMapping();
@@ -6509,6 +6838,9 @@ ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
 ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
 ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
 ui.clearSpatialMemory.addEventListener('click', () => void clearLearnedSpatialMemory());
+ui.privacySavePolicy.addEventListener('click', () => void savePrivacyPolicyFromUi());
+ui.privacyRoomSelect.addEventListener('change', renderPrivacyPolicy);
+ui.privacyRegionForm.addEventListener('submit', (event) => void addPrivacyRegion(event));
 ui.cameraRegistryForm.addEventListener('submit', (event) => void addCameraConfig(event));
 ui.topologyConnectForm.addEventListener('submit', (event) => void confirmTopologyConnection(event));
 ui.cameraCalibrationForm.addEventListener('submit', (event) => void saveCameraCalibrationForm(event));
