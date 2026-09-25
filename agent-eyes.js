@@ -475,7 +475,7 @@ function roomPosition(track) {
   };
 }
 
-function emitTrackTransitions(previousTracks, currentTracks) {
+function emitTrackTransitions(previousTracks, currentTracks, now) {
   const previousById = new Map(previousTracks.map((track) => [track.id, track]));
   const currentById = new Map(currentTracks.map((track) => [track.id, track]));
 
@@ -497,7 +497,12 @@ function emitTrackTransitions(previousTracks, currentTracks) {
       }
     };
 
-    if (!previous) {
+    const stablePresence = (
+      !track.presenceAnnounced &&
+      now - Number(track.firstSeenAt || now) >= 900
+    );
+    if (stablePresence) {
+      track.presenceAnnounced = true;
       emit('participant.detected', payload);
       emit('participant.entered', payload);
     }
@@ -539,7 +544,7 @@ function emitTrackTransitions(previousTracks, currentTracks) {
   }
 
   for (const previous of previousTracks) {
-    if (currentById.has(previous.id)) continue;
+    if (currentById.has(previous.id) || !previous.presenceAnnounced) continue;
     emit('participant.left', {
       participantId: previous.participantId || null,
       participantName: previous.participantName || null,
@@ -760,7 +765,7 @@ async function scanRoom() {
     ]);
 
     updateGroups();
-    emitTrackTransitions(previousTracks, runtime.tracks);
+    emitTrackTransitions(previousTracks, runtime.tracks, now);
     drawOverlay();
     renderAll();
 
@@ -1142,7 +1147,6 @@ function renderSignals() {
 }
 
 function renderAll() {
-  updateGroups();
   renderParticipants();
   renderRadar();
   renderSignals();
@@ -1386,6 +1390,7 @@ async function startRoomAudio() {
     if (runtime.ttsPending > 0) runtime.audio.setSuppressed(true);
 
     runtime.audioActive = true;
+    if (!runtime.startedAt) runtime.startedAt = Date.now();
     runtime.audioPath = runtime.audio.captureMode;
     ui.startEars.disabled = true;
     ui.stop.disabled = false;
