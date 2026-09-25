@@ -68,6 +68,24 @@ import {
   saveSceneEpisodes,
   saveSceneZones
 } from './src/scene-store.js';
+import {
+  cameraCalibrationValid,
+  cameraCoveragePolygon,
+  cameraWithCoverage,
+  mapCameraPoint,
+  normalizeCameraConfig
+} from './src/camera-core.js';
+import {
+  deleteCameraConfig,
+  listCameraConfigs,
+  saveCameraConfig
+} from './src/camera-store.js';
+import {
+  updateWorldFusion
+} from './src/fusion-core.js';
+import {
+  MultiCameraSensorRuntime
+} from './src/multicamera-runtime.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -90,6 +108,7 @@ const ui = {
   behaviorStatus: $('#eyesBehaviorStatus'),
   objectStatus: $('#eyesObjectStatus'),
   sceneStatus: $('#eyesSceneStatus'),
+  fusionStatus: $('#eyesFusionStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -131,6 +150,23 @@ const ui = {
   sceneZoneWidth: $('#sceneZoneWidth'),
   sceneZoneHeight: $('#sceneZoneHeight'),
   sceneZoneList: $('#sceneZoneList'),
+  cameraNetworkStatus: $('#cameraNetworkStatus'),
+  cameraRegistryForm: $('#cameraRegistryForm'),
+  cameraRegistryDevice: $('#cameraRegistryDevice'),
+  cameraRegistryName: $('#cameraRegistryName'),
+  cameraRegistryRoom: $('#cameraRegistryRoom'),
+  cameraCoverageX: $('#cameraCoverageX'),
+  cameraCoverageY: $('#cameraCoverageY'),
+  cameraCoverageWidth: $('#cameraCoverageWidth'),
+  cameraCoverageHeight: $('#cameraCoverageHeight'),
+  cameraRegistryList: $('#cameraRegistryList'),
+  worldMapStatus: $('#worldMapStatus'),
+  worldMapCoverage: $('#worldMapCoverage'),
+  worldMapEntities: $('#worldMapEntities'),
+  worldCameraCount: $('#worldCameraCount'),
+  worldPersonCount: $('#worldPersonCount'),
+  worldObjectCount: $('#worldObjectCount'),
+  worldOverlapCount: $('#worldOverlapCount'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -180,7 +216,22 @@ const ui = {
   sceneInspectorSummary: $('#sceneInspectorSummary'),
   sceneInspectorEvidence: $('#sceneInspectorEvidence'),
   sceneInspectorJson: $('#sceneInspectorJson'),
-  closeSceneInspector: $('#closeSceneEvidenceInspector')
+  closeSceneInspector: $('#closeSceneEvidenceInspector'),
+  cameraCalibrationInspector: $('#cameraCalibrationInspector'),
+  cameraCalibrationName: $('#cameraCalibrationName'),
+  cameraCalibrationMeta: $('#cameraCalibrationMeta'),
+  cameraCalibrationForm: $('#cameraCalibrationForm'),
+  cameraTLX: $('#cameraTLX'),
+  cameraTLY: $('#cameraTLY'),
+  cameraTRX: $('#cameraTRX'),
+  cameraTRY: $('#cameraTRY'),
+  cameraBRX: $('#cameraBRX'),
+  cameraBRY: $('#cameraBRY'),
+  cameraBLX: $('#cameraBLX'),
+  cameraBLY: $('#cameraBLY'),
+  cameraCalibrationEnabled: $('#cameraCalibrationEnabled'),
+  cameraCalibrationJson: $('#cameraCalibrationJson'),
+  closeCameraCalibration: $('#closeCameraCalibration')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
@@ -189,6 +240,7 @@ const bus = new PerceptionEventBus();
 const roomState = createRoomState('agent-eyes-room');
 const sceneState = createSceneState(roomState.roomId);
 const sceneListeners = new Set();
+const cameraFusionListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -238,7 +290,22 @@ const runtime = {
   wristHistory: new Map(),
   lastGestureAt: new Map(),
   selectedTrackId: null,
-  selectedSceneRecord: null
+  selectedSceneRecord: null,
+  cameraConfigs: [],
+  cameraDevices: [],
+  cameraStatuses: new Map(),
+  cameraObservations: new Map(),
+  fusionState: {
+    schemaVersion: 1,
+    roomId: 'ROOM01',
+    updatedAt: Date.now(),
+    participants: [],
+    objects: []
+  },
+  worldObjectCounter: 0,
+  selectedCalibrationCameraId: null,
+  secondaryCameras: null,
+  identityInference: Promise.resolve()
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -274,8 +341,18 @@ window.TrackyAgentEyes = Object.freeze({
   getWorldState() {
     return {
       room: roomStateSnapshot(roomState),
-      scene: sceneStateSnapshot(sceneState)
+      scene: sceneStateSnapshot(sceneState),
+      cameraFusion: structuredClone(runtime.fusionState)
     };
+  },
+  getCameraFusionState() {
+    return structuredClone(runtime.fusionState);
+  },
+  getCameras() {
+    return runtime.cameraConfigs.map((camera) => ({
+      ...camera,
+      homography: undefined
+    }));
   },
   getChanges() {
     return sceneState.changes.slice();
@@ -289,6 +366,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeScene(listener) {
     sceneListeners.add(listener);
     return () => sceneListeners.delete(listener);
+  },
+  subscribeCameraFusion(listener) {
+    cameraFusionListeners.add(listener);
+    return () => cameraFusionListeners.delete(listener);
   },
   eventTypes: PERCEPTION_EVENT_TYPES,
   sceneChangeTypes: SCENE_CHANGE_TYPES
