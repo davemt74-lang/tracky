@@ -16,11 +16,27 @@ export function briefingSemanticKey(briefing={}){
   ].join('::');
 }
 
-function queuedRecord(briefing,plan,now,options={}){
+function deliveryHistory(item,state,reason,now){
+  const history=arr(item?.deliveryHistory).slice(-39).map((entry)=>({...entry}));
+  const cleanReason=txt(reason||'policy',100);
+  const last=history[history.length-1];
+  if(last?.state===state&&last?.reason===cleanReason) return history;
+  history.push({state,reason:cleanReason,at:Number(now)});
+  return history;
+}
+function transition(item,state,reason,now,extra={}){
   return {
+    ...item,
+    ...extra,
+    deliveryState:state,
+    deliveryReason:reason,
+    deliveryHistory:deliveryHistory(item,state,reason,now)
+  };
+}
+
+function queuedRecord(briefing,plan,now,options={}){
+  const base={
     ...briefing,
-    deliveryState:plan.state,
-    deliveryReason:plan.reason,
     deliveryReady:plan.ready===true,
     interrupt:plan.interrupt===true,
     voiceEligible:plan.voiceEligible===true,
@@ -31,6 +47,7 @@ function queuedRecord(briefing,plan,now,options={}){
     lastQueuedAt:Number(now),
     expiresAt:Number(briefing.expiresAt||now+Number(options.ttlMs||BRIEFING_DEFAULT_TTL_MS))
   };
+  return transition(base,plan.state,plan.reason,now);
 }
 
 export function enqueueBriefing(queue=[],briefing={},context={},now=Date.now(),options={}){
@@ -71,27 +88,38 @@ export function reevaluateBriefingQueue(queue=[],context={},now=Date.now()){
       expiresAt:Number(item.expiresAt||Number(item.generatedAt||now)+BRIEFING_DEFAULT_TTL_MS)
     };
     if(['acknowledged','expired','surfaced'].includes(base.deliveryState)) return base;
-    if(Number(base.expiresAt||Infinity)<=now) return {...base,deliveryState:'expired',deliveryReady:false,expiredAt:now};
+    if(Number(base.expiresAt||Infinity)<=now) return transition(base,'expired','ttl-expired',now,{deliveryReady:false,expiredAt:now});
     if(
       base.deliveryState==='deferred' &&
       String(base.deliveryReason||'').startsWith('user-') &&
       Number(base.retryAt||0)>now
     ) return base;
     const plan=planBriefingDelivery(base,context,now);
-    return {...base,deliveryState:plan.state,deliveryReason:plan.reason,deliveryReady:plan.ready===true,interrupt:plan.interrupt===true,voiceEligible:plan.voiceEligible===true,retryAt:plan.retryAt==null?null:Number(plan.retryAt)};
+    return transition(base,plan.state,plan.reason,now,{
+      deliveryReady:plan.ready===true,
+      interrupt:plan.interrupt===true,
+      voiceEligible:plan.voiceEligible===true,
+      retryAt:plan.retryAt==null?null:Number(plan.retryAt)
+    });
   });
   return sortQueue(updated);
 }
 
 export function markBriefingSurfaced(queue=[],id,now=Date.now()){
-  return arr(queue).map((item)=>item.id===id?{...item,deliveryState:'surfaced',deliveryReady:false,surfacedAt:now}:item);
+  return arr(queue).map((item)=>item.id===id
+    ? transition(item,'surfaced','downstream-surfaced',now,{deliveryReady:false,surfacedAt:now})
+    : item);
 }
 export function deferBriefing(queue=[],id,delayMs=300000,reason='user-deferred',now=Date.now()){
   const delay=Math.max(1000,Math.min(86400000,Number(delayMs||300000)));
-  return arr(queue).map((item)=>item.id===id?{...item,deliveryState:'deferred',deliveryReason:reason,deliveryReady:false,retryAt:now+delay,deferredAt:now}:item);
+  return arr(queue).map((item)=>item.id===id
+    ? transition(item,'deferred',reason,now,{deliveryReady:false,retryAt:now+delay,deferredAt:now})
+    : item);
 }
 export function acknowledgeQueuedBriefing(queue=[],id,now=Date.now()){
-  return arr(queue).map((item)=>item.id===id?{...item,status:'acknowledged',deliveryState:'acknowledged',deliveryReady:false,acknowledgedAt:now}:item);
+  return arr(queue).map((item)=>item.id===id
+    ? transition({...item,status:'acknowledged'},'acknowledged','user-acknowledged',now,{deliveryReady:false,acknowledgedAt:now})
+    : item);
 }
 export function readyBriefings(queue=[]){
   return sortQueue(arr(queue).filter((item)=>item.deliveryState==='ready'&&item.deliveryReady===true));
