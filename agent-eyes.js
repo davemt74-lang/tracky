@@ -115,6 +115,19 @@ import {
   derivePhysicalWorldState,
   worldStateSnapshot
 } from './src/world-state-core.js';
+import {
+  buildWorldTopology,
+  roomPortals
+} from './src/room-topology-core.js';
+import {
+  createMultiRoomWorld,
+  multiRoomSnapshot,
+  updateMultiRoomWorld
+} from './src/multiroom-core.js';
+import {
+  classifyVisibility,
+  visibilityOccludersFromGraph
+} from './src/visibility-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -309,6 +322,7 @@ const sceneState = createSceneState(roomState.roomId);
 const sceneListeners = new Set();
 const cameraFusionListeners = new Set();
 const worldListeners = new Set();
+const roomListeners = new Map();
 
 const runtime = {
   stream: null,
@@ -383,7 +397,12 @@ const runtime = {
   environmentLastCheckedAt: 0,
   environmentStartupChecked: false,
   sceneGraph: createSceneGraph('ROOM01'),
-  physicalWorld: createPhysicalWorldState()
+  physicalWorld: createPhysicalWorldState(),
+  roomFusionStates: {},
+  multiRoomWorld: createMultiRoomWorld(),
+  worldTopology: buildWorldTopology([]),
+  roomVisibility: {},
+  multiRoomEvents: []
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -423,7 +442,9 @@ window.TrackyAgentEyes = Object.freeze({
       cameraFusion: copySerializable(runtime.fusionState),
       environment: copySerializable(runtime.environmentAnalysis),
       sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
-      physicalWorld: worldStateSnapshot(runtime.physicalWorld)
+      physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+      topology: copySerializable(runtime.worldTopology),
+      multiRoom: multiRoomSnapshot(runtime.multiRoomWorld)
     };
   },
   getEnvironmentState() {
@@ -449,6 +470,32 @@ window.TrackyAgentEyes = Object.freeze({
       homography: undefined
     }));
   },
+  getRooms() {
+    return copySerializable(runtime.environmentRooms);
+  },
+  getRoomState(roomId) {
+    return {
+      room: copySerializable(runtime.roomFusionStates[roomId] || null),
+      metadata: copySerializable(
+        runtime.environmentRooms.find((room) => room.id === roomId) || null
+      ),
+      visibility: copySerializable(runtime.roomVisibility[roomId] || null)
+    };
+  },
+  getParticipantLocation(participantId) {
+    return copySerializable(
+      runtime.multiRoomWorld.participants['PERSON:' + participantId] || null
+    );
+  },
+  getObjectLocation(objectId) {
+    return copySerializable(runtime.multiRoomWorld.objects[objectId] || null);
+  },
+  getWorldTopology() {
+    return copySerializable(runtime.worldTopology);
+  },
+  getMultiRoomWorld() {
+    return multiRoomSnapshot(runtime.multiRoomWorld);
+  },
   getChanges() {
     return sceneState.changes.slice();
   },
@@ -469,6 +516,11 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeWorld(listener) {
     worldListeners.add(listener);
     return () => worldListeners.delete(listener);
+  },
+  subscribeRoom(roomId, listener) {
+    if (!roomListeners.has(roomId)) roomListeners.set(roomId, new Set());
+    roomListeners.get(roomId).add(listener);
+    return () => roomListeners.get(roomId)?.delete(listener);
   },
   refreshEnvironment() {
     return refreshEnvironmentObservation({ reason: 'agent-request' });
