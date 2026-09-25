@@ -200,10 +200,15 @@ export function landmarkSimilarity(current = [], reference = []) {
     if (bestIndex >= 0 && bestDistance <= 0.28) {
       used.add(bestIndex);
       const weight = ref.userConfirmed ? 1.35 : ref.stability === LANDMARK_STABILITY.STRUCTURAL ? 1.2 : 1;
+      const currentItem = currentItems[bestIndex];
       matches.push({
         referenceId: ref.id,
         label: ref.label,
         distance: bestDistance,
+        dx: currentItem.position.x - ref.position.x,
+        dy: currentItem.position.y - ref.position.y,
+        referencePosition: ref.position,
+        currentPosition: currentItem.position,
         confidence: clamp01((1 - bestDistance / 0.28) * weight)
       });
     } else {
@@ -280,9 +285,42 @@ export function matchEnvironment(current, rooms = []) {
   return { classification, best, second, margin, candidates };
 }
 
+export function estimateCameraPoseDrift(matches = []) {
+  if (matches.length < 2) {
+    return {
+      score: 0,
+      consistency: 0,
+      dx: 0,
+      dy: 0,
+      likelyCameraShift: false
+    };
+  }
+
+  const dx = matches.reduce((sum, item) => sum + Number(item.dx || 0), 0) / matches.length;
+  const dy = matches.reduce((sum, item) => sum + Number(item.dy || 0), 0) / matches.length;
+  const magnitude = Math.hypot(dx, dy);
+  const variance = matches.reduce((sum, item) => (
+    sum +
+    Math.pow(Number(item.dx || 0) - dx, 2) +
+    Math.pow(Number(item.dy || 0) - dy, 2)
+  ), 0) / matches.length;
+  const spread = Math.sqrt(variance);
+  const consistency = clamp01(1 - spread / 0.14);
+  const score = clamp01(magnitude / 0.22) * consistency;
+
+  return {
+    score,
+    consistency,
+    dx,
+    dy,
+    likelyCameraShift: score >= 0.34 && consistency >= 0.62
+  };
+}
+
 export function environmentDrift(current, view) {
   const visual = fingerprintSimilarity(current.fingerprint, view.fingerprint);
   const landmark = landmarkSimilarity(current.landmarks || [], view.landmarks || []);
+  const pose = estimateCameraPoseDrift(landmark.matches);
   const referenceLabels = new Set((view.landmarks || []).map((item) => item.label));
   const newLandmarks = (current.landmarks || [])
     .map(normalizeLandmark)
@@ -291,13 +329,21 @@ export function environmentDrift(current, view) {
       !referenceLabels.has(item.label)
     ));
 
+  const visibility = clamp01(current?.quality?.obstruction ?? 1);
+  const structuralDrift = clamp01((1 - landmark.score) * (0.55 + 0.45 * visibility));
+
   return {
-    structuralDrift: clamp01(1 - landmark.score),
+    structuralDrift,
     visualDrift: clamp01(1 - visual),
+    cameraPoseDrift: pose.score,
+    cameraPoseConsistency: pose.consistency,
+    likelyCameraShift: pose.likelyCameraShift,
+    cameraShiftVector: { x: pose.dx, y: pose.dy },
     environmentStateDrift: clamp01(
-      (1 - visual) * 0.36 +
-      (1 - landmark.score) * 0.49 +
-      Math.min(1, newLandmarks.length / 5) * 0.15
+      (1 - visual) * 0.28 +
+      structuralDrift * 0.47 +
+      Math.min(1, newLandmarks.length / 5) * 0.15 +
+      (pose.likelyCameraShift ? 0.10 : 0)
     ),
     missingLandmarks: landmark.missing,
     newLandmarks,
