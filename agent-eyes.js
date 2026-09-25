@@ -189,6 +189,20 @@ import {
   loadAnomalyState,
   saveAnomalyState
 } from './src/anomaly-store.js';
+import {
+  addVerificationEvidence,
+  cancelVerification,
+  createVerificationState,
+  evidenceFromContext,
+  evaluateVerification,
+  startVerification,
+  verificationQuorum,
+  verificationSnapshot
+} from './src/verification-core.js';
+import {
+  loadVerificationState,
+  saveVerificationState
+} from './src/verification-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -223,6 +237,7 @@ const ui = {
   privacyTopStatus: $('#eyesPrivacyStatus'),
   taskTopStatus: $('#eyesTaskStatus'),
   anomalyTopStatus: $('#eyesAnomalyStatus'),
+  verificationTopStatus: $('#eyesVerificationStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -358,6 +373,13 @@ const ui = {
   proactiveCandidateList: $('#proactiveCandidateList'),
   proactiveHistoryStatus: $('#proactiveHistoryStatus'),
   proactiveHistoryList: $('#proactiveHistoryList'),
+  verificationStatus: $('#verificationStatus'),
+  verificationActiveCount: $('#verificationActiveCount'),
+  verificationVerifiedCount: $('#verificationVerifiedCount'),
+  verificationClearedCount: $('#verificationClearedCount'),
+  verificationUncertainCount: $('#verificationUncertainCount'),
+  verificationList: $('#verificationList'),
+  verificationHistoryList: $('#verificationHistoryList'),
   privacyRegionName: $('#privacyRegionName'),
   privacyRegionMode: $('#privacyRegionMode'),
   privacyRegionX: $('#privacyRegionX'),
@@ -477,6 +499,7 @@ const roomListeners = new Map();
 const spatialMemoryListeners = new Set();
 const attentionListeners = new Set();
 const anomalyListeners = new Set();
+const verificationListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -572,7 +595,10 @@ const runtime = {
   perceptionBudgetSignature: null,
   anomalyState: createAnomalyState(),
   anomalyLastSavedAt: 0,
-  anomalyTopSignature: null
+  anomalyTopSignature: null,
+  verificationState: createVerificationState(),
+  verificationLastSavedAt: 0,
+  verificationLastEnvironmentRefresh: new Map()
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -594,11 +620,35 @@ function currentPerceptionBudget(now = Date.now()) {
     0,
     now - Number(runtime.attention.lastMeaningfulActivityAt || now)
   );
-  return computePerceptionBudget({
+  const budget = computePerceptionBudget({
     task: runtime.attention.activeTask,
     activityAgeMs,
     policy: policyForRoom(roomId)
   });
+
+  const requests = Object.values(runtime.verificationState?.requests || {})
+    .filter((request) => request.status === 'gathering');
+  if (!requests.length) return budget;
+
+  const visualAllowed = budget.capabilities?.visual !== false;
+  const environmentRequested = requests.some(
+    (request) => request.plan?.refreshEnvironment
+  );
+
+  return {
+    ...budget,
+    scanIntervalMs: visualAllowed
+      ? Math.min(Number(budget.scanIntervalMs || SCAN_INTERVAL_MS), 300)
+      : budget.scanIntervalMs,
+    secondaryIntervalMs: visualAllowed
+      ? Math.min(Number(budget.secondaryIntervalMs || 850), 500)
+      : budget.secondaryIntervalMs,
+    environmentCheckMs: environmentRequested
+      ? Math.min(Number(budget.environmentCheckMs || 60000), 3000)
+      : budget.environmentCheckMs,
+    intensity: 'verification',
+    verificationCount: requests.length
+  };
 }
 
 function attentionContext() {
@@ -1108,7 +1158,8 @@ window.TrackyAgentEyes = Object.freeze({
       privacyStats: copySerializable(runtime.privacyStats),
       attentionController: attentionSnapshot(runtime.attention),
       perceptionBudget: copySerializable(currentPerceptionBudget()),
-      proactiveAwareness: anomalySnapshot(runtime.anomalyState)
+      proactiveAwareness: anomalySnapshot(runtime.anomalyState),
+      activeVerification: verificationSnapshot(runtime.verificationState)
     };
   },
   getEnvironmentState() {
@@ -1193,6 +1244,15 @@ window.TrackyAgentEyes = Object.freeze({
   dismissAnomaly(signature, suppressMs) {
     return dismissActiveAnomaly(signature, suppressMs);
   },
+  getVerificationState() {
+    return verificationSnapshot(runtime.verificationState);
+  },
+  requestVerification(signature) {
+    return requestAnomalyVerification(signature);
+  },
+  cancelVerification(signature) {
+    return cancelActiveVerification(signature);
+  },
   setTask(task = {}) {
     return startAttentionTask(task);
   },
@@ -1256,6 +1316,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAnomalies(listener) {
     anomalyListeners.add(listener);
     return () => anomalyListeners.delete(listener);
+  },
+  subscribeVerifications(listener) {
+    verificationListeners.add(listener);
+    return () => verificationListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
