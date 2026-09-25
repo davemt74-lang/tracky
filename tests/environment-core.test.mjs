@@ -5,6 +5,7 @@ import {
   baselineQuality,
   compareEnvironment,
   environmentDrift,
+  estimateCameraPoseDrift,
   fingerprintImageData,
   fingerprintSimilarity,
   landmarkSimilarity,
@@ -84,4 +85,15 @@ test('compareEnvironment returns explainable evidence channels',()=>{
   );
   assert.ok(result.visual>.9);
   assert.equal(result.camera,1);
+});
+
+
+test('coherent landmark displacement identifies likely camera shift',()=>{
+  const pose=estimateCameraPoseDrift([
+    {dx:.10,dy:.04},
+    {dx:.11,dy:.05},
+    {dx:.09,dy:.03}
+  ]);
+  assert.equal(pose.likelyCameraShift,true);
+  assert.ok(pose.consistency>.8);
 });
