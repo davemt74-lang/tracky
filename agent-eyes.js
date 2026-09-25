@@ -5640,6 +5640,157 @@ function renderSpatialMemory() {
   renderSpatialJourneys();
 }
 
+
+function awarenessSeverityLabel(record) {
+  return String(record.severity || 'info').toUpperCase();
+}
+
+function renderAwarenessIncident(record) {
+  const row = document.createElement('article');
+  row.className = 'awareness-incident-row ' + String(record.state || 'candidate');
+  row.dataset.severity = record.severity || 'info';
+
+  const copy = document.createElement('div');
+  const top = document.createElement('div');
+  const type = document.createElement('small');
+  const state = document.createElement('span');
+  type.textContent = awarenessSeverityLabel(record) + ' · ' + record.type;
+  state.textContent = String(record.state || 'candidate').toUpperCase();
+  top.append(type, state);
+
+  const summary = document.createElement('strong');
+  summary.textContent = record.summary;
+  const meta = document.createElement('p');
+  meta.textContent = [
+    Math.round(Number(record.confidence || 0) * 100) + '% confidence',
+    record.confirmations + ' confirmations',
+    record.roomId || null,
+    record.requestedEvidence ? 'verify: ' + record.requestedEvidence : null,
+    record.acknowledgedAt ? 'ACKNOWLEDGED' : null
+  ].filter(Boolean).join(' · ');
+  copy.append(top, summary, meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'awareness-incident-actions';
+
+  if (record.state === 'confirmed' && !record.acknowledgedAt) {
+    const acknowledge = document.createElement('button');
+    acknowledge.type = 'button';
+    acknowledge.className = 'agent-entity-action';
+    acknowledge.textContent = 'Acknowledge';
+    acknowledge.addEventListener('click', () => void acknowledgeAwarenessAlert(record.key));
+    actions.append(acknowledge);
+  }
+
+  if (record.state !== 'confirmed') {
+    const verify = document.createElement('button');
+    verify.type = 'button';
+    verify.className = 'agent-entity-action';
+    verify.textContent = 'Verify';
+    verify.addEventListener('click', () => void verifyAwarenessNow());
+    actions.append(verify);
+  }
+
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'agent-entity-action';
+  dismiss.textContent = 'Dismiss';
+  dismiss.addEventListener('click', () => void dismissAwarenessAlert(record.key));
+  actions.append(dismiss);
+
+  row.append(copy, actions);
+  return row;
+}
+
+function renderAwareness() {
+  syncAwarenessControls();
+  const active = activeAwareness(runtime.awarenessState);
+  const confirmed = active.filter((record) => record.state === 'confirmed');
+  const verifying = active.filter((record) => record.state === 'verifying');
+  const high = active.filter((record) => ['high','critical'].includes(record.severity));
+
+  ui.awarenessActiveCount.textContent = String(active.length);
+  ui.awarenessConfirmedCount.textContent = String(confirmed.length);
+  ui.awarenessVerifyingCount.textContent = String(verifying.length);
+  ui.awarenessHighCount.textContent = String(high.length);
+
+  if (!runtime.awarenessPolicy.enabled) {
+    ui.awarenessStatus.textContent = 'Disabled';
+    ui.awarenessTopStatus.textContent = 'Disabled';
+  } else if (confirmed.some((record) => !record.acknowledgedAt)) {
+    ui.awarenessStatus.textContent =
+      confirmed.filter((record) => !record.acknowledgedAt).length + ' confirmed';
+    ui.awarenessTopStatus.textContent = high.length
+      ? high.length + ' high'
+      : 'Attention needed';
+  } else if (verifying.length) {
+    ui.awarenessStatus.textContent = verifying.length + ' verifying';
+    ui.awarenessTopStatus.textContent = 'Verifying';
+  } else {
+    ui.awarenessStatus.textContent = active.length ? active.length + ' candidate' : 'Clear';
+    ui.awarenessTopStatus.textContent = 'Clear';
+  }
+
+  ui.awarenessActiveList.replaceChildren();
+  if (!active.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = runtime.awarenessPolicy.enabled
+      ? 'No active environmental incidents.'
+      : 'Proactive awareness is disabled.';
+    ui.awarenessActiveList.append(empty);
+  } else {
+    for (const record of active) {
+      ui.awarenessActiveList.append(renderAwarenessIncident(record));
+    }
+  }
+
+  const acknowledged = active
+    .filter((record) => record.acknowledgedAt)
+    .map((record) => ({
+      ...record,
+      state: 'acknowledged',
+      lastSeenAt: record.acknowledgedAt
+    }));
+  const recent = [
+    ...runtime.awarenessState.recent,
+    ...acknowledged
+  ]
+    .sort((a,b) => Number(b.lastSeenAt || 0) - Number(a.lastSeenAt || 0))
+    .slice(0, 24);
+
+  ui.awarenessRecentList.replaceChildren();
+  ui.awarenessRecentStatus.textContent = recent.length
+    ? recent.length + ' recent'
+    : 'No history';
+
+  if (!recent.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'Resolved incidents will appear here.';
+    ui.awarenessRecentList.append(empty);
+  } else {
+    for (const record of recent) {
+      const row = document.createElement('div');
+      row.className = 'awareness-recent-row';
+
+      const copy = document.createElement('div');
+      const summary = document.createElement('strong');
+      const meta = document.createElement('span');
+      summary.textContent = record.summary;
+      meta.textContent = [
+        String(record.state || 'resolved').toUpperCase(),
+        awarenessSeverityLabel(record),
+        Math.round(Number(record.confidence || 0) * 100) + '%',
+        record.roomId || null
+      ].filter(Boolean).join(' · ');
+      copy.append(summary, meta);
+      row.append(copy);
+      ui.awarenessRecentList.append(row);
+    }
+  }
+}
+
 function renderCameraNetwork() {
   ui.cameraRegistryList.replaceChildren();
 
@@ -6247,7 +6398,8 @@ function renderRoomState() {
     topology: runtime.worldTopology,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
     roomVisibility: runtime.roomVisibility,
-    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+    awareness: awarenessSnapshot(runtime.awarenessState)
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -6298,6 +6450,7 @@ function renderAll() {
   renderEnvironmentPanel();
   renderMultiRoomWorld();
   renderSpatialMemory();
+  renderAwareness();
   renderEnvironmentMapping();
   renderPhysicalWorld();
   renderCameraNetwork();
@@ -6595,7 +6748,8 @@ async function copySnapshot() {
     topology: runtime.worldTopology,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
     roomVisibility: runtime.roomVisibility,
-    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+    awareness: awarenessSnapshot(runtime.awarenessState)
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
