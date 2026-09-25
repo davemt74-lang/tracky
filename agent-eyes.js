@@ -87,6 +87,30 @@ import {
 import {
   MultiCameraSensorRuntime
 } from './src/multicamera-runtime.js';
+import {
+  analyzeEnvironmentObservation,
+  assistedMappingFromObservation,
+  buildEnvironmentObservation,
+  captureBestEnvironmentFrame,
+  environmentProviderContract
+} from './src/environment-runtime.js';
+import {
+  listEnvironmentRooms,
+  saveEnvironmentHistory,
+  saveEnvironmentRoom,
+  saveEnvironmentView
+} from './src/environment-store.js';
+import {
+  buildRoomSceneGraph,
+  createSceneGraph,
+  markGraphFactsStale,
+  sceneGraphSnapshot
+} from './src/scene-graph-core.js';
+import {
+  createPhysicalWorldState,
+  derivePhysicalWorldState,
+  worldStateSnapshot
+} from './src/world-state-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -114,6 +138,8 @@ const ui = {
   objectStatus: $('#eyesObjectStatus'),
   sceneStatus: $('#eyesSceneStatus'),
   fusionStatus: $('#eyesFusionStatus'),
+  environmentStatus: $('#eyesEnvironmentStatus'),
+  worldStatus: $('#eyesWorldStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -173,6 +199,37 @@ const ui = {
   worldPersonCount: $('#worldPersonCount'),
   worldObjectCount: $('#worldObjectCount'),
   worldOverlapCount: $('#worldOverlapCount'),
+  environmentMatchStatus: $('#environmentMatchStatus'),
+  environmentPrimaryMeta: $('#environmentPrimaryMeta'),
+  environmentPrimaryImage: $('#environmentPrimaryImage'),
+  environmentPrimaryEmpty: $('#environmentPrimaryEmpty'),
+  environmentCurrentMeta: $('#environmentCurrentMeta'),
+  environmentCurrentImage: $('#environmentCurrentImage'),
+  environmentCurrentEmpty: $('#environmentCurrentEmpty'),
+  environmentRoomName: $('#environmentRoomName'),
+  environmentViewName: $('#environmentViewName'),
+  capturePrimaryEnvironment: $('#capturePrimaryEnvironment'),
+  saveAlternateEnvironment: $('#saveAlternateEnvironment'),
+  scanEnvironment: $('#scanEnvironment'),
+  promoteEnvironmentPrimary: $('#promoteEnvironmentPrimary'),
+  environmentRoomMatch: $('#environmentRoomMatch'),
+  environmentViewMatch: $('#environmentViewMatch'),
+  environmentStructureScore: $('#environmentStructureScore'),
+  environmentDriftScore: $('#environmentDriftScore'),
+  environmentQualityScore: $('#environmentQualityScore'),
+  environmentCameraScore: $('#environmentCameraScore'),
+  environmentMappingStatus: $('#environmentMappingStatus'),
+  environmentMappingPreview: $('#environmentMappingPreview'),
+  environmentMappingList: $('#environmentMappingList'),
+  acceptEnvironmentMap: $('#acceptEnvironmentMap'),
+  discardEnvironmentMap: $('#discardEnvironmentMap'),
+  physicalWorldStatus: $('#physicalWorldStatus'),
+  physicalGraphNodes: $('#physicalGraphNodes'),
+  physicalGraphEdges: $('#physicalGraphEdges'),
+  physicalContradictions: $('#physicalContradictions'),
+  physicalAttentionCount: $('#physicalAttentionCount'),
+  physicalAttentionFeed: $('#physicalAttentionFeed'),
+  physicalWorldJson: $('#physicalWorldJson'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -247,6 +304,7 @@ const roomState = createRoomState('agent-eyes-room');
 const sceneState = createSceneState(roomState.roomId);
 const sceneListeners = new Set();
 const cameraFusionListeners = new Set();
+const worldListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -312,7 +370,16 @@ const runtime = {
   selectedCalibrationCameraId: null,
   secondaryCameras: null,
   identityInference: Promise.resolve(),
-  worldTrails: new Map()
+  worldTrails: new Map(),
+  environmentRooms: [],
+  currentEnvironment: null,
+  environmentAnalysis: null,
+  mappingProposal: null,
+  environmentCheckPending: false,
+  environmentLastCheckedAt: 0,
+  environmentStartupChecked: false,
+  sceneGraph: createSceneGraph('ROOM01'),
+  physicalWorld: createPhysicalWorldState()
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -349,8 +416,25 @@ window.TrackyAgentEyes = Object.freeze({
     return {
       room: roomStateSnapshot(roomState),
       scene: sceneStateSnapshot(sceneState),
-      cameraFusion: copySerializable(runtime.fusionState)
+      cameraFusion: copySerializable(runtime.fusionState),
+      environment: copySerializable(runtime.environmentAnalysis),
+      sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+      physicalWorld: worldStateSnapshot(runtime.physicalWorld)
     };
+  },
+  getEnvironmentState() {
+    return {
+      current: copySerializable(runtime.currentEnvironment),
+      analysis: copySerializable(runtime.environmentAnalysis),
+      rooms: copySerializable(runtime.environmentRooms),
+      provider: environmentProviderContract()
+    };
+  },
+  getSceneGraph() {
+    return sceneGraphSnapshot(runtime.sceneGraph);
+  },
+  getPhysicalWorldState() {
+    return worldStateSnapshot(runtime.physicalWorld);
   },
   getCameraFusionState() {
     return copySerializable(runtime.fusionState);
@@ -377,6 +461,13 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeCameraFusion(listener) {
     cameraFusionListeners.add(listener);
     return () => cameraFusionListeners.delete(listener);
+  },
+  subscribeWorld(listener) {
+    worldListeners.add(listener);
+    return () => worldListeners.delete(listener);
+  },
+  refreshEnvironment() {
+    return refreshEnvironmentObservation({ reason: 'agent-request' });
   },
   eventTypes: PERCEPTION_EVENT_TYPES,
   sceneChangeTypes: SCENE_CHANGE_TYPES
