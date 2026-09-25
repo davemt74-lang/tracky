@@ -121,3 +121,38 @@ test('unknown event types are rejected', () => {
     /Unknown perception event type/
   );
 });
+
+
+test('face.hidden clears stale face visibility', () => {
+  const state = createRoomState();
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'face.visible',
+    { participantId:'p1', participantName:'Dave', trackId:'T001' },
+    { timestamp:1 }
+  ));
+  assert.equal(state.participants.p1.faceVisible, true);
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'face.hidden',
+    { participantId:'p1', participantName:'Dave', trackId:'T001' },
+    { timestamp:2 }
+  ));
+  assert.equal(state.participants.p1.faceVisible, false);
+});
+
+test('conversation.ended removes stale room groups', () => {
+  const state = createRoomState();
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'conversation.started',
+    { conversationGroup:'G01', data:{participantIds:['p1'],trackIds:['T001','T002']} },
+    { timestamp:1 }
+  ));
+  assert.ok(state.conversationGroups.G01);
+
+  applyPerceptionEvent(state, createPerceptionEvent(
+    'conversation.ended',
+    { conversationGroup:'G01' },
+    { timestamp:2 }
+  ));
+  assert.equal(state.conversationGroups.G01, undefined);
+});
