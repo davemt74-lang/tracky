@@ -131,3 +131,22 @@ test('ownership relationships are never learned from observation evidence',()=>{
   }
   assert.equal(state.proposals.some((item)=>item.predicate==='owned-by'),false);
 });
+
+
+test('relationship evidence is time-gated rather than frame-rate counted',()=>{
+  const state=createSpatialMemoryState();
+  const input={
+    sessionId:'s1',
+    multiRoom:{objects:{},participants:{}},
+    landmarksByRoom:{},
+    sceneGraph:{edges:[{
+      subjectId:'WO1',predicate:'on',objectId:'L1',
+      state:'inferred',confidence:.9
+    }]},
+    transitions:[]
+  };
+  observeSpatialMemory(state,input,1000);
+  observeSpatialMemory(state,input,1500);
+  const evidence=state.relationshipEvidence['WO1::on::L1'];
+  assert.equal(evidence.observations,1);
+});
