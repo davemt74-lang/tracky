@@ -40,7 +40,12 @@ const requiredFiles = [
   'src/camera-store.js',
   'src/fusion-core.js',
   'src/multicamera-runtime.js',
-  'src/environment-core.js'
+  'src/environment-core.js',
+  'src/environment-runtime.js',
+  'src/environment-store.js',
+  'src/scene-graph-core.js',
+  'src/world-state-core.js',
+  'src/perception-replay-core.js'
 ];
 
 const runtimeJs = [
@@ -70,7 +75,12 @@ const runtimeJs = [
   'src/camera-store.js',
   'src/fusion-core.js',
   'src/multicamera-runtime.js',
-  'src/environment-runtime.js'
+  'src/environment-core.js',
+  'src/environment-runtime.js',
+  'src/environment-store.js',
+  'src/scene-graph-core.js',
+  'src/world-state-core.js',
+  'src/perception-replay-core.js'
 ];
 
 const htmlContracts = [
