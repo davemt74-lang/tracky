@@ -1078,8 +1078,18 @@ function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now
     name: room.name || room.label || room.id,
     label: room.label || room.name || room.id
   }));
+  const multiRoom = multiRoomSnapshot(runtime.multiRoomWorld);
   const roomObservability = Object.fromEntries(
-    rooms.map((room) => [room.id, policyForRoom(room.id).allowVisualObservation !== false])
+    rooms.map((room) => {
+      const cameraIds = multiRoom.rooms?.[room.id]?.cameraIds || [];
+      const hasOnlineCamera = cameraIds.some((cameraId) => (
+        ['online','starting'].includes(runtime.cameraStatuses.get(cameraId) || 'offline')
+      ));
+      return [
+        room.id,
+        policyForRoom(room.id).allowVisualObservation !== false && hasOnlineCamera
+      ];
+    })
   );
 
   return {
