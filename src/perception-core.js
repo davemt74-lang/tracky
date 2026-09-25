@@ -34,7 +34,13 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'sensor.status',
   'camera.status',
   'camera.handoff',
-  'camera.overlap_fused'
+  'camera.overlap_fused',
+  'environment.captured',
+  'environment.matched',
+  'environment.unknown',
+  'environment.changed',
+  'environment.mapping_updated',
+  'world.attention'
 ]);
 
 const KNOWN_TYPES = new Set(PERCEPTION_EVENT_TYPES);
