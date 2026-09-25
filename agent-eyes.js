@@ -581,7 +581,7 @@ function updateGroups() {
         source: 'body-proximity',
         data: { participantIds, trackIds }
       });
-      continue;
+      return;
     }
 
     if (previous.signature !== signature) {
