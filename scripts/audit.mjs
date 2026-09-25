@@ -32,7 +32,8 @@ const requiredFiles = [
   'src/room-audio-worklet.js',
   'src/model-config.js',
   'src/perception-core.js',
-  'src/behavior-core.js'
+  'src/behavior-core.js',
+  'src/object-core.js'
 ];
 
 const runtimeJs = [
@@ -54,7 +55,8 @@ const runtimeJs = [
   'src/room-audio-worklet.js',
   'src/model-config.js',
   'src/perception-core.js',
-  'src/behavior-core.js'
+  'src/behavior-core.js',
+  'src/object-core.js'
 ];
 
 const htmlContracts = [
@@ -80,8 +82,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '0.9.0') {
-  fail('package.json version must be 0.9.0');
+if (packageJson.version !== '1.0.0') {
+  fail('package.json version must be 1.0.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -100,6 +102,9 @@ if (!packageJson.scripts?.test?.includes('src/perception-core.js')) {
 }
 if (!packageJson.scripts?.test?.includes('src/behavior-core.js')) {
   fail('test script must syntax-check behavior core');
+}
+if (!packageJson.scripts?.test?.includes('src/object-core.js')) {
+  fail('test script must syntax-check object core');
 }
 
 for (const file of runtimeJs) {
@@ -243,6 +248,20 @@ for (const symbol of [
   }
 }
 
+const objectCore = read('src/object-core.js');
+for (const symbol of [
+  'assignObjectTracks',
+  'carryLostObjectTracks',
+  'inferHolding',
+  'inferPointingAt',
+  'bestObjectInteractions',
+  'interactionKey'
+]) {
+  if (!objectCore.includes(symbol)) {
+    fail('Object core is missing required perception interface: ' + symbol);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -258,6 +277,36 @@ if (!/evidenceInspector/.test(read('index.html')) || !/renderEvidenceInspector/.
 }
 if (!/behavior\.changed/.test(perceptionCore) || !/attention\.changed/.test(perceptionCore) || !/gesture\.detected/.test(perceptionCore)) {
   fail('Perception core must expose behavior, attention, and gesture events');
+}
+for (const eventName of [
+  'object.detected',
+  'object.updated',
+  'object.lost',
+  'object.picked_up',
+  'object.put_down',
+  'interaction.started',
+  'interaction.ended'
+]) {
+  if (!perceptionCore.includes(eventName)) {
+    fail('Perception core is missing object event: ' + eventName);
+  }
+}
+if (!/objectEvidenceInspector/.test(indexHtml) || !/renderObjectEvidenceInspector/.test(agentEyes)) {
+  fail('Agent Eyes must include the object evidence inspector');
+}
+if (!/eyesObjects/.test(indexHtml) || !/renderObjects/.test(agentEyes)) {
+  fail('Agent Eyes must expose persistent room objects');
+}
+
+const identityEngine = read('src/identity-engine.js');
+if (!/object:\s*\{[\s\S]*?enabled:\s*true/.test(identityEngine)) {
+  fail('Identity engine must enable the object perception provider');
+}
+if (!/hand:\s*\{[\s\S]*?enabled:\s*true/.test(identityEngine)) {
+  fail('Identity engine must enable the hand perception provider');
+}
+if (!/gesture:\s*\{\s*enabled:\s*true\s*\}/.test(identityEngine)) {
+  fail('Identity engine must enable gesture fusion');
 }
 
 const modelConfig = read('src/model-config.js');
@@ -281,8 +330,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v0\.9-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V0.8 deploy ZIP');
+if (!/tracky-v1\.0-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V1.0 deploy ZIP');
 }
 
 for (const file of requiredFiles.filter((file) => !['README.md','package.json'].includes(file))) {
@@ -312,5 +361,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, behavior/perception interfaces, inspector, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object perception interfaces, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
