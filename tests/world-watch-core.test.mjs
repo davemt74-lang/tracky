@@ -18,6 +18,23 @@ test('triggers when an entity enters a watched room',()=>{
  const e=evaluateWorldWatch({id:'W1',type:'entity-enters-room',subjectId:'p1',roomId:'ROOM02',cooldownMs:0},before,after,{changed:true},2000);
  assert.equal(e.type,'entity-enters-room'); assert.equal(e.evidence.roomId,'ROOM02');
 });
+test('generic room watch triggers when any person enters without preselecting identity',()=>{
+ const before=base(),after=base();
+ after.people.push({participantId:'p2',label:'Sarah',roomId:'ROOM02',room:'Kitchen',presence:'confirmed',confidence:.92});
+ const e=evaluateWorldWatch({id:'W-any',type:'entity-enters-room',roomId:'ROOM02',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e.type,'entity-enters-room');
+ assert.equal(e.evidence.subjectId,'p2');
+});
+
+test('ambiguous label-only watch does not guess between same-named objects',()=>{
+ const before=base(),after=base();
+ before.objects.push({objectId:'O2',label:'keys',roomId:'ROOM01',room:'Office',presence:'confirmed',confidence:.8});
+ after.objects[0]={...after.objects[0],roomId:'ROOM02',room:'Kitchen'};
+ after.objects.push({...before.objects[1]});
+ const e=evaluateWorldWatch({id:'W-amb',type:'entity-moved',subjectLabel:'keys',cooldownMs:0},before,after,{changed:true},2000);
+ assert.equal(e,null);
+});
+
 test('triggers when a watched entity leaves a room',()=>{
  const before=base(),after=base(); after.people[0]={...after.people[0],roomId:'ROOM02',room:'Kitchen'};
  const e=evaluateWorldWatch({id:'W1',type:'entity-leaves-room',subjectId:'p1',roomId:'ROOM01',cooldownMs:0},before,after,{changed:true},2000);
