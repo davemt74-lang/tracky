@@ -2,6 +2,180 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V1.4 — Multi-Room World & Cross-Room Continuity
+
+V1.4 moves Agent Eyes above a single-room model and maintains a coherent physical world across multiple mapped rooms.
+
+### Room-partitioned camera fusion
+
+Every enabled camera now continues to belong to exactly one room. Camera observations are fused only with other cameras from the same room, producing independent room-level fusion states.
+
+The main Agent Eyes room remains the active local UI, while secondary cameras in other configured rooms may continue contributing to their own room models.
+
+This prevents unrelated room coordinate systems from ever being averaged together.
+
+### Global room topology
+
+Saved environment rooms now form a world topology graph.
+
+Rooms may be explicitly connected through user-confirmed portals such as:
+
+- doorway
+- opening
+- hallway
+- stairs
+- elevator
+- passage
+
+Connections are bidirectional only when both room-side portal records agree.
+
+Agent Eyes includes a global room map and a topology editor for confirming or removing physical room connections.
+
+### Topology learning proposals
+
+Repeated face-confirmed reappearances between rooms that are not yet connected may create a topology **proposal**.
+
+A proposal records:
+
+- source room
+- destination room
+- observation count
+- confidence
+- whether enough evidence exists to request confirmation
+
+Tracky never silently promotes a proposal into physical topology. A person still has to confirm the connection.
+
+### Cross-room participant continuity
+
+Known participants retain continuity across rooms only when identity evidence and physical-world evidence support it.
+
+Presence states include:
+
+- `confirmed`
+- `transitioning`
+- `last-known`
+- `uncertain`
+- `absent`
+
+For a nearby confirmed room transition, Agent Eyes emits:
+
+- `participant.room_exit`
+- `participant.room_transition`
+- `participant.room_enter`
+- `portal.crossing` when a confirmed portal is known
+
+If the same enrolled participant appears in two different rooms at the same time, location becomes `uncertain` instead of accepting two simultaneous locations.
+
+Anonymous body geometry does not establish cross-room identity.
+
+### Cross-room object continuity
+
+Objects may keep a canonical world identity across room-local object IDs when strong supporting evidence exists.
+
+The strongest current continuity path is:
+
+```text
+known participant transition
++ confirmed holding/custody
++ compatible object label
++ bounded transition time
+= cross-room object continuity
+```
+
+Room-local object aliases are persisted inside the world runtime so an object does not duplicate again on the next scan after a successful handoff.
+
+Object transitions can emit:
+
+- `object.room_exit`
+- `object.room_transition`
+- `object.room_enter`
+
+### Room-scoped conversations
+
+Conversation groups are keyed by room, preventing one room's spatial dialogue group from colliding with another.
+
+The main microphone remains tied to the active room unless additional room audio providers are added later.
+
+### Visibility reasoning
+
+V1.4 distinguishes:
+
+- `visible`
+- `expected-occlusion`
+- `missing-unexpected`
+- `outside-coverage`
+- `no-online-camera`
+- `unknown-position`
+
+Camera calibration polygons determine whether an entity should be visible.
+
+Large stable furniture such as desks, tables, couches, beds, and shelving can contribute conservative expected-occlusion evidence in the active room.
+
+A missing detection inside calibrated coverage is therefore different from an entity simply being outside all camera coverage.
+
+### Global physical-world UI
+
+The Agent Eyes console now includes a global room/topology view with:
+
+- all known rooms
+- confirmed room connections
+- active/main room
+- room occupancy
+- world objects
+- uncertainty count
+- room-scoped conversations
+- recent cross-room transitions
+- room drill-down
+- per-room visibility state
+
+### Agent APIs
+
+V1.4 adds:
+
+```js
+TrackyAgentEyes.getRooms()
+TrackyAgentEyes.getRoomState(roomId)
+TrackyAgentEyes.getParticipantLocation(participantId)
+TrackyAgentEyes.getObjectLocation(objectId)
+TrackyAgentEyes.getWorldTopology()
+TrackyAgentEyes.getMultiRoomWorld()
+TrackyAgentEyes.subscribeRoom(roomId, handler)
+```
+
+The complete `getWorldState()` also carries:
+
+```js
+{
+  room,
+  scene,
+  cameraFusion,
+  environment,
+  sceneGraph,
+  physicalWorld,
+  topology,
+  multiRoom
+}
+```
+
+Browser integrations receive:
+
+```text
+tracky:room-state
+tracky:multi-room-world
+```
+
+### Continuity boundaries
+
+V1.4 deliberately keeps several conservative rules:
+
+- face / Voice Profile remain identity authorities
+- topology suggestions never self-confirm
+- anonymous body tracks do not gain cross-room identity
+- unrelated room coordinates are never fused
+- simultaneous incompatible room claims become uncertainty
+- object handoff requires strong supporting evidence
+- camera absence is interpreted through coverage/occlusion evidence before becoming a location conclusion
+
 ## V1.3 — Environment Baselines, Assisted Mapping & Physical World State
 
 V1.3 gives Agent Eyes a persistent understanding of **where the camera is, what the environment normally looks like, what changed, and which physical facts are currently trustworthy**.

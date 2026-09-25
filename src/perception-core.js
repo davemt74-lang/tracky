@@ -40,7 +40,17 @@ export const PERCEPTION_EVENT_TYPES = Object.freeze([
   'environment.unknown',
   'environment.changed',
   'environment.mapping_updated',
-  'world.attention'
+  'world.attention',
+  'participant.room_exit',
+  'participant.room_enter',
+  'participant.room_transition',
+  'participant.location_uncertain',
+  'object.room_exit',
+  'object.room_enter',
+  'object.room_transition',
+  'portal.crossing',
+  'world.topology_changed',
+  'visibility.changed'
 ]);
 
 const KNOWN_TYPES = new Set(PERCEPTION_EVENT_TYPES);
