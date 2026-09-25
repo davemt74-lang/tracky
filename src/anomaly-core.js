@@ -473,8 +473,12 @@ export function deriveAnomalySignals(context = {}, now = Date.now()) {
     for (const change of context.sceneChanges || []) {
       if (
         change.type !== 'object.appeared' ||
-        now - Number(change.timestamp || 0) > 60000
+        now - Number(change.timestamp || 0) > 10 * 60 * 1000
       ) continue;
+      const currentObject = change.objectId
+        ? context.multiRoom?.objects?.[change.objectId]
+        : null;
+      if (!currentObject || currentObject.presence !== 'confirmed') continue;
       signals.push({
         type: 'new-object-presence',
         severity: 'low',
