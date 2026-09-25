@@ -130,6 +130,7 @@ import {
 } from './src/visibility-core.js';
 import {
   createSpatialMemoryState,
+  confirmedExpectedLocationFor,
   entityHistory,
   entityJourney,
   expectedLocationFor,
@@ -551,6 +552,11 @@ window.TrackyAgentEyes = Object.freeze({
     return spatialMemorySnapshot(runtime.spatialMemory);
   },
   getExpectedLocation(entityId) {
+    return copySerializable(
+      confirmedExpectedLocationFor(runtime.spatialMemory, entityId)
+    );
+  },
+  getExpectedLocationEvidence(entityId) {
     return copySerializable(expectedLocationFor(runtime.spatialMemory, entityId));
   },
   getEntityHistory(entityId, limit = 50) {
