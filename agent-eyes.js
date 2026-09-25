@@ -68,8 +68,31 @@ import {
   saveSceneEpisodes,
   saveSceneZones
 } from './src/scene-store.js';
+import {
+  cameraCalibrationValid,
+  cameraCoveragePolygon,
+  cameraWithCoverage,
+  mapCameraBox,
+  mapCameraPoint,
+  normalizeCameraConfig
+} from './src/camera-core.js';
+import {
+  deleteCameraConfig,
+  listCameraConfigs,
+  saveCameraConfig
+} from './src/camera-store.js';
+import {
+  updateWorldFusion
+} from './src/fusion-core.js';
+import {
+  MultiCameraSensorRuntime
+} from './src/multicamera-runtime.js';
 
 const $ = (selector) => document.querySelector(selector);
+
+function copySerializable(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 
 const ui = {
   startEyes: $('#startEyes'),
@@ -90,6 +113,7 @@ const ui = {
   behaviorStatus: $('#eyesBehaviorStatus'),
   objectStatus: $('#eyesObjectStatus'),
   sceneStatus: $('#eyesSceneStatus'),
+  fusionStatus: $('#eyesFusionStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -131,6 +155,24 @@ const ui = {
   sceneZoneWidth: $('#sceneZoneWidth'),
   sceneZoneHeight: $('#sceneZoneHeight'),
   sceneZoneList: $('#sceneZoneList'),
+  cameraNetworkStatus: $('#cameraNetworkStatus'),
+  cameraRegistryForm: $('#cameraRegistryForm'),
+  cameraRegistryDevice: $('#cameraRegistryDevice'),
+  cameraRegistryName: $('#cameraRegistryName'),
+  cameraRegistryRoom: $('#cameraRegistryRoom'),
+  cameraCoverageX: $('#cameraCoverageX'),
+  cameraCoverageY: $('#cameraCoverageY'),
+  cameraCoverageWidth: $('#cameraCoverageWidth'),
+  cameraCoverageHeight: $('#cameraCoverageHeight'),
+  cameraRegistryList: $('#cameraRegistryList'),
+  worldMapStatus: $('#worldMapStatus'),
+  worldMapCoverage: $('#worldMapCoverage'),
+  worldMapVectors: $('#worldMapVectors'),
+  worldMapEntities: $('#worldMapEntities'),
+  worldCameraCount: $('#worldCameraCount'),
+  worldPersonCount: $('#worldPersonCount'),
+  worldObjectCount: $('#worldObjectCount'),
+  worldOverlapCount: $('#worldOverlapCount'),
   activeSpeaker: $('#agentActiveSpeaker'),
   activeSpeakerName: $('#agentActiveSpeakerName'),
   activeSpeakerMeta: $('#agentActiveSpeakerMeta'),
@@ -180,7 +222,22 @@ const ui = {
   sceneInspectorSummary: $('#sceneInspectorSummary'),
   sceneInspectorEvidence: $('#sceneInspectorEvidence'),
   sceneInspectorJson: $('#sceneInspectorJson'),
-  closeSceneInspector: $('#closeSceneEvidenceInspector')
+  closeSceneInspector: $('#closeSceneEvidenceInspector'),
+  cameraCalibrationInspector: $('#cameraCalibrationInspector'),
+  cameraCalibrationName: $('#cameraCalibrationName'),
+  cameraCalibrationMeta: $('#cameraCalibrationMeta'),
+  cameraCalibrationForm: $('#cameraCalibrationForm'),
+  cameraTLX: $('#cameraTLX'),
+  cameraTLY: $('#cameraTLY'),
+  cameraTRX: $('#cameraTRX'),
+  cameraTRY: $('#cameraTRY'),
+  cameraBRX: $('#cameraBRX'),
+  cameraBRY: $('#cameraBRY'),
+  cameraBLX: $('#cameraBLX'),
+  cameraBLY: $('#cameraBLY'),
+  cameraCalibrationEnabled: $('#cameraCalibrationEnabled'),
+  cameraCalibrationJson: $('#cameraCalibrationJson'),
+  closeCameraCalibration: $('#closeCameraCalibration')
 };
 
 const overlayCtx = ui.overlay.getContext('2d');
@@ -189,6 +246,7 @@ const bus = new PerceptionEventBus();
 const roomState = createRoomState('agent-eyes-room');
 const sceneState = createSceneState(roomState.roomId);
 const sceneListeners = new Set();
+const cameraFusionListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -238,7 +296,23 @@ const runtime = {
   wristHistory: new Map(),
   lastGestureAt: new Map(),
   selectedTrackId: null,
-  selectedSceneRecord: null
+  selectedSceneRecord: null,
+  cameraConfigs: [],
+  cameraDevices: [],
+  cameraStatuses: new Map(),
+  cameraObservations: new Map(),
+  fusionState: {
+    schemaVersion: 1,
+    roomId: 'ROOM01',
+    updatedAt: Date.now(),
+    participants: [],
+    objects: []
+  },
+  worldObjectCounter: 0,
+  selectedCalibrationCameraId: null,
+  secondaryCameras: null,
+  identityInference: Promise.resolve(),
+  worldTrails: new Map()
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -274,8 +348,18 @@ window.TrackyAgentEyes = Object.freeze({
   getWorldState() {
     return {
       room: roomStateSnapshot(roomState),
-      scene: sceneStateSnapshot(sceneState)
+      scene: sceneStateSnapshot(sceneState),
+      cameraFusion: copySerializable(runtime.fusionState)
     };
+  },
+  getCameraFusionState() {
+    return copySerializable(runtime.fusionState);
+  },
+  getCameras() {
+    return runtime.cameraConfigs.map((camera) => ({
+      ...camera,
+      homography: undefined
+    }));
   },
   getChanges() {
     return sceneState.changes.slice();
@@ -290,54 +374,331 @@ window.TrackyAgentEyes = Object.freeze({
     sceneListeners.add(listener);
     return () => sceneListeners.delete(listener);
   },
+  subscribeCameraFusion(listener) {
+    cameraFusionListeners.add(listener);
+    return () => cameraFusionListeners.delete(listener);
+  },
   eventTypes: PERCEPTION_EVENT_TYPES,
   sceneChangeTypes: SCENE_CHANGE_TYPES
 });
 
 
-function sceneInputSnapshot() {
-  const room = roomStateSnapshot(roomState);
-  const acceptedTrackIds = new Set(
-    runtime.tracks
-      .filter((track) => track.presenceAnnounced)
-      .map((track) => track.id)
+
+function nextWorldObjectId() {
+  runtime.worldObjectCounter += 1;
+  return 'WO' + String(runtime.worldObjectCounter).padStart(3, '0');
+}
+
+function cameraById(cameraId) {
+  return runtime.cameraConfigs.find((camera) => camera.id === cameraId) || null;
+}
+
+function primaryCameraConfig() {
+  return runtime.cameraConfigs.find((camera) => camera.primary) || null;
+}
+
+function cameraDeviceLabel(deviceId) {
+  return runtime.cameraDevices.find((device) => device.deviceId === deviceId)?.label || 'Camera';
+}
+
+async function detectRoomSerial(input) {
+  const task = runtime.identityInference.then(
+    () => runtime.identity.detectRoom(input),
+    () => runtime.identity.detectRoom(input)
+  );
+  runtime.identityInference = task.catch(() => {});
+  return task;
+}
+
+function emitCameraStatus(cameraId, status) {
+  const previous = runtime.cameraStatuses.get(cameraId);
+  runtime.cameraStatuses.set(cameraId, status);
+  if (previous === status) return;
+
+  const camera = cameraById(cameraId);
+  emit('camera.status', {
+    source: 'camera-network',
+    confidence: status === 'online' ? 1 : 0,
+    data: {
+      cameraId,
+      cameraName: camera?.name || cameraId,
+      status
+    }
+  });
+}
+
+function onSecondaryCameraStatus(cameraId, status) {
+  emitCameraStatus(cameraId, status);
+  if (status === 'offline') runtime.cameraObservations.delete(cameraId);
+  renderCameraNetwork();
+  updateCameraFusion(Date.now(), false);
+}
+
+function onSecondaryCameraObservation(cameraId, observation) {
+  runtime.cameraObservations.set(cameraId, observation);
+  updateCameraFusion(observation.timestamp || Date.now(), true);
+}
+
+function primaryParticipantObservations(camera) {
+  if (!camera) return [];
+
+  return runtime.tracks
+    .filter((track) => track.presenceAnnounced && track.status !== 'reacquiring')
+    .map((track) => {
+      const mapped = mapCameraPoint(camera, {
+        x: Number(track.cx || 0.5),
+        y: Number(track.cy || 0.5)
+      });
+      return {
+        kind: 'participant',
+        cameraId: camera.id,
+        roomId: camera.roomId,
+        localTrackId: track.id,
+        participantId: track.participantId || null,
+        participantName: track.participantName || null,
+        roomPosition: mapped,
+        localPosition: {
+          x: Number(track.cx || 0.5),
+          y: Number(track.cy || 0.5)
+        },
+        faceConfidence: Number(track.similarity || track.quality || 0),
+        bodyConfidence: Number(track.bodyScore || 0),
+        poseConfidence: Number(track.behaviorEvidence?.poseConfidence || 0),
+        continuityConfidence: track.status === 'matched' || track.status === 'body-lock'
+          ? 0.94
+          : track.status === 'occluded'
+            ? 0.45
+            : 0.68,
+        status: track.status,
+        behavior: track.behaviorEvidence || null,
+        identitySource: track.identitySource || null
+      };
+    });
+}
+
+function primaryObjectObservations(camera) {
+  if (!camera) return [];
+
+  return runtime.objects
+    .filter((object) => object.stable && object.status !== 'reacquiring')
+    .map((object) => ({
+      kind: 'object',
+      cameraId: camera.id,
+      roomId: camera.roomId,
+      localObjectId: object.id,
+      label: object.label,
+      roomPosition: mapCameraPoint(camera, {
+        x: Number(object.cx || 0.5),
+        y: Number(object.cy || 0.5)
+      }),
+      localPosition: {
+        x: Number(object.cx || 0.5),
+        y: Number(object.cy || 0.5)
+      },
+      confidence: Number(object.score || 0),
+      stable: true,
+      status: object.status
+    }));
+}
+
+function publishPrimaryCameraObservation(timestamp = Date.now()) {
+  const camera = primaryCameraConfig();
+  if (!camera || !runtime.running) return;
+
+  runtime.cameraObservations.set(camera.id, {
+    camera,
+    timestamp,
+    participants: primaryParticipantObservations(camera),
+    objects: primaryObjectObservations(camera),
+    counts: {
+      faces: runtime.faces.length,
+      bodies: runtime.bodies.length,
+      objects: runtime.rawObjects.length,
+      hands: runtime.hands.length
+    }
+  });
+  emitCameraStatus(camera.id, 'online');
+}
+
+function publishFusionEvent(event) {
+  if (event.type === 'camera.handoff') {
+    emit('camera.handoff', {
+      participantId: event.participantId,
+      participantName: event.participantName,
+      confidence: event.confidence,
+      source: 'multi-camera-fusion',
+      roomPosition: event.roomPosition,
+      data: {
+        fromCameraId: event.fromCameraId,
+        toCameraId: event.toCameraId
+      }
+    });
+  }
+
+  if (event.type === 'camera.overlap_fused') {
+    emit('camera.overlap_fused', {
+      participantId: event.participantId,
+      participantName: event.participantName,
+      confidence: event.confidence,
+      source: 'multi-camera-fusion',
+      roomPosition: event.roomPosition,
+      data: {
+        cameraIds: event.cameraIds
+      }
+    });
+  }
+}
+
+function updateWorldTrails(now = Date.now()) {
+  const visible = new Set();
+
+  for (const entity of runtime.fusionState.participants || []) {
+    if (entity.status === 'last-known') continue;
+    const key = entity.participantId
+      ? 'P:' + entity.participantId
+      : entity.id;
+    visible.add(key);
+
+    const trail = runtime.worldTrails.get(key) || {
+      id: key,
+      participantId: entity.participantId || null,
+      participantName: entity.participantName || null,
+      points: [],
+      lastSeenAt: now
+    };
+
+    const last = trail.points[trail.points.length - 1];
+    if (
+      !last ||
+      Math.hypot(
+        entity.roomPosition.x - last.x,
+        entity.roomPosition.y - last.y
+      ) >= 0.012
+    ) {
+      trail.points.push({
+        x: entity.roomPosition.x,
+        y: entity.roomPosition.y,
+        at: now,
+        cameraId: entity.primaryCameraId
+      });
+      if (trail.points.length > 24) trail.points.shift();
+    }
+
+    trail.lastSeenAt = now;
+    trail.participantName = entity.participantName || trail.participantName;
+    runtime.worldTrails.set(key, trail);
+  }
+
+  for (const [key, trail] of [...runtime.worldTrails.entries()]) {
+    if (!visible.has(key) && now - Number(trail.lastSeenAt || 0) > 30000) {
+      runtime.worldTrails.delete(key);
+    }
+  }
+}
+
+function updateCameraFusion(now = Date.now(), updateScene = false) {
+  const activeObservations = [...runtime.cameraObservations.values()]
+    .filter((observation) => now - Number(observation.timestamp || 0) <= 3000);
+
+  const participantObservations = activeObservations.flatMap(
+    (observation) => observation.participants || []
+  );
+  const objectObservations = activeObservations.flatMap(
+    (observation) => observation.objects || []
   );
 
-  const knownParticipants = (room.participants || [])
-    .filter((participant) => acceptedTrackIds.has(participant.trackId));
+  const result = updateWorldFusion(
+    runtime.fusionState,
+    participantObservations,
+    objectObservations,
+    now,
+    {
+      roomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || 'ROOM01',
+      nextId: nextWorldObjectId
+    }
+  );
 
-  const unknownParticipants = (room.unknownTracks || [])
-    .filter((track) => acceptedTrackIds.has(track.trackId))
-    .map((track) => ({
-      id: null,
-      name: track.trackId,
-      trackId: track.trackId,
-      presence: track.presence,
-      position: track.position,
-      behavior: track.behavior,
-      attention: track.attention,
-      addressing: track.addressing,
-      conversationGroup: track.conversationGroup,
-      voiceStatus: 'quiet'
-    }));
+  runtime.fusionState = result.state;
+  updateWorldTrails(now);
+  for (const event of result.events) publishFusionEvent(event);
 
-  const conversationGroups = (room.conversationGroups || [])
-    .map((group) => ({
-      ...group,
-      trackIds: (group.trackIds || []).filter((id) => acceptedTrackIds.has(id)),
-      participantIds: (group.participantIds || []).filter((participantId) => (
-        knownParticipants.some((participant) => participant.id === participantId)
-      ))
-    }))
-    .filter((group) => group.trackIds.length >= 2);
+  const detail = copySerializable(runtime.fusionState);
+  for (const listener of cameraFusionListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:camera-fusion', {
+    detail
+  }));
+
+  renderCameraNetwork();
+  renderWorldMap();
+  renderRoomState();
+
+  if (updateScene) updateSceneIntelligence(now);
+}
+
+function sceneInputSnapshot() {
+  const room = roomStateSnapshot(roomState);
+  const fused = runtime.fusionState;
+  const roomKnown = new Map(
+    (room.participants || []).map((participant) => [participant.id, participant])
+  );
+
+  const participants = (fused.participants || []).map((entity) => {
+    const local = entity.participantId
+      ? roomKnown.get(entity.participantId)
+      : null;
+    const bestObservation = entity.observations?.[0] || null;
+
+    return {
+      id: entity.participantId || null,
+      name: entity.participantName || entity.id,
+      trackId: entity.id,
+      presence: entity.status === 'last-known' ? 'active' : 'active',
+      position: entity.roomPosition,
+      behavior: bestObservation?.behavior || local?.behavior || null,
+      attention: local?.attention || null,
+      addressing: local?.addressing || null,
+      conversationGroup: local?.conversationGroup || null,
+      voiceStatus: local?.voiceStatus || 'quiet',
+      cameraIds: entity.cameraIds,
+      primaryCameraId: entity.primaryCameraId,
+      fusionConfidence: entity.confidence
+    };
+  });
+
+  const primaryId = primaryCameraConfig()?.id;
+  const objectIdMap = new Map();
+  for (const object of fused.objects || []) {
+    for (const observation of object.observations || []) {
+      objectIdMap.set(
+        observation.cameraId + ':' + observation.localObjectId,
+        object.id
+      );
+    }
+  }
+
+  const interactions = (room.interactions || []).map((interaction) => ({
+    ...interaction,
+    objectId: objectIdMap.get(
+      (primaryId || '') + ':' + interaction.objectId
+    ) || interaction.objectId
+  }));
 
   return {
     ...room,
-    participants: [
-      ...knownParticipants,
-      ...unknownParticipants
-    ],
-    conversationGroups
+    participants,
+    objects: (fused.objects || [])
+      .filter((object) => object.status === 'visible')
+      .map((object) => ({
+        id: object.id,
+        label: object.label,
+        score: object.confidence,
+        position: object.roomPosition,
+        holderParticipantId: null,
+        cameraIds: object.cameraIds,
+        primaryCameraId: object.primaryCameraId
+      })),
+    interactions,
+    conversationGroups: room.conversationGroups || []
   };
 }
 
@@ -505,23 +866,294 @@ function setHealth(status, warning = null) {
 }
 
 async function enumerateCameras() {
-  if (!navigator.mediaDevices?.enumerateDevices) return;
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
   const devices = await navigator.mediaDevices.enumerateDevices();
   const cameras = devices.filter((device) => device.kind === 'videoinput');
-  const current = ui.cameraSelect.value;
+  runtime.cameraDevices = cameras;
 
+  const current = ui.cameraSelect.value;
   ui.cameraSelect.replaceChildren();
+  ui.cameraRegistryDevice.replaceChildren();
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select camera';
+  ui.cameraRegistryDevice.append(placeholder);
+
   cameras.forEach((camera, index) => {
-    const option = document.createElement('option');
-    option.value = camera.deviceId;
-    option.textContent = camera.label || 'Camera ' + (index + 1);
-    ui.cameraSelect.append(option);
+    const label = camera.label || 'Camera ' + (index + 1);
+
+    const mainOption = document.createElement('option');
+    mainOption.value = camera.deviceId;
+    mainOption.textContent = label;
+    ui.cameraSelect.append(mainOption);
+
+    const registryOption = document.createElement('option');
+    registryOption.value = camera.deviceId;
+    registryOption.textContent = label;
+    ui.cameraRegistryDevice.append(registryOption);
   });
 
   if (cameras.some((camera) => camera.deviceId === current)) {
     ui.cameraSelect.value = current;
   }
+
   ui.cameraSelect.disabled = cameras.length < 2;
+  renderCameraNetwork();
+  return cameras;
+}
+
+function nextCameraId() {
+  const used = new Set(runtime.cameraConfigs.map((camera) => camera.id));
+  let index = 1;
+  while (used.has('CAM' + String(index).padStart(2, '0'))) index += 1;
+  return 'CAM' + String(index).padStart(2, '0');
+}
+
+async function reloadCameraRegistry() {
+  try {
+    runtime.cameraConfigs = await listCameraConfigs();
+  } catch (error) {
+    console.error('Could not load camera registry', error);
+    runtime.cameraConfigs = [];
+  }
+  renderCameraNetwork();
+  renderWorldMap();
+  return runtime.cameraConfigs;
+}
+
+async function ensurePrimaryCameraConfig(deviceId) {
+  await reloadCameraRegistry();
+
+  let camera = runtime.cameraConfigs.find(
+    (candidate) => candidate.deviceId === deviceId
+  );
+
+  if (!camera) {
+    camera = normalizeCameraConfig({
+      id: nextCameraId(),
+      name: cameraDeviceLabel(deviceId),
+      deviceId,
+      roomId: 'ROOM01',
+      primary: true,
+      enabled: true
+    }, runtime.cameraConfigs.length);
+  } else {
+    camera = normalizeCameraConfig({
+      ...camera,
+      primary: true,
+      enabled: true,
+      name: camera.name || cameraDeviceLabel(deviceId)
+    });
+  }
+
+  await saveCameraConfig(camera);
+  await reloadCameraRegistry();
+  return runtime.cameraConfigs.find((candidate) => candidate.primary) || camera;
+}
+
+function createSecondaryRuntime() {
+  if (runtime.secondaryCameras) return runtime.secondaryCameras;
+
+  runtime.secondaryCameras = new MultiCameraSensorRuntime({
+    identityEngine: {
+      detectRoom(input) {
+        return detectRoomSerial(input);
+      }
+    },
+    getParticipants() {
+      return runtime.participants;
+    },
+    onObservation: onSecondaryCameraObservation,
+    onStatus: onSecondaryCameraStatus,
+    scanIntervalMs: 850
+  });
+
+  return runtime.secondaryCameras;
+}
+
+async function startSecondaryCameras() {
+  if (!runtime.running || !runtime.identityReady) return;
+
+  const primary = primaryCameraConfig();
+  const manager = createSecondaryRuntime();
+  await manager.stopAll();
+
+  for (const camera of runtime.cameraConfigs) {
+    if (
+      !camera.enabled ||
+      camera.primary ||
+      !camera.deviceId ||
+      camera.deviceId === primary?.deviceId ||
+      camera.roomId !== primary?.roomId
+    ) {
+      continue;
+    }
+
+    try {
+      emitCameraStatus(camera.id, 'starting');
+      await manager.start(camera);
+    } catch (error) {
+      console.error('Could not start secondary camera', camera.id, error);
+      emitCameraStatus(camera.id, 'error');
+    }
+  }
+
+  renderCameraNetwork();
+}
+
+async function addCameraConfig(event) {
+  event.preventDefault();
+
+  const deviceId = ui.cameraRegistryDevice.value;
+  if (!deviceId) return;
+
+  const existing = runtime.cameraConfigs.find(
+    (camera) => camera.deviceId === deviceId
+  );
+  const base = existing || normalizeCameraConfig({
+    id: nextCameraId(),
+    deviceId,
+    name: ui.cameraRegistryName.value.trim() || cameraDeviceLabel(deviceId),
+    roomId: ui.cameraRegistryRoom.value.trim() || primaryCameraConfig()?.roomId || 'ROOM01',
+    enabled: true,
+    primary: false
+  }, runtime.cameraConfigs.length);
+
+  const camera = cameraWithCoverage({
+    ...base,
+    name: ui.cameraRegistryName.value.trim() || base.name,
+    roomId: ui.cameraRegistryRoom.value.trim() || base.roomId,
+    primary: base.primary
+  }, {
+    x: Number(ui.cameraCoverageX.value) / 100,
+    y: Number(ui.cameraCoverageY.value) / 100,
+    width: Number(ui.cameraCoverageWidth.value) / 100,
+    height: Number(ui.cameraCoverageHeight.value) / 100
+  });
+
+  await saveCameraConfig(camera);
+  await reloadCameraRegistry();
+
+  ui.cameraRegistryName.value = '';
+  if (runtime.running) await startSecondaryCameras();
+}
+
+async function toggleCameraEnabled(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera || camera.primary) return;
+
+  await saveCameraConfig({
+    ...camera,
+    enabled: !camera.enabled
+  });
+  await reloadCameraRegistry();
+
+  if (runtime.running) await startSecondaryCameras();
+}
+
+async function removeCamera(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera || camera.primary) return;
+
+  await runtime.secondaryCameras?.stop(cameraId);
+  await deleteCameraConfig(cameraId);
+  runtime.cameraObservations.delete(cameraId);
+  runtime.cameraStatuses.delete(cameraId);
+  await reloadCameraRegistry();
+  updateCameraFusion(Date.now(), true);
+}
+
+async function makeCameraPrimary(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera?.deviceId) return;
+
+  await saveCameraConfig({
+    ...camera,
+    primary: true,
+    enabled: true
+  });
+  await reloadCameraRegistry();
+
+  ui.cameraSelect.value = camera.deviceId;
+  if (runtime.running) await startEyes(camera.deviceId);
+}
+
+function openCameraCalibration(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera) return;
+
+  runtime.selectedCalibrationCameraId = camera.id;
+  const points = camera.roomPoints;
+
+  ui.cameraCalibrationName.textContent = camera.name;
+  ui.cameraCalibrationMeta.textContent =
+    camera.id + ' · ' + camera.roomId + ' · ' +
+    (camera.primary ? 'MAIN CAMERA' : 'SECONDARY CAMERA');
+
+  const fields = [
+    [ui.cameraTLX, ui.cameraTLY, points[0]],
+    [ui.cameraTRX, ui.cameraTRY, points[1]],
+    [ui.cameraBRX, ui.cameraBRY, points[2]],
+    [ui.cameraBLX, ui.cameraBLY, points[3]]
+  ];
+
+  for (const [xField, yField, point] of fields) {
+    xField.value = (point.x * 100).toFixed(1);
+    yField.value = (point.y * 100).toFixed(1);
+  }
+
+  ui.cameraCalibrationEnabled.checked = camera.enabled;
+  ui.cameraCalibrationJson.textContent = JSON.stringify({
+    cameraId: camera.id,
+    roomId: camera.roomId,
+    sourcePoints: camera.sourcePoints,
+    roomPoints: camera.roomPoints,
+    calibrationValid: cameraCalibrationValid(camera)
+  }, null, 2);
+  ui.cameraCalibrationInspector.hidden = false;
+}
+
+function closeCameraCalibration() {
+  runtime.selectedCalibrationCameraId = null;
+  ui.cameraCalibrationInspector.hidden = true;
+}
+
+async function saveCameraCalibrationForm(event) {
+  event.preventDefault();
+
+  const camera = cameraById(runtime.selectedCalibrationCameraId);
+  if (!camera) return;
+
+  const values = [
+    [ui.cameraTLX, ui.cameraTLY],
+    [ui.cameraTRX, ui.cameraTRY],
+    [ui.cameraBRX, ui.cameraBRY],
+    [ui.cameraBLX, ui.cameraBLY]
+  ].map(([xField, yField]) => ({
+    x: Number(xField.value) / 100,
+    y: Number(yField.value) / 100
+  }));
+
+  const updated = normalizeCameraConfig({
+    ...camera,
+    roomPoints: values,
+    enabled: ui.cameraCalibrationEnabled.checked,
+    updatedAt: Date.now()
+  });
+
+  if (!cameraCalibrationValid(updated)) {
+    ui.cameraCalibrationMeta.textContent = 'Invalid calibration polygon — adjust the room corners.';
+    return;
+  }
+
+  await saveCameraConfig(updated);
+  await reloadCameraRegistry();
+  closeCameraCalibration();
+
+  if (runtime.running) await startSecondaryCameras();
+  publishPrimaryCameraObservation(Date.now());
+  updateCameraFusion(Date.now(), true);
 }
 
 async function ensureIdentity() {
@@ -628,6 +1260,7 @@ async function ensureTranscriber() {
 }
 
 async function startEyes(deviceId = '') {
+  await runtime.secondaryCameras?.stopAll();
   stopCamera();
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -658,6 +1291,13 @@ async function startEyes(deviceId = '') {
     await ui.video.play();
     await enumerateCameras();
 
+    const activeDeviceId =
+      runtime.stream.getVideoTracks()[0]?.getSettings()?.deviceId ||
+      deviceId ||
+      ui.cameraSelect.value;
+    await ensurePrimaryCameraConfig(activeDeviceId);
+    if (activeDeviceId) ui.cameraSelect.value = activeDeviceId;
+
     runtime.running = true;
     runtime.startedAt = Date.now();
     ui.offline.hidden = true;
@@ -669,7 +1309,10 @@ async function startEyes(deviceId = '') {
 
     resizeOverlay();
     const identityReady = await ensureIdentity();
-    if (identityReady) scheduleScan(0);
+    if (identityReady) {
+      await startSecondaryCameras();
+      scheduleScan(0);
+    }
     return true;
   } catch (error) {
     console.error(error);
@@ -686,6 +1329,7 @@ function stopCamera() {
   runtime.running = false;
   runtime.scanBusy = false;
 
+  void runtime.secondaryCameras?.stopAll();
   runtime.stream?.getTracks().forEach((track) => track.stop());
   runtime.stream = null;
   ui.video.srcObject = null;
@@ -711,6 +1355,16 @@ function stopCamera() {
   runtime.previousKnownByTrack.clear();
   runtime.previousStatuses.clear();
   runtime.previousGroups.clear();
+  runtime.cameraObservations.clear();
+  runtime.cameraStatuses.clear();
+  runtime.worldTrails.clear();
+  runtime.fusionState = {
+    schemaVersion: 1,
+    roomId: primaryCameraConfig()?.roomId || 'ROOM01',
+    updatedAt: Date.now(),
+    participants: [],
+    objects: []
+  };
   drawOverlay();
   renderAll();
 }
@@ -782,15 +1436,25 @@ async function resolveIdentity(track, excludedParticipantIds) {
 }
 
 function roomPosition(track) {
-  return {
+  const camera = primaryCameraConfig();
+  if (!camera) {
+    return {
+      x: Number(track.cx || 0.5),
+      y: Number(track.cy || 0.5),
+      box: track.box ? { ...track.box } : null,
+      cameraId: null
+    };
+  }
+
+  const point = mapCameraPoint(camera, {
     x: Number(track.cx || 0.5),
-    y: Number(track.cy || 0.5),
-    box: track.box ? {
-      x: track.box.x,
-      y: track.box.y,
-      width: track.box.width,
-      height: track.box.height
-    } : null
+    y: Number(track.cy || 0.5)
+  });
+
+  return {
+    ...point,
+    box: track.box ? mapCameraBox(camera, track.box) : null,
+    cameraId: camera.id
   };
 }
 
@@ -1138,15 +1802,25 @@ function analyzeBehaviors(now) {
 
 
 function objectRoomPosition(objectTrack) {
-  return {
+  const camera = primaryCameraConfig();
+  if (!camera) {
+    return {
+      x: Number(objectTrack.cx || 0.5),
+      y: Number(objectTrack.cy || 0.5),
+      box: objectTrack.box ? { ...objectTrack.box } : null,
+      cameraId: null
+    };
+  }
+
+  const point = mapCameraPoint(camera, {
     x: Number(objectTrack.cx || 0.5),
-    y: Number(objectTrack.cy || 0.5),
-    box: objectTrack.box ? {
-      x: objectTrack.box.x,
-      y: objectTrack.box.y,
-      width: objectTrack.box.width,
-      height: objectTrack.box.height
-    } : null
+    y: Number(objectTrack.cy || 0.5)
+  });
+
+  return {
+    ...point,
+    box: objectTrack.box ? mapCameraBox(camera, objectTrack.box) : null,
+    cameraId: camera.id
   };
 }
 
@@ -1398,7 +2072,7 @@ async function scanRoom() {
   const previousObjects = runtime.objects;
 
   try {
-    const room = await runtime.identity.detectRoom(ui.video);
+    const room = await detectRoomSerial(ui.video);
     runtime.faces = room.faces || [];
     runtime.bodies = augmentBodiesWithFaceFallbacks(
       runtime.faces,
@@ -1537,7 +2211,10 @@ async function scanRoom() {
     emitTrackTransitions(previousTracks, runtime.tracks, now);
     emitObjectTransitions(previousObjects, runtime.objects);
     synchronizeObjectInteractions(now);
-    updateSceneIntelligence(Date.now());
+    const fusionNow = Date.now();
+    publishPrimaryCameraObservation(fusionNow);
+    updateCameraFusion(fusionNow, false);
+    updateSceneIntelligence(fusionNow);
     drawOverlay();
     renderAll();
 
@@ -2622,6 +3299,306 @@ function renderSceneZones() {
   ui.sceneZoneStatus.textContent = sceneState.zones.length + ' zones';
 }
 
+function cameraStatusFor(camera) {
+  if (camera.primary) return runtime.running ? 'online' : 'offline';
+  return runtime.cameraStatuses.get(camera.id) || 'offline';
+}
+
+function renderCameraNetwork() {
+  ui.cameraRegistryList.replaceChildren();
+
+  const cameras = runtime.cameraConfigs;
+  const onlineCount = cameras.filter(
+    (camera) => cameraStatusFor(camera) === 'online'
+  ).length;
+
+  ui.cameraNetworkStatus.textContent =
+    cameras.length + ' configured · ' + onlineCount + ' online';
+
+  if (!cameras.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent =
+      'Start Agent Eyes to register the main camera, then add secondary room sensors.';
+    ui.cameraRegistryList.append(empty);
+  }
+
+  for (const camera of cameras) {
+    const card = document.createElement('article');
+    card.className = 'camera-registry-card';
+    if (camera.primary) card.classList.add('primary-camera');
+
+    const head = document.createElement('div');
+    head.className = 'camera-registry-card-head';
+
+    const title = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = camera.name;
+    meta.textContent = [
+      camera.id,
+      camera.roomId,
+      camera.primary ? 'MAIN' : 'SECONDARY',
+      camera.enabled ? 'ENABLED' : 'DISABLED'
+    ].join(' · ');
+    title.append(name, meta);
+
+    const status = document.createElement('b');
+    const statusValue = cameraStatusFor(camera);
+    status.className = 'camera-state ' + statusValue;
+    status.textContent = statusValue.toUpperCase();
+
+    head.append(title, status);
+
+    const details = document.createElement('div');
+    details.className = 'camera-registry-details';
+
+    const calibration = document.createElement('span');
+    calibration.textContent = cameraCalibrationValid(camera)
+      ? '4-point calibration valid'
+      : 'calibration invalid';
+
+    const coverage = cameraCoveragePolygon(camera);
+    const coverageText = document.createElement('span');
+    coverageText.textContent = coverage
+      .map((point) => (
+        Math.round(point.x * 100) + ',' + Math.round(point.y * 100)
+      ))
+      .join(' → ');
+
+    const device = document.createElement('span');
+    device.textContent = cameraDeviceLabel(camera.deviceId);
+
+    details.append(calibration, coverageText, device);
+
+    const actions = document.createElement('div');
+    actions.className = 'camera-registry-actions';
+
+    const calibrate = document.createElement('button');
+    calibrate.type = 'button';
+    calibrate.className = 'agent-entity-action';
+    calibrate.textContent = 'Calibrate';
+    calibrate.addEventListener('click', () => openCameraCalibration(camera.id));
+    actions.append(calibrate);
+
+    if (!camera.primary) {
+      const main = document.createElement('button');
+      main.type = 'button';
+      main.className = 'agent-entity-action';
+      main.textContent = 'Use as main';
+      main.addEventListener('click', () => void makeCameraPrimary(camera.id));
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'agent-entity-action';
+      toggle.textContent = camera.enabled ? 'Disable' : 'Enable';
+      toggle.addEventListener('click', () => void toggleCameraEnabled(camera.id));
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'agent-entity-action';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => void removeCamera(camera.id));
+
+      actions.append(main, toggle, remove);
+    }
+
+    card.append(head, details, actions);
+    ui.cameraRegistryList.append(card);
+  }
+
+  const configuredSecondaries = cameras.filter(
+    (camera) => !camera.primary && camera.enabled
+  ).length;
+  ui.fusionStatus.textContent = configuredSecondaries
+    ? onlineCount + ' cameras online'
+    : 'Single camera';
+}
+
+function mapPolygonCss(points) {
+  return points
+    .map((point) => (
+      (point.x * 100).toFixed(2) + '% ' +
+      (point.y * 100).toFixed(2) + '%'
+    ))
+    .join(', ');
+}
+
+function renderWorldMapVectors() {
+  ui.worldMapVectors.replaceChildren();
+  const ns = ['http:', '//www.w3.org/2000/svg'].join('');
+
+  for (const trail of runtime.worldTrails.values()) {
+    if (trail.points.length < 2) continue;
+
+    const polyline = document.createElementNS(ns, 'polyline');
+    polyline.setAttribute(
+      'points',
+      trail.points
+        .map((point) => (
+          (point.x * 1000).toFixed(1) + ',' +
+          (point.y * 1000).toFixed(1)
+        ))
+        .join(' ')
+    );
+    polyline.setAttribute(
+      'class',
+      trail.participantId ? 'world-trail known' : 'world-trail unknown'
+    );
+    ui.worldMapVectors.append(polyline);
+  }
+
+  const fusedByParticipant = new Map(
+    (runtime.fusionState.participants || [])
+      .filter((entity) => entity.participantId && entity.status !== 'last-known')
+      .map((entity) => [entity.participantId, entity])
+  );
+
+  for (const group of roomStateSnapshot(roomState).conversationGroups || []) {
+    const members = (group.participantIds || [])
+      .map((participantId) => fusedByParticipant.get(participantId))
+      .filter(Boolean);
+
+    for (let index = 1; index < members.length; index += 1) {
+      const a = members[index - 1];
+      const b = members[index];
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', (a.roomPosition.x * 1000).toFixed(1));
+      line.setAttribute('y1', (a.roomPosition.y * 1000).toFixed(1));
+      line.setAttribute('x2', (b.roomPosition.x * 1000).toFixed(1));
+      line.setAttribute('y2', (b.roomPosition.y * 1000).toFixed(1));
+      line.setAttribute('class', 'world-conversation-link');
+      ui.worldMapVectors.append(line);
+    }
+  }
+}
+
+function renderWorldMap() {
+  ui.worldMapCoverage.replaceChildren();
+  ui.worldMapEntities.replaceChildren();
+  renderWorldMapVectors();
+
+  const activeRoomId = runtime.fusionState.roomId || primaryCameraConfig()?.roomId || 'ROOM01';
+
+  for (const camera of runtime.cameraConfigs) {
+    if (
+      !camera.enabled ||
+      camera.roomId !== activeRoomId ||
+      !cameraCalibrationValid(camera)
+    ) continue;
+
+    const polygon = document.createElement('div');
+    polygon.className = 'world-camera-coverage';
+    if (camera.primary) polygon.classList.add('primary');
+    if (cameraStatusFor(camera) !== 'online') polygon.classList.add('offline');
+    polygon.style.clipPath = 'polygon(' + mapPolygonCss(cameraCoveragePolygon(camera)) + ')';
+
+    const label = document.createElement('span');
+    const points = cameraCoveragePolygon(camera);
+    const center = {
+      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.y, 0) / points.length
+    };
+    label.textContent = camera.id;
+    label.style.left = (center.x * 100) + '%';
+    label.style.top = (center.y * 100) + '%';
+    polygon.append(label);
+    ui.worldMapCoverage.append(polygon);
+  }
+
+  for (const entity of runtime.fusionState.participants || []) {
+    const dot = document.createElement('div');
+    dot.className = 'world-entity participant ' +
+      (entity.participantId ? 'known' : 'unknown');
+    if (entity.overlap) dot.classList.add('overlap');
+    if (entity.status === 'last-known') dot.classList.add('last-known');
+    if (entity.positionConflict) dot.classList.add('conflict');
+
+    dot.style.left = (entity.roomPosition.x * 100) + '%';
+    dot.style.top = (entity.roomPosition.y * 100) + '%';
+
+    const label = document.createElement('span');
+    label.textContent = [
+      entity.participantName || entity.id,
+      entity.cameraIds?.join('+'),
+      entity.positionConflict ? 'CALIBRATION CONFLICT' : null
+    ].filter(Boolean).join(' · ');
+    dot.append(label);
+
+    if (entity.participantId) {
+      const local = runtime.tracks.find(
+        (track) => track.participantId === entity.participantId
+      );
+      if (local) {
+        dot.tabIndex = 0;
+        dot.setAttribute('role', 'button');
+        dot.addEventListener('click', () => openEvidenceInspector(local.id));
+      }
+    }
+
+    ui.worldMapEntities.append(dot);
+  }
+
+  for (const object of runtime.fusionState.objects || []) {
+    const dot = document.createElement('div');
+    dot.className = 'world-entity object';
+    if (object.overlap) dot.classList.add('overlap');
+    if (object.status === 'last-known') dot.classList.add('last-known');
+
+    dot.style.left = (object.roomPosition.x * 100) + '%';
+    dot.style.top = (object.roomPosition.y * 100) + '%';
+
+    const label = document.createElement('span');
+    label.textContent = [
+      object.id,
+      object.label,
+      object.cameraIds?.join('+')
+    ].filter(Boolean).join(' · ');
+    dot.append(label);
+
+    const primaryId = primaryCameraConfig()?.id;
+    const primaryObservation = object.observations?.find(
+      (observation) => observation.cameraId === primaryId
+    );
+    if (primaryObservation) {
+      dot.tabIndex = 0;
+      dot.setAttribute('role', 'button');
+      dot.addEventListener('click', () => (
+        openObjectEvidenceInspector(primaryObservation.localObjectId)
+      ));
+    }
+
+    ui.worldMapEntities.append(dot);
+  }
+
+  const onlineCount = runtime.cameraConfigs.filter(
+    (camera) => (
+      camera.roomId === activeRoomId &&
+      cameraStatusFor(camera) === 'online'
+    )
+  ).length;
+  const people = runtime.fusionState.participants || [];
+  const objects = runtime.fusionState.objects || [];
+  const overlaps =
+    people.filter((entity) => entity.overlap).length +
+    objects.filter((object) => object.overlap).length;
+
+  ui.worldCameraCount.textContent = String(onlineCount);
+  ui.worldPersonCount.textContent = String(
+    people.filter((entity) => entity.status !== 'last-known').length
+  );
+  ui.worldObjectCount.textContent = String(
+    objects.filter((object) => object.status !== 'last-known').length
+  );
+  ui.worldOverlapCount.textContent = String(overlaps);
+
+  ui.worldMapStatus.textContent = onlineCount > 1
+    ? onlineCount + ' cameras fused'
+    : onlineCount === 1
+      ? 'Single camera'
+      : 'Offline';
+}
+
 function renderSceneIntelligence() {
   const snapshot = sceneStateSnapshot(sceneState);
   const activeActivities = snapshot.activeEpisodes.filter(
@@ -2780,6 +3757,17 @@ function eventLabel(event) {
         String(event.data?.objectLabel || event.data?.objectId || 'object');
     case 'transcript.turn':
       return (event.participantName || 'Unknown speaker') + ': ' + String(event.data?.text || '');
+    case 'camera.status':
+      return String(event.data?.cameraName || event.data?.cameraId || 'Camera') +
+        ' → ' + String(event.data?.status || '');
+    case 'camera.handoff':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' camera handoff · ' +
+        String(event.data?.fromCameraId || '—') + ' → ' +
+        String(event.data?.toCameraId || '—');
+    case 'camera.overlap_fused':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' fused across ' + String(event.data?.cameraIds?.join(' + ') || 'cameras');
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -2880,7 +3868,8 @@ function renderRoomState() {
   const snapshot = roomStateSnapshot(roomState);
   const world = {
     room: snapshot,
-    scene: sceneStateSnapshot(sceneState)
+    scene: sceneStateSnapshot(sceneState),
+    cameraFusion: runtime.fusionState
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -2928,6 +3917,8 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderCameraNetwork();
+  renderWorldMap();
   renderParticipants();
   renderObjects();
   renderRadar();
@@ -3213,7 +4204,8 @@ function stopRoomAudio() {
 async function copySnapshot() {
   const text = JSON.stringify({
     room: roomStateSnapshot(roomState),
-    scene: sceneStateSnapshot(sceneState)
+    scene: sceneStateSnapshot(sceneState),
+    cameraFusion: runtime.fusionState
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
@@ -3257,6 +4249,9 @@ ui.closeObjectInspector.addEventListener('click', closeObjectEvidenceInspector);
 ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
 ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
 ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
+ui.cameraRegistryForm.addEventListener('submit', (event) => void addCameraConfig(event));
+ui.cameraCalibrationForm.addEventListener('submit', (event) => void saveCameraCalibrationForm(event));
+ui.closeCameraCalibration.addEventListener('click', closeCameraCalibration);
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
 ui.objectOverlay.addEventListener('change', drawOverlay);
@@ -3270,7 +4265,15 @@ window.addEventListener('resize', () => {
 });
 window.addEventListener('beforeunload', stopPerception);
 
+if (navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    void enumerateCameras();
+  });
+}
+
 await reloadParticipants();
+await reloadCameraRegistry();
+await enumerateCameras();
 await initializeSceneMemory();
 renderAll();
 renderEventFeed();
