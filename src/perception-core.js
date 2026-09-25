@@ -275,13 +275,26 @@ export function applyPerceptionEvent(state, event) {
 
     case 'conversation.started':
       if (event.conversationGroup) {
+        const participantIds = Array.from(event.data?.participantIds || []);
+        const trackIds = Array.from(event.data?.trackIds || []);
         state.conversationGroups[event.conversationGroup] = {
           id: event.conversationGroup,
-          participantIds: Array.from(event.data?.participantIds || []),
-          trackIds: Array.from(event.data?.trackIds || []),
+          participantIds,
+          trackIds,
           startedAt: event.timestamp,
           updatedAt: event.timestamp
         };
+
+        for (const participantId of participantIds) {
+          if (state.participants[participantId]) {
+            state.participants[participantId].conversationGroup = event.conversationGroup;
+          }
+        }
+        for (const trackId of trackIds) {
+          if (state.unknownTracks[trackId]) {
+            state.unknownTracks[trackId].conversationGroup = event.conversationGroup;
+          }
+        }
       }
       break;
 
@@ -317,6 +330,12 @@ export function applyPerceptionEvent(state, event) {
         group.participantIds = group.participantIds.filter((id) => id !== event.participantId);
         group.trackIds = group.trackIds.filter((id) => id !== event.trackId);
         group.updatedAt = event.timestamp;
+      }
+      if (event.participantId && state.participants[event.participantId]) {
+        state.participants[event.participantId].conversationGroup = null;
+      }
+      if (event.trackId && state.unknownTracks[event.trackId]) {
+        state.unknownTracks[event.trackId].conversationGroup = null;
       }
       break;
     }
