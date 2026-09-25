@@ -2,6 +2,104 @@
 
 Tracky turns real-world movement into browser-game input.
 
+## V0.8 — Agent Eyes / Spatial Perception Runtime
+
+V0.8 changes Tracky's primary purpose from a game/tracker prototype into an experimental perception layer for an Agent system.
+
+### Agent Eyes is now the product home
+
+`index.html` is the live Agent Eyes console. It combines:
+
+- multi-person body tracking
+- enrolled face recognition
+- persistent body identity when faces turn away
+- unknown participant tracking
+- current/recent participant photos
+- Voice Profile speaker recognition
+- adaptive room audio and noise rejection
+- speaker-attributed transcription
+- body-proximity conversation grouping
+- a live spatial room map
+- participant/entity cards
+- active-speaker state
+- perception health and sensor status
+- normalized event history
+- a JSON Current Room State snapshot
+
+### Perception Event Bus
+
+The new `src/perception-core.js` provides a normalized integration boundary between sensors and the future Agent Brain.
+
+Events include:
+
+- `participant.detected`
+- `participant.recognized`
+- `participant.entered`
+- `participant.left`
+- `participant.reacquired`
+- `face.visible`
+- `face.hidden`
+- `face.capture_ready`
+- `face.matched`
+- `body.locked`
+- `body.occluded`
+- `body.reacquired`
+- `voice.activity_started`
+- `voice.activity_stopped`
+- `voice.matched`
+- `conversation.started`
+- `conversation.ended`
+- `conversation.participant_joined`
+- `conversation.participant_left`
+- `transcript.turn`
+- `sensor.status`
+- `room.state_changed`
+
+Every event can carry timestamp, participant ID, body Track ID, confidence, source, normalized room position, nearby participants, conversation group, and evidence.
+
+### Current Room State
+
+The event stream is reduced into one serializable Agent-facing state object containing:
+
+- known participants currently present
+- unknown body tracks
+- active speaker
+- active conversation groups
+- recent perception events
+- recent transcript turns
+- camera/microphone/identity/voice/transcription state
+- perception health and warnings
+
+The browser exposes:
+
+```js
+window.TrackyAgentEyes.getState()
+window.TrackyAgentEyes.subscribe('participant.recognized', handler)
+window.TrackyAgentEyes.subscribe('*', handler)
+```
+
+Each perception event is also dispatched as a browser `tracky:perception` CustomEvent so another Agent shell can integrate without importing Tracky's internal modules.
+
+### Experiments are preserved
+
+The game and green-object work remain in the repository as sensor/perception experiments:
+
+- `experiments.html` — experiment landing page
+- `tracker.html` — original HSV green-object tracker and calibration laboratory
+- `vertical-motion.html` — movement/game test harness
+
+They consume the same identity, body, voice, and tracking capabilities but no longer define the main product experience.
+
+### Identity and room behavior
+
+- new body tracks are stabilized before Agent Eyes announces a new participant
+- enrolled face matches bind identity to the persistent body track
+- face visibility is tracked independently from body presence
+- brief body occlusions preserve identity
+- stale conversation groups are removed when people separate
+- current participant photos are refreshed when a clean recognized face is available
+- unknown clean face captures can be sent directly to Participant onboarding
+
 ## V0.7 — Codebase Hardening & Release Quality
 
 V0.7 is a full audit/hardening release. It does not change the game concept; it makes the camera, identity, Voice Profile, dialogue, privacy, performance, and release paths safer and more deterministic.
@@ -221,8 +319,9 @@ python -m http.server 8080
 
 Open:
 
-- `http://localhost:8080/games.html` for games
-- `http://localhost:8080/participants.html` for participant onboarding
+- `http://localhost:8080/` for Agent Eyes
+- `http://localhost:8080/participants.html` for participant identity/Voice Profiles
+- `http://localhost:8080/experiments.html` for tracker/game experiments
 
 ## Tests
 
