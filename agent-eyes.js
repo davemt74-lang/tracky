@@ -811,23 +811,294 @@ function setHealth(status, warning = null) {
 }
 
 async function enumerateCameras() {
-  if (!navigator.mediaDevices?.enumerateDevices) return;
+  if (!navigator.mediaDevices?.enumerateDevices) return [];
   const devices = await navigator.mediaDevices.enumerateDevices();
   const cameras = devices.filter((device) => device.kind === 'videoinput');
-  const current = ui.cameraSelect.value;
+  runtime.cameraDevices = cameras;
 
+  const current = ui.cameraSelect.value;
   ui.cameraSelect.replaceChildren();
+  ui.cameraRegistryDevice.replaceChildren();
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select camera';
+  ui.cameraRegistryDevice.append(placeholder);
+
   cameras.forEach((camera, index) => {
-    const option = document.createElement('option');
-    option.value = camera.deviceId;
-    option.textContent = camera.label || 'Camera ' + (index + 1);
-    ui.cameraSelect.append(option);
+    const label = camera.label || 'Camera ' + (index + 1);
+
+    const mainOption = document.createElement('option');
+    mainOption.value = camera.deviceId;
+    mainOption.textContent = label;
+    ui.cameraSelect.append(mainOption);
+
+    const registryOption = document.createElement('option');
+    registryOption.value = camera.deviceId;
+    registryOption.textContent = label;
+    ui.cameraRegistryDevice.append(registryOption);
   });
 
   if (cameras.some((camera) => camera.deviceId === current)) {
     ui.cameraSelect.value = current;
   }
+
   ui.cameraSelect.disabled = cameras.length < 2;
+  renderCameraNetwork();
+  return cameras;
+}
+
+function nextCameraId() {
+  const used = new Set(runtime.cameraConfigs.map((camera) => camera.id));
+  let index = 1;
+  while (used.has('CAM' + String(index).padStart(2, '0'))) index += 1;
+  return 'CAM' + String(index).padStart(2, '0');
+}
+
+async function reloadCameraRegistry() {
+  try {
+    runtime.cameraConfigs = await listCameraConfigs();
+  } catch (error) {
+    console.error('Could not load camera registry', error);
+    runtime.cameraConfigs = [];
+  }
+  renderCameraNetwork();
+  renderWorldMap();
+  return runtime.cameraConfigs;
+}
+
+async function ensurePrimaryCameraConfig(deviceId) {
+  await reloadCameraRegistry();
+
+  let camera = runtime.cameraConfigs.find(
+    (candidate) => candidate.deviceId === deviceId
+  );
+
+  if (!camera) {
+    camera = normalizeCameraConfig({
+      id: nextCameraId(),
+      name: cameraDeviceLabel(deviceId),
+      deviceId,
+      roomId: 'ROOM01',
+      primary: true,
+      enabled: true
+    }, runtime.cameraConfigs.length);
+  } else {
+    camera = normalizeCameraConfig({
+      ...camera,
+      primary: true,
+      enabled: true,
+      name: camera.name || cameraDeviceLabel(deviceId)
+    });
+  }
+
+  await saveCameraConfig(camera);
+  await reloadCameraRegistry();
+  return runtime.cameraConfigs.find((candidate) => candidate.primary) || camera;
+}
+
+function createSecondaryRuntime() {
+  if (runtime.secondaryCameras) return runtime.secondaryCameras;
+
+  runtime.secondaryCameras = new MultiCameraSensorRuntime({
+    identityEngine: {
+      detectRoom(input) {
+        return detectRoomSerial(input);
+      }
+    },
+    getParticipants() {
+      return runtime.participants;
+    },
+    onObservation: onSecondaryCameraObservation,
+    onStatus: onSecondaryCameraStatus,
+    scanIntervalMs: 850
+  });
+
+  return runtime.secondaryCameras;
+}
+
+async function startSecondaryCameras() {
+  if (!runtime.running || !runtime.identityReady) return;
+
+  const primary = primaryCameraConfig();
+  const manager = createSecondaryRuntime();
+  await manager.stopAll();
+
+  for (const camera of runtime.cameraConfigs) {
+    if (
+      !camera.enabled ||
+      camera.primary ||
+      !camera.deviceId ||
+      camera.deviceId === primary?.deviceId ||
+      camera.roomId !== primary?.roomId
+    ) {
+      continue;
+    }
+
+    try {
+      emitCameraStatus(camera.id, 'starting');
+      await manager.start(camera);
+    } catch (error) {
+      console.error('Could not start secondary camera', camera.id, error);
+      emitCameraStatus(camera.id, 'error');
+    }
+  }
+
+  renderCameraNetwork();
+}
+
+async function addCameraConfig(event) {
+  event.preventDefault();
+
+  const deviceId = ui.cameraRegistryDevice.value;
+  if (!deviceId) return;
+
+  const existing = runtime.cameraConfigs.find(
+    (camera) => camera.deviceId === deviceId
+  );
+  const base = existing || normalizeCameraConfig({
+    id: nextCameraId(),
+    deviceId,
+    name: ui.cameraRegistryName.value.trim() || cameraDeviceLabel(deviceId),
+    roomId: ui.cameraRegistryRoom.value.trim() || primaryCameraConfig()?.roomId || 'ROOM01',
+    enabled: true,
+    primary: false
+  }, runtime.cameraConfigs.length);
+
+  const camera = cameraWithCoverage({
+    ...base,
+    name: ui.cameraRegistryName.value.trim() || base.name,
+    roomId: ui.cameraRegistryRoom.value.trim() || base.roomId,
+    primary: base.primary
+  }, {
+    x: Number(ui.cameraCoverageX.value) / 100,
+    y: Number(ui.cameraCoverageY.value) / 100,
+    width: Number(ui.cameraCoverageWidth.value) / 100,
+    height: Number(ui.cameraCoverageHeight.value) / 100
+  });
+
+  await saveCameraConfig(camera);
+  await reloadCameraRegistry();
+
+  ui.cameraRegistryName.value = '';
+  if (runtime.running) await startSecondaryCameras();
+}
+
+async function toggleCameraEnabled(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera || camera.primary) return;
+
+  await saveCameraConfig({
+    ...camera,
+    enabled: !camera.enabled
+  });
+  await reloadCameraRegistry();
+
+  if (runtime.running) await startSecondaryCameras();
+}
+
+async function removeCamera(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera || camera.primary) return;
+
+  await runtime.secondaryCameras?.stop(cameraId);
+  await deleteCameraConfig(cameraId);
+  runtime.cameraObservations.delete(cameraId);
+  runtime.cameraStatuses.delete(cameraId);
+  await reloadCameraRegistry();
+  updateCameraFusion(Date.now(), true);
+}
+
+async function makeCameraPrimary(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera?.deviceId) return;
+
+  await saveCameraConfig({
+    ...camera,
+    primary: true,
+    enabled: true
+  });
+  await reloadCameraRegistry();
+
+  ui.cameraSelect.value = camera.deviceId;
+  if (runtime.running) await startEyes(camera.deviceId);
+}
+
+function openCameraCalibration(cameraId) {
+  const camera = cameraById(cameraId);
+  if (!camera) return;
+
+  runtime.selectedCalibrationCameraId = camera.id;
+  const points = camera.roomPoints;
+
+  ui.cameraCalibrationName.textContent = camera.name;
+  ui.cameraCalibrationMeta.textContent =
+    camera.id + ' · ' + camera.roomId + ' · ' +
+    (camera.primary ? 'MAIN CAMERA' : 'SECONDARY CAMERA');
+
+  const fields = [
+    [ui.cameraTLX, ui.cameraTLY, points[0]],
+    [ui.cameraTRX, ui.cameraTRY, points[1]],
+    [ui.cameraBRX, ui.cameraBRY, points[2]],
+    [ui.cameraBLX, ui.cameraBLY, points[3]]
+  ];
+
+  for (const [xField, yField, point] of fields) {
+    xField.value = (point.x * 100).toFixed(1);
+    yField.value = (point.y * 100).toFixed(1);
+  }
+
+  ui.cameraCalibrationEnabled.checked = camera.enabled;
+  ui.cameraCalibrationJson.textContent = JSON.stringify({
+    cameraId: camera.id,
+    roomId: camera.roomId,
+    sourcePoints: camera.sourcePoints,
+    roomPoints: camera.roomPoints,
+    calibrationValid: cameraCalibrationValid(camera)
+  }, null, 2);
+  ui.cameraCalibrationInspector.hidden = false;
+}
+
+function closeCameraCalibration() {
+  runtime.selectedCalibrationCameraId = null;
+  ui.cameraCalibrationInspector.hidden = true;
+}
+
+async function saveCameraCalibrationForm(event) {
+  event.preventDefault();
+
+  const camera = cameraById(runtime.selectedCalibrationCameraId);
+  if (!camera) return;
+
+  const values = [
+    [ui.cameraTLX, ui.cameraTLY],
+    [ui.cameraTRX, ui.cameraTRY],
+    [ui.cameraBRX, ui.cameraBRY],
+    [ui.cameraBLX, ui.cameraBLY]
+  ].map(([xField, yField]) => ({
+    x: Number(xField.value) / 100,
+    y: Number(yField.value) / 100
+  }));
+
+  const updated = normalizeCameraConfig({
+    ...camera,
+    roomPoints: values,
+    enabled: ui.cameraCalibrationEnabled.checked,
+    updatedAt: Date.now()
+  });
+
+  if (!cameraCalibrationValid(updated)) {
+    ui.cameraCalibrationMeta.textContent = 'Invalid calibration polygon — adjust the room corners.';
+    return;
+  }
+
+  await saveCameraConfig(updated);
+  await reloadCameraRegistry();
+  closeCameraCalibration();
+
+  if (runtime.running) await startSecondaryCameras();
+  publishPrimaryCameraObservation(Date.now());
+  updateCameraFusion(Date.now(), true);
 }
 
 async function ensureIdentity() {
@@ -934,6 +1205,7 @@ async function ensureTranscriber() {
 }
 
 async function startEyes(deviceId = '') {
+  await runtime.secondaryCameras?.stopAll();
   stopCamera();
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -964,6 +1236,13 @@ async function startEyes(deviceId = '') {
     await ui.video.play();
     await enumerateCameras();
 
+    const activeDeviceId =
+      runtime.stream.getVideoTracks()[0]?.getSettings()?.deviceId ||
+      deviceId ||
+      ui.cameraSelect.value;
+    await ensurePrimaryCameraConfig(activeDeviceId);
+    if (activeDeviceId) ui.cameraSelect.value = activeDeviceId;
+
     runtime.running = true;
     runtime.startedAt = Date.now();
     ui.offline.hidden = true;
@@ -975,7 +1254,10 @@ async function startEyes(deviceId = '') {
 
     resizeOverlay();
     const identityReady = await ensureIdentity();
-    if (identityReady) scheduleScan(0);
+    if (identityReady) {
+      await startSecondaryCameras();
+      scheduleScan(0);
+    }
     return true;
   } catch (error) {
     console.error(error);
@@ -992,6 +1274,7 @@ function stopCamera() {
   runtime.running = false;
   runtime.scanBusy = false;
 
+  void runtime.secondaryCameras?.stopAll();
   runtime.stream?.getTracks().forEach((track) => track.stop());
   runtime.stream = null;
   ui.video.srcObject = null;
@@ -1017,6 +1300,15 @@ function stopCamera() {
   runtime.previousKnownByTrack.clear();
   runtime.previousStatuses.clear();
   runtime.previousGroups.clear();
+  runtime.cameraObservations.clear();
+  runtime.cameraStatuses.clear();
+  runtime.fusionState = {
+    schemaVersion: 1,
+    roomId: primaryCameraConfig()?.roomId || 'ROOM01',
+    updatedAt: Date.now(),
+    participants: [],
+    objects: []
+  };
   drawOverlay();
   renderAll();
 }
@@ -1704,7 +1996,7 @@ async function scanRoom() {
   const previousObjects = runtime.objects;
 
   try {
-    const room = await runtime.identity.detectRoom(ui.video);
+    const room = await detectRoomSerial(ui.video);
     runtime.faces = room.faces || [];
     runtime.bodies = augmentBodiesWithFaceFallbacks(
       runtime.faces,
@@ -1843,7 +2135,10 @@ async function scanRoom() {
     emitTrackTransitions(previousTracks, runtime.tracks, now);
     emitObjectTransitions(previousObjects, runtime.objects);
     synchronizeObjectInteractions(now);
-    updateSceneIntelligence(Date.now());
+    const fusionNow = Date.now();
+    publishPrimaryCameraObservation(fusionNow);
+    updateCameraFusion(fusionNow, false);
+    updateSceneIntelligence(fusionNow);
     drawOverlay();
     renderAll();
 
