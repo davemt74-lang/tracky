@@ -159,6 +159,23 @@ import {
   spatialMemoryRetentionAllowed,
   transcriptRetentionAllowed
 } from './src/privacy-policy-core.js';
+import {
+  attentionSnapshot,
+  clearActiveTask,
+  computePerceptionBudget,
+  createAttentionState,
+  markMeaningfulActivity,
+  normalizeTask,
+  resolveAttentionItem,
+  setActiveTask,
+  taskDerivedSignals,
+  taskExpired,
+  upsertAttentionItems
+} from './src/attention-core.js';
+import {
+  loadAttentionState,
+  saveAttentionState
+} from './src/attention-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -191,6 +208,7 @@ const ui = {
   multiRoomTopStatus: $('#eyesMultiRoomStatus'),
   spatialMemoryTopStatus: $('#eyesSpatialMemoryStatus'),
   privacyTopStatus: $('#eyesPrivacyStatus'),
+  taskTopStatus: $('#eyesTaskStatus'),
   peopleCount: $('#eyesPeopleCount'),
   knownCount: $('#eyesKnownCount'),
   groupCount: $('#eyesGroupCount'),
@@ -300,6 +318,22 @@ const ui = {
   privacyRegionCount: $('#privacyRegionCount'),
   privacyRegionStatus: $('#privacyRegionStatus'),
   privacyRegionForm: $('#privacyRegionForm'),
+  attentionTaskStatus: $('#attentionTaskStatus'),
+  attentionTaskForm: $('#attentionTaskForm'),
+  attentionTaskMode: $('#attentionTaskMode'),
+  attentionTarget: $('#attentionTarget'),
+  attentionRoom: $('#attentionRoom'),
+  attentionDuration: $('#attentionDuration'),
+  attentionSticky: $('#attentionSticky'),
+  clearAttentionTask: $('#clearAttentionTask'),
+  attentionBudgetStatus: $('#attentionBudgetStatus'),
+  attentionBudgetMain: $('#attentionBudgetMain'),
+  attentionBudgetSecondary: $('#attentionBudgetSecondary'),
+  attentionBudgetEnvironment: $('#attentionBudgetEnvironment'),
+  attentionBudgetIntensity: $('#attentionBudgetIntensity'),
+  attentionBudgetCaps: $('#attentionBudgetCaps'),
+  attentionQueueStatus: $('#attentionQueueStatus'),
+  attentionQueueList: $('#attentionQueueList'),
   privacyRegionName: $('#privacyRegionName'),
   privacyRegionMode: $('#privacyRegionMode'),
   privacyRegionX: $('#privacyRegionX'),
@@ -417,6 +451,7 @@ const cameraFusionListeners = new Set();
 const worldListeners = new Set();
 const roomListeners = new Map();
 const spatialMemoryListeners = new Set();
+const attentionListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -504,7 +539,12 @@ const runtime = {
   privacyStats: {
     suppressedEvents: 0,
     anonymizedEvents: 0
-  }
+  },
+  attention: createAttentionState(),
+  attentionLastSavedAt: 0,
+  attentionTopKey: null,
+  perceptionBudget: null,
+  perceptionBudgetSignature: null
 };
 
 const SCAN_INTERVAL_MS = 550;
