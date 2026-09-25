@@ -2488,6 +2488,7 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
 
   if (updateScene) updateSceneIntelligence(now);
   updatePhysicalWorldModel(now);
+  if (runtime.running) updateAnomalyAwareness(now);
   if (runtime.running) updateSpatialMemory(now);
 }
 
@@ -7094,6 +7095,22 @@ function eventLabel(event) {
       return 'Perception budget → ' +
         String(event.data?.intensity || 'balanced') + ' · ' +
         String(event.data?.taskMode || 'general');
+    case 'anomaly.confirmed':
+      return 'Proactive awareness · ' +
+        String(event.data?.severity || 'anomaly') + ' · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'anomaly.cleared':
+      return 'Anomaly cleared · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'anomaly.acknowledged':
+      return 'Anomaly acknowledged · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'anomaly.dismissed':
+      return 'Anomaly dismissed · ' +
+        String(event.data?.summary || event.data?.type || 'physical change');
+    case 'proactive_awareness.updated':
+      return 'Proactive awareness updated · ' +
+        String(event.data?.activeCount || 0) + ' active';
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -7696,6 +7713,7 @@ await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
 await initializeSpatialMemory();
+await initializeAnomalyState();
 await initializeAttentionState();
 renderAll();
 renderEventFeed();
