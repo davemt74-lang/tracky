@@ -312,11 +312,15 @@ async function ensureIdentity() {
     runtime.identityReady = true;
     ui.identityStatus.textContent = 'Online';
     emitSensor('identity', 'online');
+    emitSensor('objects', 'online');
+    emitSensor('hands', 'online');
     return true;
   } catch (error) {
     console.error(error);
     ui.identityStatus.textContent = 'Unavailable';
     emitSensor('identity', 'error');
+    emitSensor('objects', 'error');
+    emitSensor('hands', 'error');
     setHealth('degraded', 'Identity model unavailable');
     return false;
   } finally {
@@ -1084,6 +1088,15 @@ function synchronizeObjectInteractions(now) {
           label: interaction.objectLabel
         }
       });
+    }
+  }
+
+  const activePersonIds = new Set(runtime.tracks.map((track) => track.id));
+  const activeObjectIds = new Set(runtime.objects.map((object) => object.id));
+  for (const key of [...runtime.relationDistances.keys()]) {
+    const [personId, objectId] = key.split(':');
+    if (!activePersonIds.has(personId) || !activeObjectIds.has(objectId)) {
+      runtime.relationDistances.delete(key);
     }
   }
 
