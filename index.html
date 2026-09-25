@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#02070a">
-  <title>Tracky V1.5 — Agent Eyes</title>
+  <title>Tracky V1.6 — Agent Eyes</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body class="jarvis-page agent-eyes-page">
@@ -13,7 +13,7 @@
     <div class="jarvis-brand">
       <span class="jarvis-orb" aria-hidden="true"></span>
       <div>
-        <small>TRACKY · V1.5 · PERCEPTION RUNTIME</small>
+        <small>TRACKY · V1.6 · PERCEPTION RUNTIME</small>
         <h1>Agent Eyes</h1>
         <p>Live multi-camera visual, spatial, behavioral, object, temporal, voice, and conversation awareness for the Agent system.</p>
       </div>
@@ -39,6 +39,7 @@
     <div><span>WORLD MODEL</span><b id="eyesWorldStatus">Standby</b></div>
     <div><span>MULTI-ROOM</span><b id="eyesMultiRoomStatus">Standby</b></div>
     <div><span>SPATIAL MEMORY</span><b id="eyesSpatialMemoryStatus">Learning</b></div>
+    <div><span>PRIVACY</span><b id="eyesPrivacyStatus">Policy ready</b></div>
     <div><span>PERCEPTION</span><b id="eyesHealthStatus">Standby</b></div>
   </section>
 
@@ -91,6 +92,7 @@
       <div class="agent-camera-stage" id="agentCameraStage">
         <video id="eyesVideo" playsinline muted></video>
         <canvas id="eyesOverlay"></canvas>
+        <div id="privacyCameraMasks" class="privacy-mask-layer" aria-hidden="true"></div>
         <div class="agent-camera-offline" id="agentCameraOffline">
           <span class="scan-icon" aria-hidden="true"></span>
           <strong>Agent Eyes offline</strong>
@@ -126,6 +128,7 @@
         <div class="room-radar agent-radar-map" id="agentRadar">
           <div class="radar-crosshair" aria-hidden="true"></div>
           <div id="agentRadarZones" class="room-radar-zones"></div>
+          <div id="privacyRadarMasks" class="privacy-radar-masks" aria-hidden="true"></div>
           <div id="agentRadarTracks" class="room-radar-tracks"></div>
           <span class="radar-label">NORMALIZED ROOM POSITION</span>
         </div>
@@ -328,6 +331,79 @@
       </div>
       <div id="multiRoomTransitionFeed" class="multi-room-transition-feed">
         <div class="agent-empty">No cross-room transitions recorded.</div>
+      </div>
+    </article>
+  </section>
+
+  <section class="privacy-policy-grid">
+    <article class="hud-panel privacy-policy-panel">
+      <div class="hud-panel-head">
+        <div><small>OBSERVATION POLICY</small><h2>Privacy + retention</h2></div>
+        <span id="privacyPolicyStatus" class="status-chip">Policy ready</span>
+      </div>
+
+      <div class="privacy-policy-toolbar">
+        <label>Room
+          <select id="privacyRoomSelect"></select>
+        </label>
+        <button id="privacySavePolicy" class="hud-button primary" type="button">Save policy</button>
+      </div>
+
+      <div class="privacy-toggle-grid">
+        <label><input id="privacyVisualObservation" type="checkbox"> Visual observation</label>
+        <label><input id="privacyIdentity" type="checkbox"> Participant identity</label>
+        <label><input id="privacyAnonymousTracking" type="checkbox"> Anonymous body tracking</label>
+        <label><input id="privacyObjects" type="checkbox"> Object observation</label>
+        <label><input id="privacyBehavior" type="checkbox"> Behavior analysis</label>
+        <label><input id="privacyEnvironmentComparison" type="checkbox"> Environment comparison</label>
+        <label><input id="privacyRoomAudio" type="checkbox"> Room audio</label>
+        <label><input id="privacyVoiceMatching" type="checkbox"> Voice Profile matching</label>
+        <label><input id="privacyLiveTranscription" type="checkbox"> Live transcription</label>
+        <label><input id="privacyTranscriptStorage" type="checkbox"> Store transcript turns</label>
+        <label><input id="privacySpatialMemory" type="checkbox"> Learn spatial memory</label>
+        <label><input id="privacyRetainPrimary" type="checkbox"> Retain Primary images</label>
+        <label><input id="privacyRetainAlternate" type="checkbox"> Retain Alternate images</label>
+      </div>
+
+      <div class="privacy-policy-stats">
+        <div><span>SUPPRESSED EVENTS</span><b id="privacySuppressedCount">0</b></div>
+        <div><span>ANONYMIZED EVENTS</span><b id="privacyAnonymizedCount">0</b></div>
+        <div><span>ACTIVE REGIONS</span><b id="privacyRegionCount">0</b></div>
+      </div>
+
+      <p class="privacy-note">Policy is enforced before fusion, Current World State, transcript persistence, learned spatial memory, and retained environment images.</p>
+    </article>
+
+    <article class="hud-panel privacy-region-panel">
+      <div class="hud-panel-head">
+        <div><small>SENSITIVE REGIONS</small><h2>Room privacy masks</h2></div>
+        <span id="privacyRegionStatus" class="status-chip">0 regions</span>
+      </div>
+
+      <form id="privacyRegionForm" class="privacy-region-form">
+        <label>Name<input id="privacyRegionName" maxlength="40" placeholder="Private desk"></label>
+        <label>Mode
+          <select id="privacyRegionMode">
+            <option value="ignore">Ignore</option>
+            <option value="anonymous">Anonymous only</option>
+            <option value="live-only">Live only / no memory</option>
+          </select>
+        </label>
+        <label>X %<input id="privacyRegionX" type="number" min="0" max="99" step="1" value="0"></label>
+        <label>Y %<input id="privacyRegionY" type="number" min="0" max="99" step="1" value="0"></label>
+        <label>Width %<input id="privacyRegionWidth" type="number" min="1" max="100" step="1" value="25"></label>
+        <label>Height %<input id="privacyRegionHeight" type="number" min="1" max="100" step="1" value="25"></label>
+        <button class="hud-button" type="submit">Add region</button>
+      </form>
+
+      <div id="privacyRegionList" class="privacy-region-list">
+        <div class="agent-empty">No sensitive regions configured for this room.</div>
+      </div>
+
+      <div class="privacy-mode-legend">
+        <span><b>IGNORE</b> suppresses observations.</span>
+        <span><b>ANONYMOUS</b> preserves presence but strips identity.</span>
+        <span><b>LIVE ONLY</b> permits live state but blocks retention/learning.</span>
       </div>
     </article>
   </section>
