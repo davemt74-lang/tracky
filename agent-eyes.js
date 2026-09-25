@@ -1132,6 +1132,11 @@ async function persistSpatialMemory(force = false) {
 }
 
 function updateSpatialMemory(now = Date.now()) {
+  const priorProposalKeys = new Set(
+    runtime.spatialMemory.proposals
+      .filter((proposal) => proposal.status === 'proposed')
+      .map((proposal) => proposal.key)
+  );
   const sessionId = runtime.startedAt
     ? 'session-' + runtime.startedAt
     : 'session-' + Math.floor(now / 60000);
@@ -1143,6 +1148,25 @@ function updateSpatialMemory(now = Date.now()) {
     sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
     transitions: runtime.multiRoomEvents || []
   }, now);
+
+  for (const proposal of runtime.spatialMemory.proposals) {
+    if (
+      proposal.status === 'proposed' &&
+      !priorProposalKeys.has(proposal.key)
+    ) {
+      emit('spatial_memory.proposed', {
+        source: 'spatial-memory',
+        confidence: proposal.confidence,
+        data: {
+          key: proposal.key,
+          proposalType: proposal.type,
+          subjectId: proposal.subjectId,
+          targetId: proposal.targetId || null,
+          roomId: proposal.roomId || null
+        }
+      });
+    }
+  }
 
   const snapshot = spatialMemorySnapshot(runtime.spatialMemory);
   for (const listener of spatialMemoryListeners) listener(snapshot);
@@ -1216,6 +1240,16 @@ async function confirmSpatialMemoryProposal(key) {
     Date.now()
   );
   confirmedMemoryGraphEdge(resolved);
+  emit('spatial_memory.confirmed', {
+    source: 'spatial-memory',
+    confidence: resolved.confidence,
+    data: {
+      key: resolved.key,
+      proposalType: resolved.type,
+      subjectId: resolved.subjectId,
+      targetId: resolved.targetId || null
+    }
+  });
   await persistSpatialMemory(true);
   updatePhysicalWorldModel(Date.now());
   renderSpatialMemory();
@@ -1223,7 +1257,20 @@ async function confirmSpatialMemoryProposal(key) {
 }
 
 async function ignoreSpatialMemoryProposal(key) {
+  const proposal = runtime.spatialMemory.proposals.find((item) => item.key === key);
   ignoreMemoryProposal(runtime.spatialMemory, key, Date.now());
+  if (proposal) {
+    emit('spatial_memory.ignored', {
+      source: 'spatial-memory',
+      confidence: proposal.confidence,
+      data: {
+        key,
+        proposalType: proposal.type,
+        subjectId: proposal.subjectId,
+        targetId: proposal.targetId || null
+      }
+    });
+  }
   await persistSpatialMemory(true);
   renderSpatialMemory();
   return true;
