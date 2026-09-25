@@ -5096,6 +5096,237 @@ function renderMultiRoomWorld() {
   renderSelectedRoom(runtime.selectedGlobalRoomId);
 }
 
+
+function spatialEntityLabel(entityId) {
+  return runtime.spatialMemory.entities?.[entityId]?.label ||
+    runtime.sceneGraph.nodes?.[entityId]?.label ||
+    runtime.multiRoomWorld.objects?.[entityId]?.label ||
+    runtime.multiRoomWorld.participants?.[entityId]?.participantName ||
+    entityId;
+}
+
+function spatialTargetLabel(proposal) {
+  if (proposal.anchorLabel) return proposal.anchorLabel;
+  const room = runtime.environmentRooms.find((item) => item.id === proposal.roomId);
+  if (room) return room.name || room.id;
+  return runtime.sceneGraph.nodes?.[proposal.targetId]?.label ||
+    proposal.targetId ||
+    'location';
+}
+
+function renderSpatialMemoryFacts() {
+  ui.spatialMemoryFacts.replaceChildren();
+  const memory = runtime.spatialMemory;
+  const rows = [];
+
+  for (const [entityId, entry] of Object.entries(memory.expectedLocations || {})) {
+    const candidate = expectedLocationFor(memory, entityId);
+    if (!candidate) continue;
+    const confirmed = confirmedExpectedLocationFor(memory, entityId);
+    rows.push({
+      entityId,
+      label: spatialEntityLabel(entityId),
+      target: candidate.anchorLabel ||
+        runtime.environmentRooms.find((room) => room.id === candidate.roomId)?.name ||
+        candidate.targetId,
+      observations: candidate.observations,
+      sessions: candidate.sessions,
+      confidence: candidate.averageConfidence,
+      confirmed: Boolean(confirmed)
+    });
+  }
+
+  rows.sort((a,b) => (
+    Number(b.confirmed) - Number(a.confirmed) ||
+    b.observations - a.observations
+  ));
+
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent =
+      'Repeated physical-world observations will build expected-location and relationship evidence.';
+    ui.spatialMemoryFacts.append(empty);
+    return;
+  }
+
+  for (const item of rows.slice(0, 18)) {
+    const row = document.createElement('div');
+    row.className = 'spatial-memory-fact';
+    if (item.confirmed) row.classList.add('confirmed');
+
+    const copy = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = item.label + ' → ' + item.target;
+    meta.textContent = [
+      item.confirmed ? 'CONFIRMED EXPECTATION' : 'LEARNING',
+      item.observations + ' observations',
+      item.sessions + ' sessions',
+      Math.round(Number(item.confidence || 0) * 100) + '%'
+    ].join(' · ');
+    copy.append(name, meta);
+
+    row.append(copy);
+    ui.spatialMemoryFacts.append(row);
+  }
+}
+
+function proposalDescription(proposal) {
+  if (proposal.type === 'expected-location') {
+    return spatialEntityLabel(proposal.subjectId) +
+      ' is usually at ' + spatialTargetLabel(proposal);
+  }
+  if (proposal.type === 'stable-relationship') {
+    return spatialEntityLabel(proposal.subjectId) + ' · ' +
+      String(proposal.predicate || 'related-to') + ' · ' +
+      spatialEntityLabel(proposal.targetId);
+  }
+  if (proposal.type === 'circulation-pattern') {
+    return spatialEntityLabel(proposal.subjectId) +
+      ' repeatedly moves ' +
+      String(proposal.fromRoomId || '—') + ' → ' +
+      String(proposal.toRoomId || '—');
+  }
+  return proposal.type;
+}
+
+function renderSpatialMemoryProposals() {
+  ui.spatialProposalList.replaceChildren();
+  const proposals = runtime.spatialMemory.proposals
+    .filter((proposal) => proposal.status === 'proposed')
+    .sort((a,b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+
+  ui.spatialProposalStatus.textContent = proposals.length + ' pending';
+
+  if (!proposals.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent = 'No learned physical facts are waiting for confirmation.';
+    ui.spatialProposalList.append(empty);
+    return;
+  }
+
+  for (const proposal of proposals) {
+    const row = document.createElement('article');
+    row.className = 'spatial-proposal-row';
+
+    const copy = document.createElement('div');
+    const type = document.createElement('small');
+    const summary = document.createElement('strong');
+    const meta = document.createElement('span');
+    type.textContent = proposal.type;
+    summary.textContent = proposalDescription(proposal);
+    meta.textContent = [
+      Math.round(Number(proposal.confidence || 0) * 100) + '% confidence',
+      proposal.evidence?.observations
+        ? proposal.evidence.observations + ' observations'
+        : null,
+      proposal.evidence?.sessions
+        ? proposal.evidence.sessions + ' sessions'
+        : null,
+      proposal.evidence?.count
+        ? proposal.evidence.count + ' transitions'
+        : null
+    ].filter(Boolean).join(' · ');
+    copy.append(type, summary, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'spatial-proposal-actions';
+
+    const confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.className = 'agent-entity-action';
+    confirm.textContent = 'Confirm';
+    confirm.addEventListener('click', () => void confirmSpatialMemoryProposal(proposal.key));
+
+    const ignore = document.createElement('button');
+    ignore.type = 'button';
+    ignore.className = 'agent-entity-action';
+    ignore.textContent = 'Ignore';
+    ignore.addEventListener('click', () => void ignoreSpatialMemoryProposal(proposal.key));
+
+    actions.append(confirm, ignore);
+    row.append(copy, actions);
+    ui.spatialProposalList.append(row);
+  }
+}
+
+function renderSpatialJourneys() {
+  ui.spatialJourneyList.replaceChildren();
+  const entities = Object.values(runtime.spatialMemory.entities || {})
+    .filter((entity) => entity.history?.length)
+    .sort((a,b) => Number(b.lastObservedAt || 0) - Number(a.lastObservedAt || 0))
+    .slice(0, 12);
+
+  if (!entities.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent =
+      'Object and participant journeys will appear after repeated observations.';
+    ui.spatialJourneyList.append(empty);
+    ui.spatialJourneyStatus.textContent = 'No history';
+    return;
+  }
+
+  for (const entity of entities) {
+    const journey = entityJourney(runtime.spatialMemory, entity.id, 5);
+    const row = document.createElement('article');
+    row.className = 'spatial-journey-row';
+
+    const name = document.createElement('strong');
+    name.textContent = entity.label || entity.id;
+    row.append(name);
+
+    const path = document.createElement('div');
+    path.className = 'spatial-journey-path';
+
+    for (const step of journey) {
+      const chip = document.createElement('span');
+      const room = runtime.environmentRooms.find((item) => item.id === step.roomId);
+      chip.textContent = [
+        room?.name || step.roomId || 'unknown',
+        step.anchorLabel || step.anchorId || null,
+        step.holderParticipantId
+          ? 'held by ' + spatialEntityLabel('PERSON:' + step.holderParticipantId)
+          : null
+      ].filter(Boolean).join(' · ');
+      path.append(chip);
+    }
+
+    row.append(path);
+    ui.spatialJourneyList.append(row);
+  }
+
+  ui.spatialJourneyStatus.textContent = entities.length + ' recent entities';
+}
+
+function renderSpatialMemory() {
+  const snapshot = spatialMemorySnapshot(runtime.spatialMemory);
+  const pending = snapshot.proposals.filter((proposal) => proposal.status === 'proposed');
+  const expectedCount = Object.values(snapshot.expectedLocations || {})
+    .filter((entry) => Object.keys(entry.candidates || {}).length).length;
+  const routeCount = Object.keys(snapshot.circulation || {}).length;
+
+  ui.spatialMemoryEntityCount.textContent =
+    String(Object.keys(snapshot.entities || {}).length);
+  ui.spatialExpectedCount.textContent = String(expectedCount);
+  ui.spatialRouteCount.textContent = String(routeCount);
+  ui.spatialProposalCount.textContent = String(pending.length);
+  ui.spatialMemoryStatus.textContent = pending.length
+    ? pending.length + ' review'
+    : 'Learning';
+  ui.spatialMemoryTopStatus.textContent = pending.length
+    ? pending.length + ' proposals'
+    : Object.keys(snapshot.entities || {}).length
+      ? 'Memory active'
+      : 'Learning';
+
+  renderSpatialMemoryFacts();
+  renderSpatialMemoryProposals();
+  renderSpatialJourneys();
+}
+
 function renderCameraNetwork() {
   ui.cameraRegistryList.replaceChildren();
 
@@ -5743,6 +5974,7 @@ function renderSignals() {
 function renderAll() {
   renderEnvironmentPanel();
   renderMultiRoomWorld();
+  renderSpatialMemory();
   renderEnvironmentMapping();
   renderPhysicalWorld();
   renderCameraNetwork();
