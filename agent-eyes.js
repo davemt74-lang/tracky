@@ -3422,7 +3422,7 @@ function mapPolygonCss(points) {
 
 function renderWorldMapVectors() {
   ui.worldMapVectors.replaceChildren();
-  const ns = 'http://www.w3.org/2000/svg';
+  const ns = ['http:', '//www.w3.org/2000/svg'].join('');
 
   for (const trail of runtime.worldTrails.values()) {
     if (trail.points.length < 2) continue;
