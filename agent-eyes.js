@@ -3223,6 +3223,247 @@ function renderSceneZones() {
   ui.sceneZoneStatus.textContent = sceneState.zones.length + ' zones';
 }
 
+function cameraStatusFor(camera) {
+  if (camera.primary) return runtime.running ? 'online' : 'offline';
+  return runtime.cameraStatuses.get(camera.id) || 'offline';
+}
+
+function renderCameraNetwork() {
+  ui.cameraRegistryList.replaceChildren();
+
+  const cameras = runtime.cameraConfigs;
+  const onlineCount = cameras.filter(
+    (camera) => cameraStatusFor(camera) === 'online'
+  ).length;
+
+  ui.cameraNetworkStatus.textContent =
+    cameras.length + ' configured · ' + onlineCount + ' online';
+
+  if (!cameras.length) {
+    const empty = document.createElement('div');
+    empty.className = 'agent-empty';
+    empty.textContent =
+      'Start Agent Eyes to register the main camera, then add secondary room sensors.';
+    ui.cameraRegistryList.append(empty);
+  }
+
+  for (const camera of cameras) {
+    const card = document.createElement('article');
+    card.className = 'camera-registry-card';
+    if (camera.primary) card.classList.add('primary-camera');
+
+    const head = document.createElement('div');
+    head.className = 'camera-registry-card-head';
+
+    const title = document.createElement('div');
+    const name = document.createElement('strong');
+    const meta = document.createElement('span');
+    name.textContent = camera.name;
+    meta.textContent = [
+      camera.id,
+      camera.roomId,
+      camera.primary ? 'MAIN' : 'SECONDARY',
+      camera.enabled ? 'ENABLED' : 'DISABLED'
+    ].join(' · ');
+    title.append(name, meta);
+
+    const status = document.createElement('b');
+    const statusValue = cameraStatusFor(camera);
+    status.className = 'camera-state ' + statusValue;
+    status.textContent = statusValue.toUpperCase();
+
+    head.append(title, status);
+
+    const details = document.createElement('div');
+    details.className = 'camera-registry-details';
+
+    const calibration = document.createElement('span');
+    calibration.textContent = cameraCalibrationValid(camera)
+      ? '4-point calibration valid'
+      : 'calibration invalid';
+
+    const coverage = cameraCoveragePolygon(camera);
+    const coverageText = document.createElement('span');
+    coverageText.textContent = coverage
+      .map((point) => (
+        Math.round(point.x * 100) + ',' + Math.round(point.y * 100)
+      ))
+      .join(' → ');
+
+    const device = document.createElement('span');
+    device.textContent = cameraDeviceLabel(camera.deviceId);
+
+    details.append(calibration, coverageText, device);
+
+    const actions = document.createElement('div');
+    actions.className = 'camera-registry-actions';
+
+    const calibrate = document.createElement('button');
+    calibrate.type = 'button';
+    calibrate.className = 'agent-entity-action';
+    calibrate.textContent = 'Calibrate';
+    calibrate.addEventListener('click', () => openCameraCalibration(camera.id));
+    actions.append(calibrate);
+
+    if (!camera.primary) {
+      const main = document.createElement('button');
+      main.type = 'button';
+      main.className = 'agent-entity-action';
+      main.textContent = 'Use as main';
+      main.addEventListener('click', () => void makeCameraPrimary(camera.id));
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'agent-entity-action';
+      toggle.textContent = camera.enabled ? 'Disable' : 'Enable';
+      toggle.addEventListener('click', () => void toggleCameraEnabled(camera.id));
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'agent-entity-action';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => void removeCamera(camera.id));
+
+      actions.append(main, toggle, remove);
+    }
+
+    card.append(head, details, actions);
+    ui.cameraRegistryList.append(card);
+  }
+
+  const configuredSecondaries = cameras.filter(
+    (camera) => !camera.primary && camera.enabled
+  ).length;
+  ui.fusionStatus.textContent = configuredSecondaries
+    ? onlineCount + ' cameras online'
+    : 'Single camera';
+}
+
+function mapPolygonCss(points) {
+  return points
+    .map((point) => (
+      (point.x * 100).toFixed(2) + '% ' +
+      (point.y * 100).toFixed(2) + '%'
+    ))
+    .join(', ');
+}
+
+function renderWorldMap() {
+  ui.worldMapCoverage.replaceChildren();
+  ui.worldMapEntities.replaceChildren();
+
+  for (const camera of runtime.cameraConfigs) {
+    if (!camera.enabled || !cameraCalibrationValid(camera)) continue;
+
+    const polygon = document.createElement('div');
+    polygon.className = 'world-camera-coverage';
+    if (camera.primary) polygon.classList.add('primary');
+    if (cameraStatusFor(camera) !== 'online') polygon.classList.add('offline');
+    polygon.style.clipPath = 'polygon(' + mapPolygonCss(cameraCoveragePolygon(camera)) + ')';
+
+    const label = document.createElement('span');
+    const points = cameraCoveragePolygon(camera);
+    const center = {
+      x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+      y: points.reduce((sum, point) => sum + point.y, 0) / points.length
+    };
+    label.textContent = camera.id;
+    label.style.left = (center.x * 100) + '%';
+    label.style.top = (center.y * 100) + '%';
+    polygon.append(label);
+    ui.worldMapCoverage.append(polygon);
+  }
+
+  for (const entity of runtime.fusionState.participants || []) {
+    const dot = document.createElement('div');
+    dot.className = 'world-entity participant ' +
+      (entity.participantId ? 'known' : 'unknown');
+    if (entity.overlap) dot.classList.add('overlap');
+    if (entity.status === 'last-known') dot.classList.add('last-known');
+    if (entity.positionConflict) dot.classList.add('conflict');
+
+    dot.style.left = (entity.roomPosition.x * 100) + '%';
+    dot.style.top = (entity.roomPosition.y * 100) + '%';
+
+    const label = document.createElement('span');
+    label.textContent = [
+      entity.participantName || entity.id,
+      entity.cameraIds?.join('+'),
+      entity.positionConflict ? 'CALIBRATION CONFLICT' : null
+    ].filter(Boolean).join(' · ');
+    dot.append(label);
+
+    if (entity.participantId) {
+      const local = runtime.tracks.find(
+        (track) => track.participantId === entity.participantId
+      );
+      if (local) {
+        dot.tabIndex = 0;
+        dot.setAttribute('role', 'button');
+        dot.addEventListener('click', () => openEvidenceInspector(local.id));
+      }
+    }
+
+    ui.worldMapEntities.append(dot);
+  }
+
+  for (const object of runtime.fusionState.objects || []) {
+    const dot = document.createElement('div');
+    dot.className = 'world-entity object';
+    if (object.overlap) dot.classList.add('overlap');
+    if (object.status === 'last-known') dot.classList.add('last-known');
+
+    dot.style.left = (object.roomPosition.x * 100) + '%';
+    dot.style.top = (object.roomPosition.y * 100) + '%';
+
+    const label = document.createElement('span');
+    label.textContent = [
+      object.id,
+      object.label,
+      object.cameraIds?.join('+')
+    ].filter(Boolean).join(' · ');
+    dot.append(label);
+
+    const primaryId = primaryCameraConfig()?.id;
+    const primaryObservation = object.observations?.find(
+      (observation) => observation.cameraId === primaryId
+    );
+    if (primaryObservation) {
+      dot.tabIndex = 0;
+      dot.setAttribute('role', 'button');
+      dot.addEventListener('click', () => (
+        openObjectEvidenceInspector(primaryObservation.localObjectId)
+      ));
+    }
+
+    ui.worldMapEntities.append(dot);
+  }
+
+  const onlineCount = runtime.cameraConfigs.filter(
+    (camera) => cameraStatusFor(camera) === 'online'
+  ).length;
+  const people = runtime.fusionState.participants || [];
+  const objects = runtime.fusionState.objects || [];
+  const overlaps =
+    people.filter((entity) => entity.overlap).length +
+    objects.filter((object) => object.overlap).length;
+
+  ui.worldCameraCount.textContent = String(onlineCount);
+  ui.worldPersonCount.textContent = String(
+    people.filter((entity) => entity.status !== 'last-known').length
+  );
+  ui.worldObjectCount.textContent = String(
+    objects.filter((object) => object.status !== 'last-known').length
+  );
+  ui.worldOverlapCount.textContent = String(overlaps);
+
+  ui.worldMapStatus.textContent = onlineCount > 1
+    ? onlineCount + ' cameras fused'
+    : onlineCount === 1
+      ? 'Single camera'
+      : 'Offline';
+}
+
 function renderSceneIntelligence() {
   const snapshot = sceneStateSnapshot(sceneState);
   const activeActivities = snapshot.activeEpisodes.filter(
@@ -3381,6 +3622,17 @@ function eventLabel(event) {
         String(event.data?.objectLabel || event.data?.objectId || 'object');
     case 'transcript.turn':
       return (event.participantName || 'Unknown speaker') + ': ' + String(event.data?.text || '');
+    case 'camera.status':
+      return String(event.data?.cameraName || event.data?.cameraId || 'Camera') +
+        ' → ' + String(event.data?.status || '');
+    case 'camera.handoff':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' camera handoff · ' +
+        String(event.data?.fromCameraId || '—') + ' → ' +
+        String(event.data?.toCameraId || '—');
+    case 'camera.overlap_fused':
+      return (event.participantName || event.participantId || 'Participant') +
+        ' fused across ' + String(event.data?.cameraIds?.join(' + ') || 'cameras');
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -3481,7 +3733,8 @@ function renderRoomState() {
   const snapshot = roomStateSnapshot(roomState);
   const world = {
     room: snapshot,
-    scene: sceneStateSnapshot(sceneState)
+    scene: sceneStateSnapshot(sceneState),
+    cameraFusion: runtime.fusionState
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
@@ -3529,6 +3782,8 @@ function renderSignals() {
 }
 
 function renderAll() {
+  renderCameraNetwork();
+  renderWorldMap();
   renderParticipants();
   renderObjects();
   renderRadar();
@@ -3814,7 +4069,8 @@ function stopRoomAudio() {
 async function copySnapshot() {
   const text = JSON.stringify({
     room: roomStateSnapshot(roomState),
-    scene: sceneStateSnapshot(sceneState)
+    scene: sceneStateSnapshot(sceneState),
+    cameraFusion: runtime.fusionState
   }, null, 2);
   try {
     await navigator.clipboard.writeText(text);
