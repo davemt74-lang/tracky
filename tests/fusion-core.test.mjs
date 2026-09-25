@@ -120,3 +120,15 @@ test('anonymous overlap cluster id stays anchored to stable sorted observation i
   assert.equal(entities[0].id,'U:CAM01:T1');
   assert.deepEqual(entities[0].observationIds,['CAM01:T1','CAM02:T9']);
 });
+
+
+test('simultaneous anonymous overlap supports known identity without creating duplicate person', () => {
+  const entities=fuseParticipantObservations([
+    person('CAM01','T1',.45,'p1',.95,.85),
+    person('CAM02','T9',.48,null,.0,.88)
+  ]);
+  assert.equal(entities.length,1);
+  assert.equal(entities[0].participantId,'p1');
+  assert.deepEqual(new Set(entities[0].cameraIds),new Set(['CAM01','CAM02']));
+  assert.deepEqual(entities[0].spatialSupportCameraIds,['CAM02']);
+});
