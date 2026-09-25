@@ -24,7 +24,8 @@ export function createMultiRoomWorld() {
     objects: {},
     transitions: [],
     conversations: {},
-    topologyProposals: []
+    topologyProposals: [],
+    objectAliases: {}
   };
 }
 
@@ -75,7 +76,8 @@ export function reconcileParticipantLocations(state, roomStates, topology, now =
           presence: 'uncertain',
           confidence: Math.min(0.49, best.entity.confidence),
           lastObservedAt: now,
-          identityAuthority: known ? 'enrolled-participant' : 'anonymous'
+          identityAuthority: known ? 'enrolled-participant' : 'anonymous',
+          localRoomEntityId: best.entity.id
         };
         events.push({
           type: 'participant.location_uncertain',
@@ -159,7 +161,8 @@ export function reconcileParticipantLocations(state, roomStates, topology, now =
       cameraIds: best.entity.cameraIds || [],
       lastObservedAt: now,
       firstObservedAt: previous?.firstObservedAt || now,
-      identityAuthority: known ? 'enrolled-participant' : 'anonymous'
+      identityAuthority: known ? 'enrolled-participant' : 'anonymous',
+      localRoomEntityId: best.entity.id
     };
 
     if (!previous || previous.presence === 'absent') {
@@ -229,7 +232,8 @@ export function reconcileObjectLocations(state, roomStates, options = {}, now = 
   const seenIds = new Set();
 
   for (const { roomId, object } of observations) {
-    let key = object.id;
+    const aliasKey = roomId + ':' + object.id;
+    let key = state.objectAliases[aliasKey] || object.id;
     let previous = state.objects[key];
 
     if (!previous && options.custodyByLocalObjectId) {
@@ -246,12 +250,14 @@ export function reconcileObjectLocations(state, roomStates, options = {}, now = 
           if (candidate) {
             key = candidate.id;
             previous = candidate;
+            state.objectAliases[aliasKey] = key;
           }
         }
       }
     }
 
     seenIds.add(key);
+    state.objectAliases[aliasKey] = key;
     const custody = options.custodyByLocalObjectId?.[roomId + ':' + object.id] || null;
     const changedRoom = previous?.roomId && previous.roomId !== roomId;
 
@@ -265,6 +271,7 @@ export function reconcileObjectLocations(state, roomStates, options = {}, now = 
       roomPosition: object.roomPosition,
       cameraIds: object.cameraIds || [],
       holderParticipantId: custody?.participantId || previous?.holderParticipantId || null,
+      localRoomObjectId: object.id,
       lastObservedAt: now,
       firstObservedAt: previous?.firstObservedAt || now
     };
@@ -364,6 +371,7 @@ export function multiRoomSnapshot(state) {
     objects: state.objects,
     transitions: state.transitions.slice(-50),
     conversations: state.conversations,
-    topologyProposals: state.topologyProposals
+    topologyProposals: state.topologyProposals,
+    objectAliases: state.objectAliases
   }));
 }
