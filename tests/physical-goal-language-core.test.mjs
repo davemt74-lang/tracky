@@ -55,6 +55,12 @@ test('management language supports list pause resume and remove',()=>{
  assert.equal(interpretPhysicalGoalCommand('Resume goal G1',context(),goals).intent,'resume');
  assert.equal(interpretPhysicalGoalCommand('Remove goal Keys stay in Office',context(),goals).goal.id,'G1');
 });
+test('management language supports manual routine run',()=>{
+ const goals=[{id:'G2',label:'Office exit check',type:'routine',enabled:true}];
+ const r=interpretPhysicalGoalCommand('Run routine Office exit check',context(),goals,1000);
+ assert.equal(r.status,'ready');assert.equal(r.intent,'run');assert.equal(r.goal.id,'G2');
+});
+
 test('unsupported language is not coerced into a goal',()=>{
  assert.equal(interpretPhysicalGoalCommand('Turn off the lights',context(),[],1000).status,'unsupported');
 });
