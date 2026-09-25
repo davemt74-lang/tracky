@@ -1515,6 +1515,7 @@ async function scanRoom() {
     emitTrackTransitions(previousTracks, runtime.tracks, now);
     emitObjectTransitions(previousObjects, runtime.objects);
     synchronizeObjectInteractions(now);
+    updateSceneIntelligence(Date.now());
     drawOverlay();
     renderAll();
 
@@ -3220,9 +3221,16 @@ ui.cameraSelect.addEventListener('change', () => {
 ui.copyState.addEventListener('click', () => void copySnapshot());
 ui.closeInspector.addEventListener('click', closeEvidenceInspector);
 ui.closeObjectInspector.addEventListener('click', closeObjectEvidenceInspector);
+ui.closeSceneInspector.addEventListener('click', closeSceneEvidenceInspector);
+ui.sceneZoneForm.addEventListener('submit', (event) => void addSceneZone(event));
+ui.clearSceneMemory.addEventListener('click', () => void clearSavedSceneMemory());
 ui.poseOverlay.addEventListener('change', drawOverlay);
 ui.attentionOverlay.addEventListener('change', drawOverlay);
 ui.objectOverlay.addEventListener('change', drawOverlay);
+ui.sceneOverlay.addEventListener('change', () => {
+  renderSceneZones();
+  drawOverlay();
+});
 window.addEventListener('resize', () => {
   resizeOverlay();
   drawOverlay();
@@ -3230,6 +3238,7 @@ window.addEventListener('resize', () => {
 window.addEventListener('beforeunload', stopPerception);
 
 await reloadParticipants();
+await initializeSceneMemory();
 renderAll();
 renderEventFeed();
 renderRoomState();
