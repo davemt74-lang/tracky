@@ -144,7 +144,8 @@ export function fuseUnknownCluster(cluster = []) {
     .sort();
 
   return {
-    id: 'U:' + ids.join('|'),
+    id: 'U:' + ids[0],
+    observationIds: ids,
     participantId: null,
     participantName: null,
     identityAuthority: 'anonymous-spatial-overlap',
