@@ -222,7 +222,7 @@ export class MultiCameraSensorRuntime {
 
       tracks = await resolveLocalIdentities(
         tracks,
-        await this.getParticipants()
+        await this.getParticipants(session.camera)
       );
 
       const liveIds = new Set(tracks.map((track) => track.id));

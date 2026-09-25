@@ -1,4 +1,8 @@
 import { normalizeLandmark } from './environment-core.js';
+import {
+  defaultObservationPolicy,
+  normalizeObservationPolicy
+} from './privacy-policy-core.js';
 
 const DB_NAME = 'tracky-environment-v1';
 const DB_VERSION = 1;
@@ -222,18 +226,7 @@ export async function listEnvironmentHistory(roomId = null, limit = 50) {
 }
 
 export function defaultEnvironmentPolicy(roomId) {
-  return {
-    roomId,
-    retainPrimaryImages: true,
-    retainAlternateViewImages: true,
-    retainComparisonImages: false,
-    retainChangeEvidenceImages: false,
-    allowParticipantIdentity: true,
-    allowTranscriptStorage: true,
-    analyzeScreenContent: false,
-    sensitiveRegions: [],
-    updatedAt: Date.now()
-  };
+  return defaultObservationPolicy(roomId);
 }
 
 export async function loadEnvironmentPolicy(roomId) {
@@ -244,11 +237,11 @@ export async function loadEnvironmentPolicy(roomId) {
 }
 
 export async function saveEnvironmentPolicy(policy) {
-  const record = {
+  const record = normalizeObservationPolicy({
     ...defaultEnvironmentPolicy(policy.roomId),
     ...policy,
     updatedAt: Date.now()
-  };
+  }, policy.roomId);
   await action(POLICIES, 'readwrite', async (tx) => {
     tx.objectStore(POLICIES).put(record);
   });

@@ -6,6 +6,7 @@ import {
   normalizeLandmark,
   suggestRoomMapping
 } from './environment-core.js';
+import { pixelMaskRect } from './privacy-policy-core.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,6 +32,13 @@ export function captureEnvironmentFrame(video, options = {}) {
   canvas.height = dimensions.height;
   const context = canvas.getContext('2d', { willReadFrequently: true });
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  for (const region of options.maskRegions || []) {
+    const rect = pixelMaskRect(region, canvas.width, canvas.height);
+    context.fillStyle = '#000';
+    context.fillRect(rect.x, rect.y, rect.width, rect.height);
+  }
+
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const fingerprint = fingerprintImageData(imageData);
   const quality = baselineQuality({
