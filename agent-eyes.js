@@ -1759,6 +1759,24 @@ function renderEvidenceInspector() {
     'Requires speaking + likely attention target + shared conversation group.'
   );
 
+  const objectInteractions = [...runtime.activeInteractions.values()]
+    .filter((interaction) => interaction.participantTrackId === track.id)
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0));
+
+  appendInspectorSignal(
+    'OBJECT INTERACTIONS',
+    objectInteractions.length
+      ? objectInteractions
+          .slice(0, 3)
+          .map((interaction) => interaction.type + ' ' + interaction.objectLabel)
+          .join(' · ')
+      : 'none established',
+    objectInteractions[0]?.confidence || 0,
+    objectInteractions.length
+      ? 'Person↔object conclusions are fused from persistent object tracks, pose landmarks, hand evidence, and relative motion.'
+      : 'No current person↔object relationship passes the semantic confidence gates.'
+  );
+
   const points = keypointMap(track.keypoints || []);
   ui.inspectorLandmarks.replaceChildren();
   ui.inspectorLandmarkCount.textContent = points.size + ' visible';
@@ -1790,6 +1808,7 @@ function renderEvidenceInspector() {
       totalSeconds: voice.totalSeconds
     },
     behavior,
+    objectInteractions,
     conversationGroup: track.conversationGroupId || null,
     roomPosition: roomPosition(track),
     landmarkCount: points.size
@@ -2151,6 +2170,32 @@ function renderRadar() {
         openEvidenceInspector(track.id);
       }
     });
+    ui.radarTracks.append(dot);
+  }
+
+  for (const object of runtime.objects) {
+    if (!object.stable || object.status === 'reacquiring') continue;
+
+    const dot = document.createElement('div');
+    dot.className = 'radar-track object';
+    if (activeInteractionForObject(object.id)) dot.classList.add('interacting');
+    dot.style.left = (Number(object.cx || 0.5) * 100) + '%';
+    dot.style.top = (Number(object.cy || 0.5) * 100) + '%';
+    dot.tabIndex = 0;
+    dot.setAttribute('role', 'button');
+
+    const label = document.createElement('span');
+    label.textContent = object.id + ' · ' + object.label;
+    dot.append(label);
+
+    dot.addEventListener('click', () => openObjectEvidenceInspector(object.id));
+    dot.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openObjectEvidenceInspector(object.id);
+      }
+    });
+
     ui.radarTracks.append(dot);
   }
 }
