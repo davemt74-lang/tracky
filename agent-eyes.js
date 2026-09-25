@@ -477,6 +477,7 @@ const roomListeners = new Map();
 const spatialMemoryListeners = new Set();
 const attentionListeners = new Set();
 const anomalyListeners = new Set();
+const worldQueryListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -572,7 +573,9 @@ const runtime = {
   perceptionBudgetSignature: null,
   anomalyState: createAnomalyState(),
   anomalyLastSavedAt: 0,
-  anomalyTopSignature: null
+  anomalyTopSignature: null,
+  lastWorldQuery: null,
+  recentWorldQueries: []
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -738,6 +741,79 @@ function anomalyAttentionItems() {
       evidence: anomaly.evidence
     }
   }));
+}
+
+
+function worldQueryContext() {
+  return {
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    rooms: runtime.environmentRooms,
+    roomPolicies: runtime.roomPolicies,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    sceneChanges: sceneState.changes.slice(),
+    episodes: sceneState.episodes.slice(),
+    anomalies: anomalySnapshot(runtime.anomalyState)
+  };
+}
+
+async function initializeWorldQueries() {
+  try {
+    runtime.recentWorldQueries = await listWorldQueries(25);
+  } catch (error) {
+    console.error('Could not load world query history', error);
+    runtime.recentWorldQueries = [];
+  }
+  renderWorldQuery();
+}
+
+async function runPhysicalWorldQuery(query) {
+  const answer = answerPhysicalWorldQuery(
+    query,
+    worldQueryContext(),
+    Date.now()
+  );
+  runtime.lastWorldQuery = answer;
+
+  try {
+    const saved = await saveWorldQuery(query, answer);
+    runtime.recentWorldQueries = [
+      saved,
+      ...runtime.recentWorldQueries.filter((item) => item.id !== saved.id)
+    ].slice(0, 25);
+  } catch (error) {
+    console.error('Could not save world query', error);
+  }
+
+  for (const listener of worldQueryListeners) listener(copySerializable(answer));
+  window.dispatchEvent(new CustomEvent('tracky:world-query', {
+    detail: copySerializable(answer)
+  }));
+  emit('world_query.answered', {
+    source: 'world-query',
+    confidence: answer.confidence,
+    data: {
+      intent: answer.intent,
+      status: answer.status,
+      summary: answer.summary
+    }
+  });
+  renderWorldQuery();
+  return copySerializable(answer);
+}
+
+async function clearWorldQueryHistory() {
+  try {
+    await clearWorldQueries();
+    runtime.recentWorldQueries = [];
+    renderWorldQuery();
+    return true;
+  } catch (error) {
+    console.error('Could not clear world query history', error);
+    return false;
+  }
 }
 
 function updateAnomalyAwareness(now = Date.now()) {
@@ -1187,6 +1263,22 @@ window.TrackyAgentEyes = Object.freeze({
   getProactiveAwareness() {
     return copySerializable(proactiveAwarenessSummary(runtime.anomalyState));
   },
+  queryPhysicalWorld(query) {
+    return runPhysicalWorldQuery(query);
+  },
+  getWorldTimeline(options = {}) {
+    return copySerializable(buildWorldTimeline(worldQueryContext(), options));
+  },
+  getWorldEvidence(entityId) {
+    return copySerializable(buildEvidenceBundle(
+      entityId,
+      worldQueryContext(),
+      Date.now()
+    ));
+  },
+  getRecentWorldQueries() {
+    return copySerializable(runtime.recentWorldQueries);
+  },
   acknowledgeAnomaly(signature) {
     return acknowledgeActiveAnomaly(signature);
   },
@@ -1256,6 +1348,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeAnomalies(listener) {
     anomalyListeners.add(listener);
     return () => anomalyListeners.delete(listener);
+  },
+  subscribeWorldQueries(listener) {
+    worldQueryListeners.add(listener);
+    return () => worldQueryListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
