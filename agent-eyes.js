@@ -1118,11 +1118,21 @@ function physicalGoalContextFromAgent(agentContext, options = {}, now = Date.now
     rooms.map((room) => [room.id, roomCameraCoverageConfidence(room.id)])
   );
   const roomObservability = Object.fromEntries(
-    rooms.map((room) => [
-      room.id,
-      policyForRoom(room.id).allowVisualObservation !== false &&
-      Number(roomCoverageConfidence[room.id] || 0) >= 0.85
-    ])
+    rooms.map((room) => {
+      const policy = policyForRoom(room.id);
+      const hasParticipantBlindSpot = (policy.sensitiveRegions || []).some((region) => (
+        region.enabled !== false &&
+        region.mode === 'ignore' &&
+        (region.appliesTo || []).includes('participant')
+      ));
+      return [
+        room.id,
+        policy.allowVisualObservation !== false &&
+        policy.allowAnonymousTracking !== false &&
+        !hasParticipantBlindSpot &&
+        Number(roomCoverageConfidence[room.id] || 0) >= 0.85
+      ];
+    })
   );
 
   return {
