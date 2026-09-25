@@ -397,6 +397,18 @@ export function observeSpatialMemory(state, input = {}, now = Date.now()) {
       edge.state === 'contradicted' ||
       edge.state === 'user-confirmed'
     ) continue;
+
+    const relationEvidenceKey = observationKey({
+      entityId: edge.subjectId,
+      anchorId: edge.objectId,
+      relation: edge.predicate
+    });
+    if (
+      now - Number(state.lastEvidenceAt[relationEvidenceKey] || 0) <
+      MIN_EVIDENCE_INTERVAL_MS
+    ) continue;
+    state.lastEvidenceAt[relationEvidenceKey] = now;
+
     recordRelationshipEvidence(state, {
       subjectId: edge.subjectId,
       predicate: edge.predicate,
