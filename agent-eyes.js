@@ -582,7 +582,9 @@ window.TrackyAgentEyes = Object.freeze({
       physicalWorld: worldStateSnapshot(runtime.physicalWorld),
       topology: copySerializable(runtime.worldTopology),
       multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-      spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
+      spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+      observationPolicies: copySerializable(runtime.roomPolicies),
+      privacyStats: copySerializable(runtime.privacyStats)
     };
   },
   getEnvironmentState() {
@@ -781,6 +783,8 @@ async function reloadEnvironmentRooms() {
   runtime.roomPolicies = Object.fromEntries(policies);
 
   runtime.worldTopology = buildWorldTopology(runtime.environmentRooms);
+  const activeRoomId = primaryCameraConfig()?.roomId || roomState.roomId || 'ROOM01';
+  roomState.privacy = privacySummary(policyForRoom(activeRoomId));
   renderEnvironmentPanel();
   renderMultiRoomWorld();
   renderPrivacyPolicy();
@@ -2283,8 +2287,16 @@ async function startSecondaryCameras() {
       !camera.enabled ||
       camera.primary ||
       !camera.deviceId ||
-      camera.deviceId === primary?.deviceId
+      camera.deviceId === primary?.deviceId ||
+      !policyForRoom(camera.roomId).allowVisualObservation
     ) {
+      if (
+        camera.enabled &&
+        !camera.primary &&
+        !policyForRoom(camera.roomId).allowVisualObservation
+      ) {
+        emitCameraStatus(camera.id, 'privacy-disabled');
+      }
       continue;
     }
 
@@ -2694,6 +2706,16 @@ function facePhoto(track) {
 }
 
 async function resolveIdentity(track, excludedParticipantIds) {
+  if (!policyForRoom(primaryCameraConfig()?.roomId).allowParticipantIdentity) {
+    return {
+      ...track,
+      participantId: null,
+      participantName: null,
+      identitySource: null,
+      similarity: 0,
+      status: track.status === 'matched' ? 'body-detected' : track.status
+    };
+  }
   if (!track.embedding || track.participantId) return track;
 
   const blocked = new Set([
@@ -3364,6 +3386,30 @@ async function scanRoom() {
     !runtime.identityReady ||
     ui.video.readyState < 2
   ) {
+    scheduleScan();
+    return;
+  }
+
+  const activePolicy = policyForRoom(primaryCameraConfig()?.roomId);
+  if (!activePolicy.allowVisualObservation) {
+    runtime.faces = [];
+    runtime.bodies = [];
+    runtime.tracks = [];
+    runtime.objects = [];
+    runtime.rawObjects = [];
+    runtime.hands = [];
+    runtime.gestures = [];
+    runtime.activeInteractions.clear();
+    runtime.interactionCandidates.clear();
+    runtime.relationDistances.clear();
+    runtime.behaviorByTrack.clear();
+    const primaryId = primaryCameraConfig()?.id;
+    if (primaryId) runtime.cameraObservations.delete(primaryId);
+    updateCameraFusion(Date.now(), false);
+    drawOverlay();
+    renderAll();
+    ui.identityStatus.textContent = 'Disabled by privacy';
+    ui.objectStatus.textContent = 'Disabled by privacy';
     scheduleScan();
     return;
   }
@@ -5612,6 +5658,21 @@ function purgeRoomAfterPrivacyChange(roomId, policy) {
         source: 'privacy-anonymous'
       }));
     }
+    runtime.tracks = [];
+    runtime.faces = [];
+    runtime.bodies = [];
+    runtime.objects = [];
+    runtime.rawObjects = [];
+    runtime.hands = [];
+    runtime.gestures = [];
+    runtime.activeInteractions.clear();
+    runtime.interactionCandidates.clear();
+    runtime.relationDistances.clear();
+    runtime.behaviorByTrack.clear();
+    runtime.previousTrackIds.clear();
+    runtime.previousKnownByTrack.clear();
+    runtime.previousStatuses.clear();
+    runtime.previousGroups.clear();
     runtime.worldTrails.clear();
   }
 }
@@ -6301,6 +6362,9 @@ function eventLabel(event) {
     case 'spatial_memory.ignored':
       return 'Spatial memory proposal ignored · ' +
         String(event.data?.proposalType || 'physical fact');
+    case 'privacy.policy_changed':
+      return 'Privacy policy updated · ' +
+        String(event.data?.roomId || 'room');
     case 'sensor.status':
       return String(event.data?.sensor || 'sensor') + ' → ' + String(event.data?.status || '');
     default:
@@ -6409,7 +6473,9 @@ function renderRoomState() {
     topology: runtime.worldTopology,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
     roomVisibility: runtime.roomVisibility,
-    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory)
+    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
+    observationPolicies: copySerializable(runtime.roomPolicies),
+    privacyStats: copySerializable(runtime.privacyStats)
   };
   ui.stateJson.textContent = JSON.stringify(world, null, 2);
 
