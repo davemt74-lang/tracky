@@ -54,7 +54,7 @@ export function buildWorldWatchRuntimeContext(agentContext={},rooms=[]){
 export function buildAgentDeliveryRuntimeContext(input={},now=Date.now()){
   const current=input.deliveryContext||{};
   const activeRoomId=current.activeRoomId||runtimeActiveRoomId(input);
-  const taskMode=current.taskMode!=='general'
+  const taskMode=current.taskMode&&current.taskMode!=='general'
     ?current.taskMode
     :(input.activeTask?.mode||'general');
   return normalizeDeliveryContext({
