@@ -77,6 +77,11 @@ const requiredFiles = [
   'src/ground-truth-correction-core.js',
   'src/ground-truth-store.js',
   'src/operational-health-core.js',
+  'src/reliability-policy.js',
+  'src/governed-world-projection-core.js',
+  'src/runtime-reconciliation-core.js',
+  'src/ground-truth-runtime-core.js',
+  'src/ground-truth-runtime-controller.js',
   'src/anomaly-core.js'
 ];
 
@@ -144,6 +149,11 @@ const runtimeJs = [
   'src/ground-truth-correction-core.js',
   'src/ground-truth-store.js',
   'src/operational-health-core.js',
+  'src/reliability-policy.js',
+  'src/governed-world-projection-core.js',
+  'src/runtime-reconciliation-core.js',
+  'src/ground-truth-runtime-core.js',
+  'src/ground-truth-runtime-controller.js',
   'src/anomaly-core.js'
 ];
 
@@ -170,8 +180,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '2.6.0') {
-  fail('package.json version must be 2.6.0');
+if (packageJson.version !== '2.6.1') {
+  fail('package.json version must be 2.6.1');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -242,7 +252,12 @@ for (const file of [
   'src/ground-truth-core.js',
   'src/ground-truth-correction-core.js',
   'src/ground-truth-store.js',
-  'src/operational-health-core.js'
+  'src/operational-health-core.js',
+  'src/reliability-policy.js',
+  'src/governed-world-projection-core.js',
+  'src/runtime-reconciliation-core.js',
+  'src/ground-truth-runtime-core.js',
+  'src/ground-truth-runtime-controller.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -1172,7 +1187,9 @@ for (const symbol of [
   'normalizeGroundTruthCorrection',
   'appendGroundTruthCorrection',
   'interpretGroundTruthCorrection',
-  'activeGroundTruthCorrections'
+  'activeGroundTruthCorrections',
+  'revokeGroundTruthCorrection',
+  'groundTruthCorrectionHistory'
 ]) {
   if (!correctionCore.includes(symbol)) {
     fail('Ground truth correction core is missing required V2.6 interface: ' + symbol);
@@ -1223,6 +1240,76 @@ for (const boundary of [
   if (!operationalHealthCore.includes(boundary)) {
     fail('Operational health core is missing V2.6 boundary: ' + boundary);
   }
+}
+
+if (!/RELIABILITY_POLICY\.operationalHealth\.occupancyCoverage/.test(operationalHealthCore) ||
+    !/RELIABILITY_POLICY\.groundTruth\.persistenceThrottleMs/.test(read('agent-eyes.js'))) {
+  fail('V2.6.1 reliability thresholds must come from the centralized reliability policy');
+}
+for (const symbol of [
+  'buildGovernedSemanticProjection',
+  'retentionAllowedForProjectedEntity'
+]) {
+  if (!governedProjectionCore.includes(symbol)) {
+    fail('V2.6.1 governed projection is missing required interface: ' + symbol);
+  }
+}
+for (const boundary of [
+  'single-governed-semantic-projection',
+  'privacy-policy-authoritative',
+  'semantic-only',
+  'no-autonomous-physical-control'
+]) {
+  if (!governedProjectionCore.includes(boundary)) {
+    fail('V2.6.1 governed projection is missing boundary: ' + boundary);
+  }
+}
+for (const symbol of [
+  'groundTruthInputSignature',
+  'groundTruthPersistenceSignature',
+  'groundTruthPersistenceSnapshot',
+  'groundTruthSemanticSignature'
+]) {
+  if (!groundTruthRuntimeCore.includes(symbol)) {
+    fail('V2.6.1 ground-truth runtime core is missing: ' + symbol);
+  }
+}
+for (const symbol of [
+  'initializeGroundTruthRuntimeState',
+  'reconcileGroundTruthRuntimeState',
+  'groundTruthPersistencePlan',
+  'resetGroundTruthRuntimeState'
+]) {
+  if (!groundTruthRuntimeController.includes(symbol)) {
+    fail('V2.6.1 runtime controller is missing: ' + symbol);
+  }
+}
+if (!/reconciliationDue/.test(groundTruthRuntimeController) ||
+    !/consumeReconciliation/.test(groundTruthRuntimeController) ||
+    !/persistenceNeeded/.test(groundTruthRuntimeController)) {
+  fail('V2.6.1 runtime controller must own dirty/freshness reconciliation and persistence planning');
+}
+if (!/coverageCache/.test(operationalHealthCore) || !/clearCoverageCache/.test(operationalHealthCore)) {
+  fail('V2.6.1 operational health must cache calibrated room coverage geometry');
+}
+if (!/status:\['active','superseded','revoked'\]/.test(correctionCore) ||
+    !/revokeGroundTruthCorrection/.test(correctionCore) ||
+    !/groundTruthCorrectionHistory/.test(correctionCore)) {
+  fail('V2.6.1 correction lifecycle must support audit-preserving revocation');
+}
+if (!/ground-truth-canonical/.test(read('src/agent-context-core.js')) ||
+    !/ground-truth-canonical/.test(read('src/world-query-core.js'))) {
+  fail('V2.6.1 Agent context and physical-world queries must use canonical ground-truth reads');
+}
+if (!/reconcileGroundTruthRuntimeState/.test(agentEyes) ||
+    /buildGroundTruth\(/.test(agentEyes)) {
+  fail('V2.6.1 Agent Eyes must orchestrate the extracted ground-truth controller instead of owning reconciliation logic');
+}
+if (!/getGroundTruthCorrections/.test(agentEyes) || !/revokeGroundTruthCorrection/.test(agentEyes)) {
+  fail('V2.6.1 Agent API must expose correction history and revocation');
+}
+if (!fs.existsSync(path.join(root, 'tests/reliability-soak.test.mjs'))) {
+  fail('V2.6.1 must include the semantic reliability soak harness');
 }
 
 const agentEyes = read('agent-eyes.js');
@@ -1464,27 +1551,40 @@ if (!/tracky:ground-truth/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level V2.6 ground truth semantic changes');
 }
 
-if (!/activeRoomId: runtime\.running/.test(agentEyes)) {
-  fail('V2.6 must not assert configured room metadata as live ground truth while perception is stopped');
+const governedProjectionCore = read('src/governed-world-projection-core.js');
+const reliabilityPolicy = read('src/reliability-policy.js');
+const reconciliationCore = read('src/runtime-reconciliation-core.js');
+const groundTruthRuntimeCore = read('src/ground-truth-runtime-core.js');
+const groundTruthRuntimeController = read('src/ground-truth-runtime-controller.js');
+
+if (!/activeRoomId:input\.runtimeActive===true/.test(governedProjectionCore)) {
+  fail('V2.6.1 governed projection must not assert configured room metadata as live truth while perception is stopped');
 }
 if (!/ground-truth-timer/.test(agentEyes)) {
-  fail('V2.6 must reevaluate ground-truth freshness independently of scene-change events');
+  fail('V2.6.1 must retain an independent freshness safety timer');
 }
 for (const modulePath of [
   './src/ground-truth-core.js',
   './src/ground-truth-correction-core.js',
   './src/ground-truth-store.js',
-  './src/operational-health-core.js'
+  './src/operational-health-core.js',
+  './src/reliability-policy.js',
+  './src/governed-world-projection-core.js',
+  './src/runtime-reconciliation-core.js',
+  './src/ground-truth-runtime-core.js',
+  './src/ground-truth-runtime-controller.js'
 ]) {
   if (!agentEyes.includes("from '" + modulePath + "'")) {
-    fail('Agent Eyes must explicitly import V2.6 runtime dependency: ' + modulePath);
+    fail('Agent Eyes must explicitly import V2.6.1 runtime dependency: ' + modulePath);
   }
 }
-if (!/groundTruthPersistenceSnapshot/.test(agentEyes) || !/spatialMemoryRetentionAllowed/.test(agentEyes)) {
-  fail('V2.6 persisted ground truth must obey spatial-memory retention policy');
+if (!/retentionAllowedForProjectedEntity/.test(groundTruthRuntimeCore) ||
+    !/groundTruthPersistenceSnapshot/.test(groundTruthRuntimeCore)) {
+  fail('V2.6.1 persisted ground truth must delegate to shared retention policy');
 }
-if (!/recoverGroundTruthSnapshot/.test(agentEyes) || !/initializeGroundTruthReliability/.test(agentEyes)) {
-  fail('V2.6 must recover persisted ground truth as historical state');
+if (!/recoverGroundTruthSnapshot/.test(groundTruthRuntimeController) ||
+    !/initializeGroundTruthReliability/.test(agentEyes)) {
+  fail('V2.6.1 must recover persisted ground truth through the extracted runtime controller');
 }
 if (!/resolveCameraMovedCorrection\(updated\.id/.test(agentEyes)) {
   fail('V2.6 user-reported camera movement must require recalibration to clear');
