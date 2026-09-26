@@ -1,3 +1,4 @@
+import { RELIABILITY_POLICY } from './reliability-policy.js';
 const arr=(v)=>Array.isArray(v)?v:[];
 const txt=(v,max=160)=>String(v==null?'':v).replace(/\s+/g,' ').trim().slice(0,max);
 
@@ -40,7 +41,7 @@ function correctionKey(item={}){
   if(item.subjectId) return item.type+'::'+item.subjectId;
   return item.type+'::'+(item.id||'unkeyed');
 }
-export function appendGroundTruthCorrection(items=[],input={},now=Date.now(),limit=250){
+export function appendGroundTruthCorrection(items=[],input={},now=Date.now(),limit=RELIABILITY_POLICY.corrections.maxRecords){
   const correction=normalizeGroundTruthCorrection(input,now);
   const next=arr(items).map((item)=>({...item}));
   const key=correctionKey(correction);
