@@ -90,11 +90,18 @@ export function buildGovernedSemanticProjection(input={},options={}){
     allowedNodes.has(edge.subjectId)&&allowedNodes.has(edge.objectId)
   ));
 
+  const transitions=purpose==='memory'
+    ? arr(world.transitions).filter((transition)=>{
+        const roomId=transition.toRoomId||transition.fromRoomId||null;
+        return roomId?spatialMemoryRetentionAllowed(policyFor(policies,roomId),null):false;
+      })
+    : arr(world.transitions);
+
   return {
     schemaVersion:1,
     purpose,
     activeRoomId:input.runtimeActive===true?(input.activeRoomId||null):null,
-    multiRoom:{...world,participants,objects},
+    multiRoom:{...world,participants,objects,transitions},
     sceneGraph:graph,
     boundaries:['single-governed-semantic-projection','privacy-policy-authoritative','semantic-only','no-autonomous-physical-control']
   };
