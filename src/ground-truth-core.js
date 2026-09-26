@@ -233,21 +233,26 @@ export function reconcileGroundTruthEntities(input={},now=Date.now()){
     const roomEdge=arr(input.sceneGraph?.edges).find((edge)=>(
       edge.subjectId===node.id&&edge.predicate==='located-in'&&edge.state!=='expired'
     ));
+    const locationState=roomEdge?.state||'inferred';
     const candidate=candidateFromEntity({
       id:node.id,
       participantId:node.type==='person'?(node.properties?.participantId||String(node.id).replace(/^PERSON:/,'')):null,
       label:node.label,
       roomId:roomEdge?.objectId||input.sceneGraph?.roomId||null,
-      presence:node.state==='observed'?'confirmed':node.state==='last-known'?'last-known':'uncertain',
-      confidence:node.confidence,
-      lastObservedAt:node.lastObservedAt,
+      presence:['observed','user-confirmed'].includes(locationState)
+        ?'confirmed'
+        :locationState==='last-known'?'last-known':'uncertain',
+      confidence:Number(roomEdge?.confidence??node.confidence),
+      lastObservedAt:Number(roomEdge?.lastObservedAt||node.lastObservedAt),
       cameraIds:node.properties?.cameraIds||[]
     },'scene-graph',now);
     if(candidate){
       const canonical=canonicalize(candidate);
       Object.assign(candidate,canonical);
       candidate.id='scene:'+candidate.subjectId+':'+(candidate.roomId||'none');
-      candidate.authority=node.state==='user-confirmed'?'user-confirmed':node.state==='inferred'?'semantic-inference':'direct-observation';
+      candidate.authority=locationState==='user-confirmed'
+        ?'user-confirmed'
+        :locationState==='inferred'?'semantic-inference':'direct-observation';
       candidate.authorityRank=FACT_AUTHORITY[candidate.authority];
       candidates.push(candidate);
     }
@@ -284,6 +289,23 @@ export function reconcileGroundTruthEntities(input={},now=Date.now()){
         summary:'Multi-room reconciliation reports incompatible current locations; active-room evidence cannot silently override it.'
       });
       selected={...explicitUncertain,state:'conflicted',roomId:null,candidateRoomIds:roomIds,confidence:Math.min(.49,explicitUncertain.confidence)};
+    }
+    if(!selected&&distinctRooms.length>1){
+      const confirmedLocations=current.filter((item)=>item.authority==='user-confirmed');
+      const newerObserved=current.filter((item)=>(
+        ['direct-observation','reconciled-observation'].includes(item.authority) &&
+        confirmedLocations.some((confirmed)=>(
+          confirmed.roomId!==item.roomId &&
+          Number(item.observedAt||0)>Number(confirmed.observedAt||0)
+        ))
+      ));
+      if(confirmedLocations.length&&newerObserved.length){
+        const challenged=[...confirmedLocations,...newerObserved];
+        const roomIds=[...new Set(challenged.map((item)=>item.roomId).filter(Boolean))];
+        conflicts.push(conflictRecord(subjectId,challenged,'newer-observation-vs-confirmed-location'));
+        selected=[...newerObserved].sort((a,b)=>Number(b.observedAt||0)-Number(a.observedAt||0)||b.confidence-a.confidence)[0];
+        selected={...selected,state:'conflicted',roomId:null,candidateRoomIds:roomIds,confidence:Math.min(.49,selected.confidence)};
+      }
     }
     if(!selected&&distinctRooms.length>1){
       const bestRank=Math.max(...current.map((item)=>item.authorityRank));
