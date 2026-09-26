@@ -35,3 +35,13 @@ test('this camera moved requires resolved camera context',()=>{
  const r=interpretGroundTruthCorrection('this camera moved',{primaryCameraId:'CAM1'},{},1000);
  assert.equal(r.status,'ready');assert.equal(r.correction.type,'camera-moved');assert.equal(r.correction.cameraId,'CAM1');
 });
+
+test('that is not identity creates user-authoritative identity rejection',()=>{
+ const r=interpretGroundTruthCorrection('that is not Sarah',{entities:[],rooms:[]},{subjectId:'PERSON:p1',entityType:'person'},1000);
+ assert.equal(r.status,'ready');assert.equal(r.correction.type,'identity-rejection');assert.equal(r.correction.label,'Sarah');
+});
+test('forget that object works only with explicitly resolved subject context',()=>{
+ assert.equal(interpretGroundTruthCorrection('forget that object',{entities:[],rooms:[]},{},1000).status,'not-found');
+ const r=interpretGroundTruthCorrection('forget that object',{entities:[],rooms:[]},{subjectId:'O1',entityType:'object',label:'keys'},1000);
+ assert.equal(r.status,'ready');assert.equal(r.correction.subjectId,'O1');
+});
