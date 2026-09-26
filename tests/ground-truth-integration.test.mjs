@@ -4,55 +4,62 @@ import fs from 'node:fs';
 
 const source=fs.readFileSync(new URL('../agent-eyes.js',import.meta.url),'utf8');
 
-test('Agent Eyes imports all V2.6 ground truth reliability modules',()=>{
+test('Agent Eyes imports V2.6.1 consolidated ground truth runtime modules',()=>{
  for(const path of [
   './src/ground-truth-core.js',
   './src/ground-truth-correction-core.js',
   './src/ground-truth-store.js',
-  './src/operational-health-core.js'
+  './src/operational-health-core.js',
+  './src/governed-world-projection-core.js',
+  './src/reliability-policy.js',
+  './src/runtime-reconciliation-core.js',
+  './src/ground-truth-runtime-core.js'
  ]) assert.ok(source.includes("from '"+path+"'"));
 });
 test('V2.6 runtime exposes ground truth health correction explanation APIs',()=>{
  for(const symbol of [
   'getGroundTruth','getOperationalHealth','getEntityTruth','explainGroundTruth',
   'applyGroundTruthCorrection','interpretGroundTruthCorrection','processGroundTruthCorrection',
+  'getGroundTruthCorrections','revokeGroundTruthCorrection',
   'clearGroundTruthReliability','subscribeGroundTruth'
  ]) assert.match(source,new RegExp('\\b'+symbol+'\\b'));
 });
-test('ground truth is built from privacy-governed semantic world not raw sensors',()=>{
- const start=source.indexOf('function privacyGovernedGroundTruthInput(');
- const end=source.indexOf('function groundTruthPersistenceSnapshot(',start);
+test('ground truth and spatial memory share one governed semantic projection',()=>{
+ const projection=fs.readFileSync(new URL('../src/governed-world-projection-core.js',import.meta.url),'utf8');
+ const start=source.indexOf('function governedWorldProjection(');
+ const end=source.indexOf('function privacyGovernedGroundTruthInput(',start);
  const block=source.slice(start,end);
+ assert.match(block,/buildGovernedSemanticProjection/);
  assert.match(block,/multiRoomSnapshot/);
  assert.match(block,/sceneGraphSnapshot/);
- assert.match(block,/allowVisualObservation === false/);
- assert.match(block,/allowParticipantIdentity === false/);
- assert.match(block,/allowObjectObservation === false/);
+ assert.match(projection,/observationDecision/);
+ assert.match(projection,/spatialMemoryRetentionAllowed/);
  assert.doesNotMatch(block,/imageDataUrl|pixels|audioQueue|rawObjects/);
 });
 test('configured camera room is not asserted as live ground-truth room while runtime is stopped',()=>{
- const start=source.indexOf('function privacyGovernedGroundTruthInput(');
- const end=source.indexOf('function groundTruthPersistenceSnapshot(',start);
- const block=source.slice(start,end);
- assert.match(block,/activeRoomId: runtime\.running/);
+ const projection=fs.readFileSync(new URL('../src/governed-world-projection-core.js',import.meta.url),'utf8');
+ assert.match(projection,/activeRoomId:input\.runtimeActive===true/);
 });
-
-test('persisted ground truth obeys spatial-memory retention policy',()=>{
- const start=source.indexOf('function groundTruthPersistenceSnapshot(');
- const end=source.indexOf('async function persistGroundTruthState(',start);
- const block=source.slice(start,end);
- assert.match(block,/spatialMemoryRetentionAllowed/);
+test('persisted ground truth delegates retention filtering to extracted runtime core',()=>{
+ const runtimeCore=fs.readFileSync(new URL('../src/ground-truth-runtime-core.js',import.meta.url),'utf8');
+ assert.match(runtimeCore,/groundTruthPersistenceSnapshot/);
+ assert.match(runtimeCore,/retentionAllowedForProjectedEntity/);
 });
-test('startup recovers persisted truth before Agent context and never marks it fresh',()=>{
+test('startup recovers persisted truth before Agent context and initializes reconciliation state',()=>{
  const init=source.indexOf('await initializeGroundTruthReliability();');
  const agent=source.indexOf('runtime.agentContext = currentAgentContext({}, Date.now());');
  assert.ok(init>=0);assert.ok(agent>init);
  const start=source.indexOf('async function initializeGroundTruthReliability(');
- const end=source.indexOf('function groundTruthSemanticSignature(',start);
- assert.match(source.slice(start,end),/recoverGroundTruthSnapshot/);
+ const end=source.indexOf('function markGroundTruthDirty(',start);
+ const block=source.slice(start,end);
+ assert.match(block,/recoverGroundTruthSnapshot/);
+ assert.match(block,/createReconciliationState/);
 });
-test('ground truth refresh has independent confidence decay timer',()=>{
+test('ground truth refresh uses dirty/boundary reconciliation with a lightweight safety timer',()=>{
  assert.match(source,/ground-truth-timer/);
+ assert.match(source,/reconciliationDue/);
+ assert.match(source,/consumeReconciliation/);
+ assert.match(source,/markGroundTruthDirty/);
  assert.match(source,/updateGroundTruthRuntime\(now, 'ground-truth-timer'\)/);
 });
 test('camera moved correction remains diagnostic until recalibration resolves it',()=>{
@@ -76,10 +83,33 @@ test('Agent context source includes V2.6 truth and operational health',()=>{
  assert.match(block,/groundTruthSnapshot/);
  assert.match(block,/operationalHealthSnapshot/);
 });
-test('V2.6 emits semantic ground truth browser event only on semantic change',()=>{
+test('V2.6.1 emits semantic ground truth browser events only on extracted stable signature changes',()=>{
  assert.match(source,/tracky:ground-truth/);
- assert.match(source,/groundTruthSemanticSignature/);
+ assert.match(source,/buildGroundTruthSemanticSignature/);
+ assert.match(source,/groundTruthPersistenceSignature/);
+ assert.match(source,/persistenceNeeded/);
 });
 test('V2.6 retains no autonomous physical or camera-control authority',()=>{
  assert.doesNotMatch(source,/unlockDoor|openGarage|armSecuritySystem|sendDeviceCommand/);
+});
+
+test('legacy participant/object location APIs prefer canonical ground truth before multi-room evidence',()=>{
+ const start=source.indexOf('getParticipantLocation(participantId)');
+ const end=source.indexOf('getWorldTopology()',start);
+ const block=source.slice(start,end);
+ assert.match(block,/runtime\.groundTruth\.entities/);
+ assert.match(block,/runtime\.multiRoomWorld/);
+});
+test('entity merge corrections do not mutate lower-level multi-room aliases',()=>{
+ const start=source.indexOf('async function applyGroundTruthCorrectionRuntime(');
+ const end=source.indexOf('async function revokeGroundTruthCorrectionRuntime(',start);
+ const block=source.slice(start,end);
+ assert.doesNotMatch(block,/objectAliases/);
+});
+test('spatial memory consumes shared memory projection instead of duplicating privacy loops',()=>{
+ const start=source.indexOf('function updateSpatialMemory(');
+ const end=source.indexOf('function confirmedMemoryGraphEdge(',start);
+ const block=source.slice(start,end);
+ assert.match(block,/governedWorldProjection\('memory'\)/);
+ assert.doesNotMatch(block,/spatialMemoryRetentionAllowed/);
 });
