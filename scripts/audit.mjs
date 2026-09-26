@@ -83,7 +83,6 @@ const requiredFiles = [
   'src/ground-truth-runtime-core.js',
   'src/ground-truth-runtime-controller.js',
   'src/agent-runtime-context-core.js',
-  'src/agent-runtime-context-core.js',
   'src/anomaly-core.js'
 ];
 
@@ -156,6 +155,7 @@ const runtimeJs = [
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
   'src/ground-truth-runtime-controller.js',
+  'src/agent-runtime-context-core.js',
   'src/anomaly-core.js'
 ];
 
@@ -1241,10 +1241,10 @@ for (const symbol of [
   }
 }
 if (
-  !/buildAgentRuntimeContextSource/.test(agentEyes) ||
-  !/buildWorldQueryRuntimeContext/.test(agentEyes) ||
-  !/canonicalParticipantLocation/.test(agentEyes) ||
-  !/canonicalObjectLocation/.test(agentEyes)
+  !/buildAgentRuntimeContextSource/.test(read('agent-eyes.js')) ||
+  !/buildWorldQueryRuntimeContext/.test(read('agent-eyes.js')) ||
+  !/canonicalParticipantLocation/.test(read('agent-eyes.js')) ||
+  !/canonicalObjectLocation/.test(read('agent-eyes.js'))
 ) {
   fail('V2.6.1 browser runtime must delegate semantic context and canonical location coordination');
 }
@@ -1293,6 +1293,12 @@ for (const boundary of [
   if (!governedProjectionCore.includes(boundary)) {
     fail('V2.6.1 governed projection is missing boundary: ' + boundary);
   }
+}
+if (
+  !/\[transition\.fromRoomId,transition\.toRoomId\]/.test(governedProjectionCore) ||
+  !/roomIds\.every/.test(governedProjectionCore)
+) {
+  fail('V2.6.1 remembered transitions must require retention permission in both origin and destination rooms');
 }
 for (const symbol of [
   'groundTruthInputSignature',
