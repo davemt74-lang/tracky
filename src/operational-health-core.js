@@ -130,6 +130,7 @@ export function buildOperationalHealth(input={},now=Date.now()){
   ));
   const staleEntities=arr(input.groundTruth?.entities).filter((entity)=>['stale','unknown'].includes(entity.freshness));
   const conflictedEntities=arr(input.groundTruth?.entities).filter((entity)=>entity.state==='conflicted');
+  const continuityIssues=arr(input.groundTruth?.continuityIssues);
   const issues=[
     ...cameraHealth.flatMap((camera)=>camera.issues.map((issue)=>({
       type:'camera',id:camera.cameraId,roomId:camera.roomId,issue
@@ -138,7 +139,8 @@ export function buildOperationalHealth(input={},now=Date.now()){
       type:'room',id:room.roomId,roomId:room.roomId,issue
     }))),
     ...staleEntities.map((entity)=>({type:'entity',id:entity.subjectId,issue:'stale-ground-truth'})),
-    ...conflictedEntities.map((entity)=>({type:'entity',id:entity.subjectId,issue:'conflicted-ground-truth'}))
+    ...conflictedEntities.map((entity)=>({type:'entity',id:entity.subjectId,issue:'conflicted-ground-truth'})),
+    ...continuityIssues.map((item)=>({type:'continuity',id:item.id,issue:item.type}))
   ];
   const status=issues.some((item)=>[
     'camera-pose-shift','invalid-calibration','no-live-cameras','conflicted-ground-truth'
@@ -154,6 +156,7 @@ export function buildOperationalHealth(input={},now=Date.now()){
     rooms:roomHealth,
     staleEntityCount:staleEntities.length,
     conflictedEntityCount:conflictedEntities.length,
+    continuityIssueCount:continuityIssues.length,
     issues:issues.slice(0,100),
     boundaries:['diagnostic-only','privacy-policy-aware','no-autonomous-camera-reconfiguration','no-autonomous-physical-control']
   };
