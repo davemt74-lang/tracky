@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   correctionSemanticSignature,
+  groundTruthInputSignature,
   groundTruthPersistenceSignature,
   groundTruthPersistenceSnapshot,
   groundTruthSemanticSignature,
@@ -58,4 +59,49 @@ test('only active camera-moved corrections affect diagnostics',()=>{
     {type:'camera-moved',cameraId:'C2',status:'revoked'},
     {type:'entity-label',cameraId:'C3',status:'active'}
   ]),['C1']);
+});
+
+test('semantic input fingerprint ignores observation timestamps for identical physical meaning',()=>{
+ const base={
+  runtimeActive:true,activeRoomId:'OFFICE',
+  multiRoom:{
+   participants:{P1:{id:'P1',participantId:'p1',participantName:'Dave',roomId:'OFFICE',presence:'confirmed',confidence:.91,lastObservedAt:1000}},
+   objects:{O1:{id:'O1',objectId:'O1',label:'keys',roomId:'OFFICE',presence:'confirmed',confidence:.91,lastObservedAt:1000}}
+  },
+  sceneGraph:{nodes:[],edges:[]},
+  roomPolicies:{OFFICE:{roomId:'OFFICE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:true,sensitiveRegions:[]}},
+  cameras:[],cameraStatuses:{},environment:null,corrections:[]
+ };
+ const a=groundTruthInputSignature(base);
+ const b=groundTruthInputSignature({
+  ...base,
+  multiRoom:{
+   ...base.multiRoom,
+   participants:{P1:{...base.multiRoom.participants.P1,lastObservedAt:9999}},
+   objects:{O1:{...base.multiRoom.objects.O1,lastObservedAt:9999}}
+  }
+ });
+ assert.equal(a,b);
+});
+test('semantic input fingerprint changes for room policy camera status and correction lifecycle changes',()=>{
+ const base={
+  runtimeActive:true,activeRoomId:'OFFICE',
+  multiRoom:{participants:{},objects:{}},sceneGraph:{nodes:[],edges:[]},
+  roomPolicies:{OFFICE:{roomId:'OFFICE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:true,sensitiveRegions:[]}},
+  cameras:[{id:'C1',roomId:'OFFICE',enabled:true,primary:true,roomPoints:[]}],
+  cameraStatuses:{C1:'online'},environment:null,corrections:[]
+ };
+ const a=groundTruthInputSignature(base);
+ assert.notEqual(a,groundTruthInputSignature({...base,cameraStatuses:{C1:'offline'}}));
+ assert.notEqual(a,groundTruthInputSignature({...base,roomPolicies:{OFFICE:{...base.roomPolicies.OFFICE,allowObjectObservation:false}}}));
+ assert.notEqual(a,groundTruthInputSignature({...base,corrections:[{id:'X',type:'camera-moved',cameraId:'C1',status:'active'}]}));
+});
+test('small confidence jitter stays in same semantic input bucket while meaningful shifts invalidate it',()=>{
+ const mk=(confidence)=>groundTruthInputSignature({
+  runtimeActive:true,activeRoomId:'OFFICE',
+  multiRoom:{participants:{},objects:{O1:{id:'O1',objectId:'O1',label:'keys',roomId:'OFFICE',presence:'confirmed',confidence}}},
+  sceneGraph:{nodes:[],edges:[]},roomPolicies:{},cameras:[],cameraStatuses:{},environment:null,corrections:[]
+ });
+ assert.equal(mk(.901),mk(.909));
+ assert.notEqual(mk(.90),mk(.80));
 });
