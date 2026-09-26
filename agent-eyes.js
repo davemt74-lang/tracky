@@ -287,6 +287,30 @@ import {
   loadRoutineLearningState,
   saveRoutineLearningState
 } from './src/routine-learning-store.js';
+import {
+  buildGroundTruth,
+  createGroundTruthState,
+  explainGroundTruth,
+  groundTruthSnapshot,
+  recoverGroundTruthSnapshot
+} from './src/ground-truth-core.js';
+import {
+  appendGroundTruthCorrection,
+  activeGroundTruthCorrections,
+  interpretGroundTruthCorrection,
+  normalizeGroundTruthCorrection
+} from './src/ground-truth-correction-core.js';
+import {
+  clearGroundTruthStore,
+  listGroundTruthCorrections,
+  loadGroundTruthState,
+  replaceGroundTruthCorrections,
+  saveGroundTruthState
+} from './src/ground-truth-store.js';
+import {
+  buildOperationalHealth,
+  operationalHealthSnapshot
+} from './src/operational-health-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -591,6 +615,7 @@ const agentBriefingListeners = new Set();
 const agentDeliveryListeners = new Set();
 const physicalGoalListeners = new Set();
 const routineLearningListeners = new Set();
+const groundTruthListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -697,7 +722,12 @@ const runtime = {
   physicalGoals: [],
   physicalGoalHistory: [],
   routineLearning: createRoutineLearningState(),
-  routineLearningLastSavedAt: 0
+  routineLearningLastSavedAt: 0,
+  groundTruth: createGroundTruthState(),
+  groundTruthCorrections: [],
+  groundTruthLastSavedAt: 0,
+  groundTruthSignature: null,
+  operationalHealth: buildOperationalHealth({})
 };
 
 const SCAN_INTERVAL_MS = 550;
@@ -875,7 +905,9 @@ function agentContextSource() {
     attention: attentionSnapshot(runtime.attention),
     anomalies: anomalySnapshot(runtime.anomalyState),
     sceneChanges: sceneState.changes.slice(-40),
-    perceptionBudget: currentPerceptionBudget()
+    perceptionBudget: currentPerceptionBudget(),
+    groundTruth: groundTruthSnapshot(runtime.groundTruth),
+    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
   };
 }
 
@@ -1817,6 +1849,8 @@ function worldQueryContext() {
     spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
     sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
     physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    groundTruth: groundTruthSnapshot(runtime.groundTruth),
+    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth),
     sceneChanges: sceneState.changes.slice(),
     episodes: sceneState.episodes.slice(),
     anomalies: anomalySnapshot(runtime.anomalyState)
@@ -2251,7 +2285,9 @@ window.TrackyAgentEyes = Object.freeze({
       perceptionBudget: copySerializable(currentPerceptionBudget()),
       proactiveAwareness: anomalySnapshot(runtime.anomalyState),
       physicalGoals: copySerializable(runtime.physicalGoals),
-      routineLearning: routineLearningSnapshot(runtime.routineLearning)
+      routineLearning: routineLearningSnapshot(runtime.routineLearning),
+      groundTruth: groundTruthSnapshot(runtime.groundTruth),
+      operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
     };
   },
   getEnvironmentState() {
@@ -2267,6 +2303,36 @@ window.TrackyAgentEyes = Object.freeze({
   },
   getPhysicalWorldState() {
     return worldStateSnapshot(runtime.physicalWorld);
+  },
+  getGroundTruth() {
+    return groundTruthSnapshot(runtime.groundTruth);
+  },
+  getOperationalHealth() {
+    return operationalHealthSnapshot(runtime.operationalHealth);
+  },
+  getEntityTruth(subjectId) {
+    return copySerializable(
+      (runtime.groundTruth.entities || []).find((item) => item.subjectId === subjectId) || null
+    );
+  },
+  explainGroundTruth(subjectId) {
+    return copySerializable(explainGroundTruth(runtime.groundTruth, subjectId));
+  },
+  applyGroundTruthCorrection(input = {}) {
+    return applyGroundTruthCorrectionRuntime(input, Date.now());
+  },
+  interpretGroundTruthCorrection(text, options = {}) {
+    return copySerializable(interpretGroundTruthCorrection(text, {
+      entities:runtime.groundTruth.entities || [],
+      rooms:runtime.environmentRooms,
+      primaryCameraId:primaryCameraConfig()?.id || null
+    }, options, Date.now()));
+  },
+  processGroundTruthCorrection(text, options = {}) {
+    return processGroundTruthCorrectionRuntime(text, options, Date.now());
+  },
+  clearGroundTruthReliability() {
+    return clearGroundTruthReliabilityRuntime();
   },
   getCameraFusionState() {
     return copySerializable(runtime.fusionState);
@@ -2576,6 +2642,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeRoutineLearning(listener) {
     routineLearningListeners.add(listener);
     return () => routineLearningListeners.delete(listener);
+  },
+  subscribeGroundTruth(listener) {
+    groundTruthListeners.add(listener);
+    return () => groundTruthListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -3015,6 +3085,271 @@ function discardEnvironmentMapping() {
   renderEnvironmentMapping();
 }
 
+function privacyGovernedGroundTruthInput() {
+  const world = multiRoomSnapshot(runtime.multiRoomWorld);
+  const participants = {};
+  for (const [key, participant] of Object.entries(world.participants || {})) {
+    const roomId = participant.roomId || participant.lastKnownRoomId || null;
+    const policy = policyForRoom(roomId);
+    if (policy.allowVisualObservation === false) continue;
+    if (policy.allowParticipantIdentity === false) {
+      if (policy.allowAnonymousTracking === false) continue;
+      const anonId = 'ANON:' + (roomId || 'ROOM') + ':' + (participant.localRoomEntityId || key.replace(/[^a-zA-Z0-9]/g, ''));
+      participants[anonId] = {
+        ...participant,
+        id:anonId,
+        participantId:null,
+        participantName:'Anonymous participant',
+        identityAuthority:'anonymous'
+      };
+      continue;
+    }
+    participants[key] = participant;
+  }
+
+  const objects = {};
+  for (const [key, object] of Object.entries(world.objects || {})) {
+    const roomId = object.roomId || object.lastKnownRoomId || null;
+    const policy = policyForRoom(roomId);
+    if (
+      policy.allowVisualObservation === false ||
+      policy.allowObjectObservation === false
+    ) continue;
+    objects[key] = object;
+  }
+
+  const graph = sceneGraphSnapshot(runtime.sceneGraph);
+  const graphPolicy = policyForRoom(graph.roomId);
+  const allowedNodes = new Set(
+    (graph.nodes || []).filter((node) => {
+      if (!['person','object'].includes(node.type)) return true;
+      if (graphPolicy.allowVisualObservation === false) return false;
+      if (node.type === 'person' && graphPolicy.allowParticipantIdentity === false) return false;
+      if (node.type === 'object' && graphPolicy.allowObjectObservation === false) return false;
+      return true;
+    }).map((node) => node.id)
+  );
+  graph.nodes = (graph.nodes || []).filter((node) => allowedNodes.has(node.id));
+  graph.edges = (graph.edges || []).filter((edge) => (
+    allowedNodes.has(edge.subjectId) &&
+    allowedNodes.has(edge.objectId)
+  ));
+
+  return {
+    activeRoomId: runtime.running
+      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null)
+      : null,
+    multiRoom:{ ...world, participants, objects },
+    sceneGraph:graph,
+    corrections:activeGroundTruthCorrections(runtime.groundTruthCorrections)
+  };
+}
+
+function groundTruthPersistenceSnapshot() {
+  const snapshot = groundTruthSnapshot(runtime.groundTruth);
+  snapshot.entities = (snapshot.entities || []).filter((entity) => {
+    const roomId = entity.roomId || entity.lastKnownRoomId || null;
+    if (!roomId) return false;
+    return spatialMemoryRetentionAllowed(policyForRoom(roomId), null);
+  });
+  const allowed = new Set(snapshot.entities.map((entity) => entity.subjectId));
+  snapshot.facts = (snapshot.facts || []).filter((fact) => allowed.has(fact.subjectId));
+  snapshot.conflicts = (snapshot.conflicts || []).filter((conflict) => allowed.has(conflict.subjectId));
+  return snapshot;
+}
+
+async function persistGroundTruthState(force = false) {
+  const now = Date.now();
+  if (!force && now - Number(runtime.groundTruthLastSavedAt || 0) < 10000) return;
+  runtime.groundTruthLastSavedAt = now;
+  try {
+    await saveGroundTruthState(groundTruthPersistenceSnapshot());
+    await replaceGroundTruthCorrections(runtime.groundTruthCorrections);
+  } catch (error) {
+    console.error('Could not persist V2.6 ground truth state', error);
+  }
+}
+
+async function initializeGroundTruthReliability() {
+  try {
+    const [saved, corrections] = await Promise.all([
+      loadGroundTruthState(),
+      listGroundTruthCorrections()
+    ]);
+    runtime.groundTruthCorrections = corrections || [];
+    runtime.groundTruth = saved
+      ? recoverGroundTruthSnapshot(saved, Date.now())
+      : createGroundTruthState(Date.now());
+  } catch (error) {
+    console.error('Could not load V2.6 ground truth state', error);
+    runtime.groundTruthCorrections = [];
+    runtime.groundTruth = createGroundTruthState(Date.now());
+  }
+  runtime.operationalHealth = buildOperationalHealth({
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    rooms: runtime.environmentRooms,
+    cameras: runtime.cameraConfigs,
+    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
+    roomPolicies: runtime.roomPolicies,
+    environment: runtime.environmentAnalysis,
+    groundTruth: runtime.groundTruth
+  }, Date.now());
+  runtime.groundTruthSignature = null;
+}
+
+function groundTruthSemanticSignature(state, health) {
+  return JSON.stringify({
+    recoveryMode:state.recoveryMode===true,
+    entities:(state.entities || []).map((item) => [
+      item.subjectId,item.state,item.roomId,item.lastKnownRoomId,item.authority,item.freshness
+    ]),
+    conflicts:(state.conflicts || []).map((item) => [item.id,item.type,item.subjectId,item.unresolved]),
+    health:{
+      status:health?.status || null,
+      staleEntityCount:Number(health?.staleEntityCount || 0),
+      conflictedEntityCount:Number(health?.conflictedEntityCount || 0),
+      issues:(health?.issues || []).map((item) => [item.type,item.id,item.issue])
+    }
+  });
+}
+
+function updateGroundTruthRuntime(now = Date.now(), reason = 'world-update') {
+  runtime.groundTruth = buildGroundTruth(
+    privacyGovernedGroundTruthInput(),
+    runtime.groundTruth,
+    now
+  );
+
+  const reportedMovedCameraIds = activeGroundTruthCorrections(runtime.groundTruthCorrections)
+    .filter((item) => item.type === 'camera-moved' && item.cameraId)
+    .map((item) => item.cameraId);
+
+  runtime.operationalHealth = buildOperationalHealth({
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    rooms: runtime.environmentRooms,
+    cameras: runtime.cameraConfigs,
+    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
+    roomPolicies: runtime.roomPolicies,
+    environment:{
+      ...(runtime.environmentAnalysis || {}),
+      reportedMovedCameraIds
+    },
+    groundTruth:runtime.groundTruth
+  }, now);
+
+  runtime.groundTruth.health = {
+    status:runtime.operationalHealth.status,
+    staleEntityCount:runtime.operationalHealth.staleEntityCount,
+    conflictedEntityCount:runtime.operationalHealth.conflictedEntityCount,
+    issueCount:(runtime.operationalHealth.issues || []).length
+  };
+
+  const signature = groundTruthSemanticSignature(runtime.groundTruth, runtime.operationalHealth);
+  const changed = signature !== runtime.groundTruthSignature;
+  runtime.groundTruthSignature = signature;
+  void persistGroundTruthState(false);
+
+  if (changed) {
+    const detail = copySerializable({
+      groundTruth:groundTruthSnapshot(runtime.groundTruth),
+      operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
+      reason
+    });
+    for (const listener of groundTruthListeners) listener(detail);
+    window.dispatchEvent(new CustomEvent('tracky:ground-truth', { detail }));
+  }
+  return {
+    groundTruth:groundTruthSnapshot(runtime.groundTruth),
+    operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
+    changed
+  };
+}
+
+function purgeForgottenGroundTruthEntity(subjectId) {
+  if (!subjectId) return;
+  delete runtime.multiRoomWorld.participants?.[subjectId];
+  delete runtime.multiRoomWorld.objects?.[subjectId];
+  if (runtime.sceneGraph.nodes?.[subjectId]) delete runtime.sceneGraph.nodes[subjectId];
+  for (const [edgeId, edge] of Object.entries(runtime.sceneGraph.edges || {})) {
+    if (edge.subjectId === subjectId || edge.objectId === subjectId) {
+      delete runtime.sceneGraph.edges[edgeId];
+    }
+  }
+  if (runtime.spatialMemory.entities?.[subjectId]) delete runtime.spatialMemory.entities[subjectId];
+  runtime.spatialMemory.proposals = (runtime.spatialMemory.proposals || [])
+    .filter((proposal) => proposal.subjectId !== subjectId && proposal.targetId !== subjectId);
+  for (const [alias, canonical] of Object.entries(runtime.multiRoomWorld.objectAliases || {})) {
+    if (canonical === subjectId || alias === subjectId) delete runtime.multiRoomWorld.objectAliases[alias];
+  }
+  void persistSpatialMemory(true);
+}
+
+function resolveCameraMovedCorrection(cameraId, now = Date.now()) {
+  let changed = false;
+  runtime.groundTruthCorrections = runtime.groundTruthCorrections.map((item) => {
+    if (item.type === 'camera-moved' && item.cameraId === cameraId && item.status !== 'superseded') {
+      changed = true;
+      return { ...item, status:'superseded', updatedAt:now, supersededReason:'camera-recalibrated' };
+    }
+    return item;
+  });
+  if (changed) void persistGroundTruthState(true);
+  return changed;
+}
+
+async function applyGroundTruthCorrectionRuntime(input = {}, now = Date.now()) {
+  const normalized = normalizeGroundTruthCorrection(input, now);
+  const result = appendGroundTruthCorrection(runtime.groundTruthCorrections, normalized, now);
+  runtime.groundTruthCorrections = result.corrections;
+
+  if (result.correction.type === 'forget-entity') {
+    purgeForgottenGroundTruthEntity(result.correction.subjectId);
+  }
+
+  if (
+    result.correction.type === 'entity-merge' &&
+    result.correction.aliasEntityId &&
+    result.correction.canonicalEntityId
+  ) {
+    for (const [alias, canonical] of Object.entries(runtime.multiRoomWorld.objectAliases || {})) {
+      if (canonical === result.correction.aliasEntityId) {
+        runtime.multiRoomWorld.objectAliases[alias] = result.correction.canonicalEntityId;
+      }
+    }
+  }
+
+  await persistGroundTruthState(true);
+  const updated = updateGroundTruthRuntime(now, 'user-correction');
+  refreshAgentContext('ground-truth-correction', now);
+  return copySerializable({
+    status:'ready',
+    correction:result.correction,
+    ...updated
+  });
+}
+
+async function processGroundTruthCorrectionRuntime(text, options = {}, now = Date.now()) {
+  const interpreted = interpretGroundTruthCorrection(text, {
+    entities:runtime.groundTruth.entities || [],
+    rooms:runtime.environmentRooms,
+    primaryCameraId:primaryCameraConfig()?.id || null
+  }, options, now);
+  if (interpreted.status !== 'ready') return copySerializable(interpreted);
+  const applied = await applyGroundTruthCorrectionRuntime(interpreted.correction, now);
+  return copySerializable({ ...interpreted, ...applied });
+}
+
+async function clearGroundTruthReliabilityRuntime() {
+  await clearGroundTruthStore();
+  runtime.groundTruthCorrections = [];
+  runtime.groundTruth = createGroundTruthState(Date.now());
+  runtime.operationalHealth = buildOperationalHealth({});
+  runtime.groundTruthSignature = null;
+  updateGroundTruthRuntime(Date.now(), 'ground-truth-cleared');
+  refreshAgentContext('ground-truth-cleared', Date.now());
+  return true;
+}
+
 function updatePhysicalWorldModel(now = Date.now()) {
   const analysis = runtime.environmentAnalysis;
   const roomId = analysis?.best?.roomId ||
@@ -3064,6 +3399,8 @@ function updatePhysicalWorldModel(now = Date.now()) {
     sceneGraph: graph,
     changes: sceneState.changes.slice(-20)
   }, runtime.physicalWorld, now);
+
+  updateGroundTruthRuntime(now, 'physical-world-update');
 
   const snapshot = worldStateSnapshot(runtime.physicalWorld);
   for (const listener of worldListeners) listener(snapshot);
@@ -4349,6 +4686,7 @@ async function saveCameraCalibrationForm(event) {
   }
 
   await saveCameraConfig(updated);
+  resolveCameraMovedCorrection(updated.id, Date.now());
   await reloadCameraRegistry();
   closeCameraCalibration();
 
@@ -9429,6 +9767,7 @@ await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
 await initializeSpatialMemory();
+await initializeGroundTruthReliability();
 await initializeAnomalyState();
 await initializeAttentionState();
 await initializeWorldQueries();
@@ -9464,3 +9803,8 @@ setInterval(() => {
   );
   void tickSequenceRoutinesRuntime(now);
 }, 30000);
+setInterval(() => {
+  const now = Date.now();
+  const result = updateGroundTruthRuntime(now, 'ground-truth-timer');
+  if (result.changed) refreshAgentContext('ground-truth-timer', now);
+}, 5000);

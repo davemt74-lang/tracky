@@ -145,6 +145,47 @@ function changes(context,rooms,limit){
     .sort((a,b)=>Number(b.timestamp||0)-Number(a.timestamp||0))
     .slice(0,limit);
 }
+function groundTruth(context={},rooms,limit=20){
+  const source=context.groundTruth||{};
+  const entities=arr(source.entities).map((item)=>({
+    subjectId:item.subjectId||null,
+    entityType:txt(item.entityType||'entity',24),
+    label:txt(item.label||item.subjectId||'Entity',80),
+    roomId:item.roomId||null,
+    room:roomName(rooms,item.roomId),
+    lastKnownRoomId:item.lastKnownRoomId||null,
+    state:txt(item.state||'unknown',32),
+    authority:txt(item.authority||'unknown',40),
+    freshness:txt(item.freshness||'unknown',24),
+    confidence:clamp01(item.confidence),
+    observedAt:numberOrNull(item.observedAt)
+  })).slice(0,limit);
+  const conflicts=arr(source.conflicts).map((item)=>({
+    id:txt(item.id||'',160)||null,
+    type:txt(item.type||'conflict',80),
+    subjectId:item.subjectId||null,
+    roomIds:arr(item.roomIds).map(String).slice(0,8),
+    summary:txt(item.summary||'Conflicting physical-world evidence',220),
+    confidence:clamp01(item.confidence),
+    unresolved:item.unresolved!==false
+  })).slice(0,12);
+  const health=context.operationalHealth?{
+    status:txt(context.operationalHealth.status||'unknown',32),
+    staleEntityCount:Number(context.operationalHealth.staleEntityCount||0),
+    conflictedEntityCount:Number(context.operationalHealth.conflictedEntityCount||0),
+    continuityIssueCount:Number(context.operationalHealth.continuityIssueCount||0),
+    issueCount:arr(context.operationalHealth.issues).length
+  }:null;
+  return {
+    generatedAt:numberOrNull(source.generatedAt),
+    recoveryMode:source.recoveryMode===true,
+    entities,
+    conflicts,
+    health,
+    boundaries:['observed-vs-historical-explicit','conflicts-preserved','no-autonomous-physical-control']
+  };
+}
+
 function task(attentionState={}){
   const item=attentionState.activeTask;
   if(!item) return null;
@@ -195,9 +236,12 @@ export function buildAgentContext(context={},options={},now=Date.now()){
   if(activeAnomalies.length) summary+=' '+activeAnomalies.length+' active '+(activeAnomalies.length===1?'anomaly.':'anomalies.');
   if(priorityItems.length) summary+=' '+priorityItems.length+' prioritized '+(priorityItems.length===1?'item.':'items.');
   if(activeTask&&activeTask.mode!=='general') summary+=' Task: '+activeTask.label+'.';
+  const truth=groundTruth(context,rooms,Number(options.truthLimit||20));
+  if(truth.conflicts.length) summary+=' '+truth.conflicts.length+' unresolved ground-truth '+(truth.conflicts.length===1?'conflict.':'conflicts.');
+  if(truth.recoveryMode) summary+=' Persisted ground truth is in recovery mode until refreshed by live evidence.';
   return sanitizeAgentContext({
     schemaVersion:AGENT_CONTEXT_SCHEMA_VERSION,generatedAt:now,activeRoom,summary,task:activeTask,
-    priorities:priorityItems,people:currentPeople,objects:currentObjects,anomalies:activeAnomalies,recentChanges,
+    priorities:priorityItems,people:currentPeople,objects:currentObjects,anomalies:activeAnomalies,recentChanges,groundTruth:truth,
     privacy:{activeRoomId,constraints:constraints(activeRoomPolicy),regionCount:Number(activeRoomPolicy.regions?.length||activeRoomPolicy.regionCount||0)},
     perceptionBudget:context.perceptionBudget?{
       intensity:txt(context.perceptionBudget.intensity||'',40)||null,
@@ -226,6 +270,36 @@ function stableItem(item){
   }
   return output;
 }
+function stableGroundTruth(value={}){
+  return {
+    recoveryMode:value?.recoveryMode===true,
+    entities:arr(value?.entities).map((item)=>({
+      subjectId:item.subjectId||null,
+      entityType:item.entityType||null,
+      label:item.label||null,
+      roomId:item.roomId||null,
+      lastKnownRoomId:item.lastKnownRoomId||null,
+      state:item.state||null,
+      authority:item.authority||null,
+      freshness:item.freshness||null
+    })),
+    conflicts:arr(value?.conflicts).map((item)=>({
+      id:item.id||null,
+      type:item.type||null,
+      subjectId:item.subjectId||null,
+      roomIds:arr(item.roomIds).map(String),
+      unresolved:item.unresolved!==false
+    })),
+    health:value?.health?{
+      status:value.health.status||null,
+      staleEntityCount:Number(value.health.staleEntityCount||0),
+      conflictedEntityCount:Number(value.health.conflictedEntityCount||0),
+      continuityIssueCount:Number(value.health.continuityIssueCount||0),
+      issueCount:Number(value.health.issueCount||0)
+    }:null
+  };
+}
+
 function itemKey(item,index){
   return String(item?.key||item?.signature||item?.participantId||item?.objectId||item?.id||item?.type||index);
 }
@@ -246,7 +320,8 @@ export function diffAgentContext(previous,current){
       changed:true,reason:'initial-context',current:{
         activeRoom:current?.activeRoom||null,task:current?.task||null,priorities:current?.priorities||[],
         people:current?.people||[],objects:current?.objects||[],anomalies:current?.anomalies||[],
-        recentChanges:current?.recentChanges||[],privacy:current?.privacy||null,perceptionBudget:current?.perceptionBudget||null
+        recentChanges:current?.recentChanges||[],groundTruth:current?.groundTruth||null,
+        privacy:current?.privacy||null,perceptionBudget:current?.perceptionBudget||null
       }});
   }
   const delta={
@@ -255,11 +330,12 @@ export function diffAgentContext(previous,current){
     taskChanged:JSON.stringify(previous.task||null)!==JSON.stringify(current?.task||null),
     privacyChanged:JSON.stringify(previous.privacy||null)!==JSON.stringify(current?.privacy||null),
     budgetChanged:JSON.stringify(previous.perceptionBudget||null)!==JSON.stringify(current?.perceptionBudget||null),
+    groundTruthChanged:JSON.stringify(stableGroundTruth(previous.groundTruth||{}))!==JSON.stringify(stableGroundTruth(current?.groundTruth||{})),
     priorities:diffList(previous.priorities,current?.priorities),people:diffList(previous.people,current?.people),
     objects:diffList(previous.objects,current?.objects),anomalies:diffList(previous.anomalies,current?.anomalies),
     recentChanges:diffList(previous.recentChanges,current?.recentChanges)
   };
-  delta.changed=Boolean(delta.roomChanged||delta.taskChanged||delta.privacyChanged||delta.budgetChanged||
+  delta.changed=Boolean(delta.roomChanged||delta.taskChanged||delta.privacyChanged||delta.budgetChanged||delta.groundTruthChanged||
     ['priorities','people','objects','anomalies','recentChanges'].some((key)=>
       delta[key].added.length||delta[key].removed.length||delta[key].changed.length));
   return sanitizeAgentContext(delta);

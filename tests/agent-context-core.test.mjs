@@ -30,7 +30,13 @@ function context(){
     anomalies:{active:{A1:{signature:'A1',type:'expected-object-missing',severity:'high',status:'active',roomId:'ROOM01',
       objectId:'O1',summary:'Phone missing from expected location',confidence:.9,firstSeenAt:8500,lastSeenAt:9300}}},
     sceneChanges:[{id:'C1',type:'object.moved',roomId:'ROOM01',objectId:'O1',summary:'Phone moved',confidence:.8,timestamp:9100}],
-    perceptionBudget:{intensity:'focused',mainCameraMs:350,secondaryCameraMs:600,environmentCheckMs:30000}
+    perceptionBudget:{intensity:'focused',mainCameraMs:350,secondaryCameraMs:600,environmentCheckMs:30000},
+    groundTruth:{
+      generatedAt:10000,recoveryMode:false,
+      entities:[{subjectId:'O1',entityType:'object',label:'phone',roomId:'ROOM01',state:'confirmed',authority:'direct-observation',freshness:'current',confidence:.88,observedAt:8900}],
+      conflicts:[]
+    },
+    operationalHealth:{status:'healthy',staleEntityCount:0,conflictedEntityCount:0,continuityIssueCount:0,issues:[]}
   };
 }
 
@@ -120,4 +126,29 @@ test('context declares safety and authority boundaries',()=>{
   assert.ok(result.boundaries.includes('no-autonomous-physical-control'));
   assert.ok(result.boundaries.includes('privacy-policy-remains-authoritative'));
   assert.ok(result.boundaries.includes('semantic-context-only'));
+});
+
+test('Agent context exposes observed authority and operational health separately from legacy object list',()=>{
+  const result=buildAgentContext(context(),{},10000);
+  assert.equal(result.groundTruth.entities[0].subjectId,'O1');
+  assert.equal(result.groundTruth.entities[0].authority,'direct-observation');
+  assert.equal(result.groundTruth.entities[0].freshness,'current');
+  assert.equal(result.groundTruth.health.status,'healthy');
+});
+test('Agent context makes recovery-mode historical truth explicit',()=>{
+  const ctx=context();
+  ctx.groundTruth.recoveryMode=true;
+  ctx.groundTruth.entities[0]={...ctx.groundTruth.entities[0],roomId:null,lastKnownRoomId:'ROOM01',state:'last-known',authority:'recovered-history',freshness:'unknown',confidence:.3};
+  const result=buildAgentContext(ctx,{},10000);
+  assert.equal(result.groundTruth.recoveryMode,true);
+  assert.match(result.summary,/recovery mode/i);
+});
+test('ground truth conflicts participate in semantic context delta',()=>{
+  const before=buildAgentContext(context(),{},10000);
+  const ctx=context();
+  ctx.groundTruth.conflicts=[{id:'X1',type:'simultaneous-location',subjectId:'O1',roomIds:['ROOM01','ROOM02'],summary:'Conflict',confidence:.8,unresolved:true}];
+  const after=buildAgentContext(ctx,{},10000);
+  const delta=diffAgentContext(before,after);
+  assert.equal(delta.changed,true);
+  assert.equal(delta.groundTruthChanged,true);
 });
