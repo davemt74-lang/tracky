@@ -3,7 +3,7 @@ const txt=(v,max=160)=>String(v==null?'':v).replace(/\s+/g,' ').trim().slice(0,m
 
 export const GROUND_TRUTH_CORRECTION_SCHEMA_VERSION=1;
 export const GROUND_TRUTH_CORRECTION_TYPES=Object.freeze([
-  'entity-label','entity-location','forget-entity','camera-moved','entity-merge'
+  'entity-label','entity-location','forget-entity','camera-moved','entity-merge','identity-rejection'
 ]);
 
 export function normalizeGroundTruthCorrection(input={},now=Date.now()){
@@ -69,6 +69,13 @@ export function interpretGroundTruthCorrection(text,context={},options={},now=Da
   const raw=txt(text,500).replace(/[.!?]+$/,'');
   const entities=arr(context.entities);
 
+  if (/^forget (?:that|this) (?:object|person)$/i.test(raw) && options.subjectId) {
+    return {status:'ready',intent:'correct',correction:normalizeGroundTruthCorrection({
+      type:'forget-entity',subjectId:options.subjectId,entityType:options.entityType||null,
+      label:options.label||null,reason:'deictic-user-forget'
+    },now),raw};
+  }
+
   let m=raw.match(/^forget (?:that |the )?(?:object |person )?(.+)$/i);
   if(m){
     const matches=matchByLabel(entities,m[1]);
@@ -91,6 +98,14 @@ export function interpretGroundTruthCorrection(text,context={},options={},now=Da
     return {status:'ready',intent:'correct',correction:normalizeGroundTruthCorrection({
       type:'entity-location',subjectId:entityMatches[0].subjectId,entityType:entityMatches[0].entityType,
       label:entityMatches[0].label,roomId:roomMatches[0].id,reason:'natural-language-location-correction'
+    },now),raw};
+  }
+
+  m=raw.match(/^(?:that|this) is not (.+)$/i);
+  if(m&&options.subjectId){
+    return {status:'ready',intent:'correct',correction:normalizeGroundTruthCorrection({
+      type:'identity-rejection',subjectId:options.subjectId,entityType:options.entityType||'person',
+      label:m[1],reason:'natural-language-identity-rejection'
     },now),raw};
   }
 
