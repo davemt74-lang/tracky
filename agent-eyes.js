@@ -965,10 +965,10 @@ function worldWatchCommandContext() {
 
 function currentAgentDeliveryContext(now = Date.now()) {
   const activeRoomId = runtime.agentDeliveryContext.activeRoomId ||
-    primaryCameraConfig()?.roomId ||
-    runtime.fusionState.roomId ||
-    roomState.roomId ||
-    null;
+    runtime.groundTruth.activeRoomId ||
+    (runtime.running
+      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || roomState.roomId || null)
+      : null);
   const taskMode = runtime.agentDeliveryContext.taskMode !== 'general'
     ? runtime.agentDeliveryContext.taskMode
     : runtime.attention.activeTask?.mode || 'general';
@@ -2272,9 +2272,15 @@ function emit(type, payload = {}) {
   });
 }
 
+function groundTruthRelevantEvent(type = '') {
+  return /^(participant\.|object\.|camera\.|environment\.|visibility\.|portal\.|privacy\.)/.test(type);
+}
+
 bus.subscribe('*', (event) => {
   applyPerceptionEvent(roomState, event);
-  markGroundTruthDirty('perception:' + event.type);
+  if (groundTruthRelevantEvent(event.type)) {
+    markGroundTruthDirty('perception:' + event.type);
+  }
   if (meaningfulAttentionEvent(event.type)) {
     markMeaningfulActivity(runtime.attention, event.timestamp || Date.now());
     updateAttentionController(event.timestamp || Date.now());
@@ -3320,7 +3326,7 @@ function purgeForgottenGroundTruthEntity(subjectId) {
 function resolveCameraMovedCorrection(cameraId, now = Date.now()) {
   let changed = false;
   runtime.groundTruthCorrections = runtime.groundTruthCorrections.map((item) => {
-    if (item.type === 'camera-moved' && item.cameraId === cameraId && item.status !== 'superseded') {
+    if (item.type === 'camera-moved' && item.cameraId === cameraId && item.status === 'active') {
       changed = true;
       return { ...item, status:'superseded', updatedAt:now, supersededReason:'camera-recalibrated' };
     }
@@ -3339,8 +3345,8 @@ async function applyGroundTruthCorrectionRuntime(input = {}, now = Date.now()) {
     purgeForgottenGroundTruthEntity(result.correction.subjectId);
   }
 
-  await persistGroundTruthState(true);
   const updated = updateGroundTruthRuntime(now, 'user-correction');
+  await persistGroundTruthState(true);
   refreshAgentContext('ground-truth-correction', now);
   return copySerializable({
     status:'ready',
@@ -3359,8 +3365,8 @@ async function revokeGroundTruthCorrectionRuntime(id, reason = 'user-undo', now 
   if (result.status !== 'revoked') return copySerializable(result);
 
   runtime.groundTruthCorrections = result.corrections;
-  await persistGroundTruthState(true);
   const updated = updateGroundTruthRuntime(now, 'correction-revoked');
+  await persistGroundTruthState(true);
   refreshAgentContext('ground-truth-correction-revoked', now);
   return copySerializable({
     ...result,
