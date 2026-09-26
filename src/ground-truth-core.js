@@ -96,6 +96,7 @@ function candidateFromEntity(item,source,now){
     confidence:fresh.confidence,
     freshness:fresh.state,
     ageMs:fresh.ageMs,
+    halfLifeMs:fresh.halfLifeMs,
     observedAt,
     cameraIds:arr(item.cameraIds).map(String),
     holderParticipantId:item.holderParticipantId||null,
