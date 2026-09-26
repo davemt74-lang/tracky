@@ -204,6 +204,14 @@ import {
   diffAgentContext
 } from './src/agent-context-core.js';
 import {
+  buildAgentDeliveryRuntimeContext,
+  buildAgentRuntimeContextSource,
+  buildWorldQueryRuntimeContext,
+  buildWorldWatchRuntimeContext,
+  canonicalObjectLocation,
+  canonicalParticipantLocation
+} from './src/agent-runtime-context-core.js';
+import {
   evaluateWorldWatches,
   normalizeWorldWatch
 } from './src/world-watch-core.js';
@@ -921,21 +929,30 @@ function anomalyAttentionItems() {
 }
 
 
-function agentContextSource() {
+function runtimeContextInput() {
   return {
-    activeRoomId: runtime.groundTruth.activeRoomId || (runtime.running
-      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || roomState.roomId || null)
-      : null),
-    rooms: runtime.environmentRooms,
-    roomPolicies: runtime.roomPolicies,
-    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-    attention: attentionSnapshot(runtime.attention),
-    anomalies: anomalySnapshot(runtime.anomalyState),
-    sceneChanges: sceneState.changes.slice(-40),
-    perceptionBudget: currentPerceptionBudget(),
-    groundTruth: groundTruthSnapshot(runtime.groundTruth),
-    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
+    groundTruth:groundTruthSnapshot(runtime.groundTruth),
+    operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
+    running:runtime.running,
+    primaryRoomId:primaryCameraConfig()?.roomId||null,
+    fusionRoomId:runtime.fusionState.roomId||null,
+    roomStateRoomId:roomState.roomId||null,
+    rooms:runtime.environmentRooms,
+    roomPolicies:runtime.roomPolicies,
+    multiRoom:multiRoomSnapshot(runtime.multiRoomWorld),
+    attention:attentionSnapshot(runtime.attention),
+    anomalies:anomalySnapshot(runtime.anomalyState),
+    sceneChanges:sceneState.changes,
+    perceptionBudget:currentPerceptionBudget(),
+    spatialMemory:spatialMemorySnapshot(runtime.spatialMemory),
+    sceneGraph:sceneGraphSnapshot(runtime.sceneGraph),
+    physicalWorld:worldStateSnapshot(runtime.physicalWorld),
+    episodes:sceneState.episodes
   };
+}
+
+function agentContextSource() {
+  return buildAgentRuntimeContextSource(runtimeContextInput());
 }
 
 function currentAgentContext(options = {}, now = Date.now()) {
@@ -954,30 +971,21 @@ async function initializeWorldWatches() {
 }
 
 function worldWatchCommandContext() {
-  const context = currentAgentContext({}, Date.now());
-  return {
-    ...context,
-    rooms: runtime.environmentRooms.map((room) => ({
-      id: room.id,
-      name: room.name || room.label || room.id,
-      label: room.label || room.name || room.id
-    }))
-  };
+  return buildWorldWatchRuntimeContext(
+    currentAgentContext({}, Date.now()),
+    runtime.environmentRooms
+  );
 }
 
 function currentAgentDeliveryContext(now = Date.now()) {
-  const activeRoomId = runtime.agentDeliveryContext.activeRoomId ||
-    runtime.groundTruth.activeRoomId ||
-    (runtime.running
-      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || roomState.roomId || null)
-      : null);
-  const taskMode = runtime.agentDeliveryContext.taskMode !== 'general'
-    ? runtime.agentDeliveryContext.taskMode
-    : runtime.attention.activeTask?.mode || 'general';
-  return normalizeDeliveryContext({
-    ...runtime.agentDeliveryContext,
-    activeRoomId,
-    taskMode
+  return buildAgentDeliveryRuntimeContext({
+    deliveryContext:runtime.agentDeliveryContext,
+    groundTruth:groundTruthSnapshot(runtime.groundTruth),
+    running:runtime.running,
+    primaryRoomId:primaryCameraConfig()?.roomId||null,
+    fusionRoomId:runtime.fusionState.roomId||null,
+    roomStateRoomId:roomState.roomId||null,
+    activeTask:runtime.attention.activeTask
   }, now);
 }
 
@@ -1868,20 +1876,7 @@ function refreshAgentContext(reason = 'runtime-update', now = Date.now()) {
 }
 
 function worldQueryContext() {
-  return {
-    activeRoomId: runtime.groundTruth.activeRoomId || null,
-    rooms: runtime.environmentRooms,
-    roomPolicies: runtime.roomPolicies,
-    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
-    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
-    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
-    groundTruth: groundTruthSnapshot(runtime.groundTruth),
-    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth),
-    sceneChanges: sceneState.changes.slice(),
-    episodes: sceneState.episodes.slice(),
-    anomalies: anomalySnapshot(runtime.anomalyState)
-  };
+  return buildWorldQueryRuntimeContext(runtimeContextInput());
 }
 
 async function initializeWorldQueries() {
@@ -2398,21 +2393,16 @@ window.TrackyAgentEyes = Object.freeze({
     };
   },
   getParticipantLocation(participantId) {
-    const subjectId = String(participantId || '').startsWith('PERSON:')
-      ? String(participantId)
-      : 'PERSON:' + String(participantId || '');
-    return copySerializable(
-      (runtime.groundTruth.entities || []).find((item) => (
-        item.entityType === 'person' && item.subjectId === subjectId
-      )) || runtime.multiRoomWorld.participants[subjectId] || null
-    );
+    return canonicalParticipantLocation({
+      groundTruth:runtime.groundTruth,
+      multiRoom:runtime.multiRoomWorld
+    }, participantId);
   },
   getObjectLocation(objectId) {
-    return copySerializable(
-      (runtime.groundTruth.entities || []).find((item) => (
-        item.entityType === 'object' && item.subjectId === objectId
-      )) || runtime.multiRoomWorld.objects[objectId] || null
-    );
+    return canonicalObjectLocation({
+      groundTruth:runtime.groundTruth,
+      multiRoom:runtime.multiRoomWorld
+    }, objectId);
   },
   getWorldTopology() {
     return copySerializable(runtime.worldTopology);
