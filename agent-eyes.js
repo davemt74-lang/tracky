@@ -297,8 +297,10 @@ import {
 import {
   appendGroundTruthCorrection,
   activeGroundTruthCorrections,
+  groundTruthCorrectionHistory,
   interpretGroundTruthCorrection,
-  normalizeGroundTruthCorrection
+  normalizeGroundTruthCorrection,
+  revokeGroundTruthCorrection
 } from './src/ground-truth-correction-core.js';
 import {
   clearGroundTruthStore,
@@ -311,6 +313,26 @@ import {
   buildOperationalHealth,
   operationalHealthSnapshot
 } from './src/operational-health-core.js';
+import {
+  buildGovernedSemanticProjection
+} from './src/governed-world-projection-core.js';
+import {
+  RELIABILITY_POLICY
+} from './src/reliability-policy.js';
+import {
+  consumeReconciliation,
+  createReconciliationState,
+  markReconciliationDirty,
+  notePersisted,
+  persistenceNeeded,
+  reconciliationDue
+} from './src/runtime-reconciliation-core.js';
+import {
+  groundTruthPersistenceSignature,
+  groundTruthPersistenceSnapshot as buildGroundTruthPersistenceSnapshot,
+  groundTruthSemanticSignature as buildGroundTruthSemanticSignature,
+  reportedMovedCameraIds
+} from './src/ground-truth-runtime-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -727,6 +749,7 @@ const runtime = {
   groundTruthCorrections: [],
   groundTruthLastSavedAt: 0,
   groundTruthSignature: null,
+  groundTruthReconciliation: createReconciliationState(),
   operationalHealth: buildOperationalHealth({})
 };
 
@@ -3085,92 +3108,65 @@ function discardEnvironmentMapping() {
   renderEnvironmentMapping();
 }
 
+function governedWorldProjection(purpose = 'ground-truth') {
+  return buildGovernedSemanticProjection({
+    runtimeActive: runtime.running,
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    roomPolicies: runtime.roomPolicies
+  }, { purpose });
+}
+
 function privacyGovernedGroundTruthInput() {
-  const world = multiRoomSnapshot(runtime.multiRoomWorld);
-  const participants = {};
-  for (const [key, participant] of Object.entries(world.participants || {})) {
-    const roomId = participant.roomId || participant.lastKnownRoomId || null;
-    const policy = policyForRoom(roomId);
-    if (policy.allowVisualObservation === false) continue;
-    if (policy.allowParticipantIdentity === false) {
-      if (policy.allowAnonymousTracking === false) continue;
-      const anonId = 'ANON:' + (roomId || 'ROOM') + ':' + (participant.localRoomEntityId || key.replace(/[^a-zA-Z0-9]/g, ''));
-      participants[anonId] = {
-        ...participant,
-        id:anonId,
-        participantId:null,
-        participantName:'Anonymous participant',
-        identityAuthority:'anonymous'
-      };
-      continue;
-    }
-    participants[key] = participant;
-  }
-
-  const objects = {};
-  for (const [key, object] of Object.entries(world.objects || {})) {
-    const roomId = object.roomId || object.lastKnownRoomId || null;
-    const policy = policyForRoom(roomId);
-    if (
-      policy.allowVisualObservation === false ||
-      policy.allowObjectObservation === false
-    ) continue;
-    objects[key] = object;
-  }
-
-  const graph = sceneGraphSnapshot(runtime.sceneGraph);
-  const graphPolicy = policyForRoom(graph.roomId);
-  const allowedNodes = new Set(
-    (graph.nodes || []).filter((node) => {
-      if (!['person','object'].includes(node.type)) return true;
-      if (graphPolicy.allowVisualObservation === false) return false;
-      if (node.type === 'person' && graphPolicy.allowParticipantIdentity === false) return false;
-      if (node.type === 'object' && graphPolicy.allowObjectObservation === false) return false;
-      return true;
-    }).map((node) => node.id)
-  );
-  graph.nodes = (graph.nodes || []).filter((node) => allowedNodes.has(node.id));
-  graph.edges = (graph.edges || []).filter((edge) => (
-    allowedNodes.has(edge.subjectId) &&
-    allowedNodes.has(edge.objectId)
-  ));
-
   return {
-    activeRoomId: runtime.running
-      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null)
-      : null,
-    multiRoom:{ ...world, participants, objects },
-    sceneGraph:graph,
-    corrections:activeGroundTruthCorrections(runtime.groundTruthCorrections)
+    ...governedWorldProjection('ground-truth'),
+    corrections: activeGroundTruthCorrections(runtime.groundTruthCorrections)
   };
 }
 
 function groundTruthPersistenceSnapshot() {
-  const snapshot = groundTruthSnapshot(runtime.groundTruth);
-  snapshot.entities = (snapshot.entities || []).filter((entity) => {
-    const roomId = entity.roomId || entity.lastKnownRoomId || null;
-    if (!roomId) return false;
-    return spatialMemoryRetentionAllowed(policyForRoom(roomId), null);
-  });
-  const allowed = new Set(snapshot.entities.map((entity) => entity.subjectId));
-  snapshot.facts = (snapshot.facts || []).filter((fact) => allowed.has(fact.subjectId));
-  snapshot.conflicts = (snapshot.conflicts || []).filter((conflict) => allowed.has(conflict.subjectId));
-  return snapshot;
+  return buildGroundTruthPersistenceSnapshot(
+    runtime.groundTruth,
+    runtime.roomPolicies
+  );
 }
 
 async function persistGroundTruthState(force = false) {
   const now = Date.now();
-  if (!force && now - Number(runtime.groundTruthLastSavedAt || 0) < 10000) return;
+  const signature = groundTruthPersistenceSignature(
+    runtime.groundTruth,
+    runtime.operationalHealth,
+    runtime.groundTruthCorrections,
+    runtime.roomPolicies
+  );
+  if (!persistenceNeeded(runtime.groundTruthReconciliation, signature, force)) {
+    return false;
+  }
+  if (
+    !force &&
+    now - Number(runtime.groundTruthLastSavedAt || 0) <
+      RELIABILITY_POLICY.groundTruth.persistenceThrottleMs
+  ) {
+    runtime.groundTruthReconciliation.persistencePending = true;
+    return false;
+  }
+
   runtime.groundTruthLastSavedAt = now;
   try {
     await saveGroundTruthState(groundTruthPersistenceSnapshot());
     await replaceGroundTruthCorrections(runtime.groundTruthCorrections);
+    notePersisted(runtime.groundTruthReconciliation, signature);
+    return true;
   } catch (error) {
-    console.error('Could not persist V2.6 ground truth state', error);
+    runtime.groundTruthReconciliation.persistencePending = true;
+    console.error('Could not persist V2.6.1 ground truth state', error);
+    return false;
   }
 }
 
 async function initializeGroundTruthReliability() {
+  const now = Date.now();
   try {
     const [saved, corrections] = await Promise.all([
       loadGroundTruthState(),
@@ -3178,61 +3174,68 @@ async function initializeGroundTruthReliability() {
     ]);
     runtime.groundTruthCorrections = corrections || [];
     runtime.groundTruth = saved
-      ? recoverGroundTruthSnapshot(saved, Date.now())
-      : createGroundTruthState(Date.now());
+      ? recoverGroundTruthSnapshot(saved, now)
+      : createGroundTruthState(now);
   } catch (error) {
-    console.error('Could not load V2.6 ground truth state', error);
+    console.error('Could not load V2.6.1 ground truth state', error);
     runtime.groundTruthCorrections = [];
-    runtime.groundTruth = createGroundTruthState(Date.now());
+    runtime.groundTruth = createGroundTruthState(now);
   }
+
+  runtime.groundTruthReconciliation = createReconciliationState(now);
   runtime.operationalHealth = buildOperationalHealth({
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    activeRoomId: runtime.groundTruth.activeRoomId || null,
     rooms: runtime.environmentRooms,
     cameras: runtime.cameraConfigs,
     cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
     roomPolicies: runtime.roomPolicies,
     environment: runtime.environmentAnalysis,
     groundTruth: runtime.groundTruth
-  }, Date.now());
+  }, now);
   runtime.groundTruthSignature = null;
+  runtime.groundTruthReconciliation.lastPersistedSignature =
+    groundTruthPersistenceSignature(
+      runtime.groundTruth,
+      runtime.operationalHealth,
+      runtime.groundTruthCorrections,
+      runtime.roomPolicies
+    );
 }
 
-function groundTruthSemanticSignature(state, health) {
-  return JSON.stringify({
-    recoveryMode:state.recoveryMode===true,
-    entities:(state.entities || []).map((item) => [
-      item.subjectId,item.state,item.roomId,item.lastKnownRoomId,item.authority,item.freshness
-    ]),
-    conflicts:(state.conflicts || []).map((item) => [item.id,item.type,item.subjectId,item.unresolved]),
-    health:{
-      status:health?.status || null,
-      staleEntityCount:Number(health?.staleEntityCount || 0),
-      conflictedEntityCount:Number(health?.conflictedEntityCount || 0),
-      issues:(health?.issues || []).map((item) => [item.type,item.id,item.issue])
-    }
-  });
+function markGroundTruthDirty(reason = 'world') {
+  markReconciliationDirty(runtime.groundTruthReconciliation, reason);
 }
 
 function updateGroundTruthRuntime(now = Date.now(), reason = 'world-update') {
+  if (reason !== 'ground-truth-timer') {
+    markGroundTruthDirty(reason);
+  }
+  if (!reconciliationDue(runtime.groundTruthReconciliation, now)) {
+    return {
+      groundTruth: groundTruthSnapshot(runtime.groundTruth),
+      operationalHealth: operationalHealthSnapshot(runtime.operationalHealth),
+      changed: false,
+      reconciled: false
+    };
+  }
+
   runtime.groundTruth = buildGroundTruth(
     privacyGovernedGroundTruthInput(),
     runtime.groundTruth,
     now
   );
 
-  const reportedMovedCameraIds = activeGroundTruthCorrections(runtime.groundTruthCorrections)
-    .filter((item) => item.type === 'camera-moved' && item.cameraId)
-    .map((item) => item.cameraId);
-
   runtime.operationalHealth = buildOperationalHealth({
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    activeRoomId: runtime.groundTruth.activeRoomId || null,
     rooms: runtime.environmentRooms,
     cameras: runtime.cameraConfigs,
     cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
     roomPolicies: runtime.roomPolicies,
     environment:{
       ...(runtime.environmentAnalysis || {}),
-      reportedMovedCameraIds
+      reportedMovedCameraIds: reportedMovedCameraIds(
+        runtime.groundTruthCorrections
+      )
     },
     groundTruth:runtime.groundTruth
   }, now);
@@ -3241,12 +3244,21 @@ function updateGroundTruthRuntime(now = Date.now(), reason = 'world-update') {
     status:runtime.operationalHealth.status,
     staleEntityCount:runtime.operationalHealth.staleEntityCount,
     conflictedEntityCount:runtime.operationalHealth.conflictedEntityCount,
+    continuityIssueCount:runtime.operationalHealth.continuityIssueCount,
     issueCount:(runtime.operationalHealth.issues || []).length
   };
 
-  const signature = groundTruthSemanticSignature(runtime.groundTruth, runtime.operationalHealth);
+  const signature = buildGroundTruthSemanticSignature(
+    runtime.groundTruth,
+    runtime.operationalHealth
+  );
   const changed = signature !== runtime.groundTruthSignature;
   runtime.groundTruthSignature = signature;
+  consumeReconciliation(
+    runtime.groundTruthReconciliation,
+    runtime.groundTruth.entities || [],
+    now
+  );
   void persistGroundTruthState(false);
 
   if (changed) {
@@ -3261,7 +3273,8 @@ function updateGroundTruthRuntime(now = Date.now(), reason = 'world-update') {
   return {
     groundTruth:groundTruthSnapshot(runtime.groundTruth),
     operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
-    changed
+    changed,
+    reconciled:true
   };
 }
 
