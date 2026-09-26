@@ -14,7 +14,8 @@ test('Agent Eyes imports V2.6.1 consolidated ground truth runtime modules',()=>{
   './src/reliability-policy.js',
   './src/runtime-reconciliation-core.js',
   './src/ground-truth-runtime-core.js',
-  './src/ground-truth-runtime-controller.js'
+  './src/ground-truth-runtime-controller.js',
+  './src/agent-runtime-context-core.js'
  ]) assert.ok(source.includes("from '"+path+"'"));
 });
 test('V2.6 runtime exposes ground truth health correction explanation APIs',()=>{
@@ -80,12 +81,18 @@ test('forget entity correction purges retained semantic memory but remains gover
  assert.match(block,/runtime\.spatialMemory\.proposals/);
  assert.match(block,/objectAliases/);
 });
-test('Agent context source includes V2.6 truth and operational health',()=>{
- const start=source.indexOf('function agentContextSource(');
+test('Agent context source delegates semantic runtime construction to extracted context core',()=>{
+ const start=source.indexOf('function runtimeContextInput(');
  const end=source.indexOf('function currentAgentContext(',start);
  const block=source.slice(start,end);
+ assert.match(block,/buildAgentRuntimeContextSource/);
  assert.match(block,/groundTruthSnapshot/);
  assert.match(block,/operationalHealthSnapshot/);
+ const module=fs.readFileSync(new URL('../src/agent-runtime-context-core.js',import.meta.url),'utf8');
+ assert.match(module,/buildWorldQueryRuntimeContext/);
+ assert.match(module,/buildAgentDeliveryRuntimeContext/);
+ assert.match(module,/canonicalParticipantLocation/);
+ assert.match(module,/canonicalObjectLocation/);
 });
 test('V2.6.1 emits semantic ground truth browser events only on controller stable signature changes',()=>{
  const controller=fs.readFileSync(new URL('../src/ground-truth-runtime-controller.js',import.meta.url),'utf8');
@@ -100,12 +107,16 @@ test('V2.6 retains no autonomous physical or camera-control authority',()=>{
  assert.doesNotMatch(source,/unlockDoor|openGarage|armSecuritySystem|sendDeviceCommand/);
 });
 
-test('legacy participant/object location APIs prefer canonical ground truth before multi-room evidence',()=>{
+test('legacy participant/object location APIs delegate canonical lookup to extracted context core',()=>{
  const start=source.indexOf('getParticipantLocation(participantId)');
  const end=source.indexOf('getWorldTopology()',start);
  const block=source.slice(start,end);
- assert.match(block,/runtime\.groundTruth\.entities/);
- assert.match(block,/runtime\.multiRoomWorld/);
+ assert.match(block,/canonicalParticipantLocation/);
+ assert.match(block,/canonicalObjectLocation/);
+ const module=fs.readFileSync(new URL('../src/agent-runtime-context-core.js',import.meta.url),'utf8');
+ assert.match(module,/input\.groundTruth\?\.entities/);
+ assert.match(module,/input\.multiRoom\?\.participants/);
+ assert.match(module,/input\.multiRoom\?\.objects/);
 });
 test('entity merge corrections do not mutate lower-level multi-room aliases',()=>{
  const start=source.indexOf('async function applyGroundTruthCorrectionRuntime(');
