@@ -1159,6 +1159,13 @@ if (
   fail('V2.6 forget corrections must erase retained history without permanently hiding newer direct observations');
 }
 
+if (
+  !/locationState=roomEdge\?\.state/.test(groundTruthCore) ||
+  !/newer-observation-vs-confirmed-location/.test(groundTruthCore)
+) {
+  fail('V2.6 must keep entity identity authority separate from location authority and preserve newer observation conflicts');
+}
+
 const correctionCore = read('src/ground-truth-correction-core.js');
 for (const symbol of [
   'GROUND_TRUTH_CORRECTION_TYPES',
