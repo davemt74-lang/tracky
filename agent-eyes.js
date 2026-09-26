@@ -222,6 +222,7 @@ import {
   acknowledgeAgentBriefing,
   buildAgentBriefing,
   buildPhysicalGoalBriefing,
+  buildRoutineLearningBriefing,
   pendingAgentBriefings
 } from './src/agent-briefing-core.js';
 import {
@@ -244,9 +245,19 @@ import {
 } from './src/briefing-queue-core.js';
 import {
   evaluatePhysicalGoal,
-  evaluatePhysicalGoals,
   normalizePhysicalGoal
 } from './src/physical-goal-core.js';
+import {
+  buildRoutineHealth,
+  evaluateTemporalPhysicalGoal,
+  evaluateTemporalPhysicalGoals,
+  normalizeTemporalPolicy,
+  temporalPolicyStatus
+} from './src/temporal-goal-core.js';
+import {
+  advanceRoutineSequence,
+  tickRoutineSequence
+} from './src/routine-sequence-core.js';
 import {
   clearPhysicalGoalEvents,
   deletePhysicalGoal,
@@ -258,6 +269,24 @@ import {
 import {
   interpretPhysicalGoalCommand
 } from './src/physical-goal-language-core.js';
+import {
+  interpretTemporalGoalCommand
+} from './src/temporal-goal-language-core.js';
+import {
+  confirmRoutineLearningProposal,
+  createRoutineLearningState,
+  ignoreRoutineLearningProposal,
+  observeRoutineTransitions,
+  observeTemporalLocations,
+  proposalToPhysicalGoal,
+  routineLearningProposals,
+  routineLearningSnapshot
+} from './src/routine-learning-core.js';
+import {
+  clearRoutineLearningState,
+  loadRoutineLearningState,
+  saveRoutineLearningState
+} from './src/routine-learning-store.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -561,6 +590,7 @@ const worldWatchListeners = new Set();
 const agentBriefingListeners = new Set();
 const agentDeliveryListeners = new Set();
 const physicalGoalListeners = new Set();
+const routineLearningListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -665,7 +695,9 @@ const runtime = {
   agentBriefings: [],
   agentDeliveryContext: normalizeDeliveryContext({}, Date.now()),
   physicalGoals: [],
-  physicalGoalHistory: []
+  physicalGoalHistory: [],
+  routineLearning: createRoutineLearningState(),
+  routineLearningLastSavedAt: 0
 };
 
 const SCAN_INTERVAL_MS = 550;
