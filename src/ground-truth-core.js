@@ -20,7 +20,16 @@ function entityId(item={}){
   return String(item.participantId?('PERSON:'+item.participantId):(item.objectId||item.id||''));
 }
 function entityType(item={}){
-  return item.participantId||String(item.id||'').startsWith('PERSON:')?'person':'object';
+  if(item.entityType==='person'||item.entityType==='object') return item.entityType;
+  if(
+    item.participantId ||
+    item.identityAuthority==='enrolled-participant' ||
+    item.identityAuthority==='anonymous' ||
+    item.localRoomEntityId ||
+    String(item.id||'').startsWith('PERSON:') ||
+    String(item.id||'').startsWith('ANON:')
+  ) return 'person';
+  return 'object';
 }
 function observedAuthority(item={}){
   if(item.identityAuthority==='enrolled-participant') return 'reconciled-observation';
@@ -78,6 +87,7 @@ function candidateFromEntity(item,source,now){
     label:txt(item.participantName||item.label||item.objectLabel||id,100),
     roomId:item.roomId||null,
     lastKnownRoomId:item.lastKnownRoomId||item.roomId||null,
+    candidateRoomIds:arr(item.candidateRoomIds).map(String),
     presence,
     state:['confirmed','transitioning'].includes(presence)?'confirmed':presence==='uncertain'?'uncertain':'last-known',
     authority,
@@ -244,10 +254,30 @@ export function reconcileGroundTruthEntities(input={},now=Date.now()){
   const entities=[];
   const conflicts=[];
   for(const [subjectId,items] of bySubject){
+    const explicitUncertain=items.find((item)=>(
+      item.state==='uncertain' &&
+      item.freshness==='current' &&
+      arr(item.candidateRoomIds).length>1
+    ));
     const current=items.filter((item)=>item.freshness==='current'&&item.roomId&&item.state!=='last-known');
     const distinctRooms=[...new Set(current.map((item)=>item.roomId))];
     let selected=null;
-    if(distinctRooms.length>1){
+    if(explicitUncertain){
+      const roomIds=[...new Set(explicitUncertain.candidateRoomIds)];
+      conflicts.push({
+        id:'CONFLICT:multi-room:'+subjectId,
+        type:'simultaneous-location',
+        subjectId,
+        roomIds,
+        candidateIds:[explicitUncertain.id],
+        authorities:[explicitUncertain.authority],
+        confidence:explicitUncertain.confidence,
+        unresolved:true,
+        summary:'Multi-room reconciliation reports incompatible current locations; active-room evidence cannot silently override it.'
+      });
+      selected={...explicitUncertain,state:'conflicted',roomId:null,candidateRoomIds:roomIds,confidence:Math.min(.49,explicitUncertain.confidence)};
+    }
+    if(!selected&&distinctRooms.length>1){
       const bestRank=Math.max(...current.map((item)=>item.authorityRank));
       const top=current.filter((item)=>bestRank-Number(item.authorityRank||0)<=0.6);
       const topRooms=[...new Set(top.map((item)=>item.roomId))];
@@ -414,7 +444,8 @@ export function buildGroundTruth(input={},previous=null,now=Date.now()){
 export function recoverGroundTruthSnapshot(saved={},now=Date.now()){
   const recovered=createGroundTruthState(now);
   recovered.recoveryMode=true;
-  recovered.activeRoomId=saved.activeRoomId||null;
+  recovered.activeRoomId=null;
+  recovered.lastKnownActiveRoomId=saved.activeRoomId||saved.lastKnownActiveRoomId||null;
   recovered.entities=arr(saved.entities).map((entity)=>({
     ...entity,
     state:entity.state==='forgotten'?'forgotten':'last-known',
