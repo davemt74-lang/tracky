@@ -116,15 +116,23 @@ function applyCorrections(entity,corrections,now){
   let result={...entity,evidence:[...(entity.evidence||[])]};
   for(const correction of correctionForEntity(corrections,entity.subjectId)){
     if(correction.type==='forget-entity'){
-      return {
-        ...result,
-        state:'forgotten',
-        freshness:'unknown',
-        confidence:0,
-        roomId:null,
-        forgottenAt:Number(correction.createdAt||now),
-        evidence:[...result.evidence,correctionEvidence(correction)]
-      };
+      const forgottenAt=Number(correction.createdAt||now);
+      const observedAfterForget=Number(entity.observedAt||0)>forgottenAt;
+      if(!observedAfterForget){
+        return {
+          ...result,
+          state:'forgotten',
+          freshness:'unknown',
+          confidence:0,
+          roomId:null,
+          forgottenAt,
+          evidence:[...result.evidence,correctionEvidence(correction)]
+        };
+      }
+      result.evidence.push({
+        ...correctionEvidence(correction),
+        supersededByFreshObservation:true
+      });
     }
     if(correction.type==='identity-rejection'){
       if(
@@ -405,11 +413,33 @@ export function createGroundTruthState(now=Date.now()){
 export function buildGroundTruth(input={},previous=null,now=Date.now()){
   const reconciled=reconcileGroundTruthEntities(input,now);
   const state=createGroundTruthState(now);
-  state.activeRoomId=input.activeRoomId||null;
-  state.entities=reconciled.entities.filter((item)=>item.state!=='forgotten');
+  const currentEntities=reconciled.entities.filter((item)=>item.state!=='forgotten');
+  const currentIds=new Set(currentEntities.map((item)=>item.subjectId));
+  const recoveredCarry=arr(previous?.entities)
+    .filter((item)=>(
+      item.state!=='forgotten' &&
+      item.authority==='recovered-history' &&
+      !currentIds.has(item.subjectId)
+    ))
+    .map((item)=>({
+      ...item,
+      state:'last-known',
+      freshness:'unknown',
+      roomId:null,
+      confidence:Math.min(.35,Number(item.confidence||0)),
+      authority:'recovered-history',
+      authorityRank:FACT_AUTHORITY['recovered-history']
+    }));
+  const hasFreshEvidence=currentEntities.some((item)=>(
+    item.freshness==='current' &&
+    item.authority!=='recovered-history'
+  ));
+  state.activeRoomId=hasFreshEvidence?(input.activeRoomId||null):null;
+  state.lastKnownActiveRoomId=state.activeRoomId||previous?.lastKnownActiveRoomId||previous?.activeRoomId||null;
+  state.entities=[...currentEntities,...recoveredCarry];
   state.conflicts=reconciled.conflicts;
   state.continuityIssues=detectContinuityIssues(state.entities,reconciled.candidates,now);
-  state.recoveryMode=false;
+  state.recoveryMode=previous?.recoveryMode===true&&!hasFreshEvidence;
   state.facts=state.entities.flatMap((entity)=>{
     const facts=[{
       id:'FACT:'+entity.subjectId+':presence',
