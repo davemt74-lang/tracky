@@ -21,6 +21,68 @@ function stableCorrection(item={}){
   ];
 }
 
+function objectValues(value){
+  return value&&typeof value==='object'
+    ? Object.entries(value).sort(([a],[b])=>String(a).localeCompare(String(b)))
+    : [];
+}
+function confidenceBucket(value){
+  return Math.round(Number(value||0)*20)/20;
+}
+function entityEvidenceSignature(item={},key=''){
+  return [
+    key,item.id||null,item.participantId||null,item.objectId||null,
+    item.participantName||item.label||null,item.roomId||null,item.lastKnownRoomId||null,
+    item.presence||item.status||null,arr(item.candidateRoomIds).map(String).sort(),
+    item.holderParticipantId||null,confidenceBucket(item.confidence)
+  ];
+}
+function policyEvidenceSignature(policy={},roomId=''){
+  return [
+    roomId,
+    policy.allowVisualObservation!==false,
+    policy.allowParticipantIdentity!==false,
+    policy.allowAnonymousTracking!==false,
+    policy.allowObjectObservation!==false,
+    policy.allowSpatialMemory!==false,
+    arr(policy.sensitiveRegions).map((region)=>[
+      region.id||null,region.enabled!==false,region.mode||null,
+      Number(region.x||0),Number(region.y||0),Number(region.width||0),Number(region.height||0),
+      arr(region.appliesTo).map(String).sort()
+    ])
+  ];
+}
+export function groundTruthInputSignature(input={}){
+  const world=input.multiRoom||{};
+  const graph=input.sceneGraph||{};
+  return JSON.stringify({
+    running:input.runtimeActive===true,
+    activeRoomId:input.activeRoomId||null,
+    participants:objectValues(world.participants).map(([key,item])=>entityEvidenceSignature(item,key)),
+    objects:objectValues(world.objects).map(([key,item])=>entityEvidenceSignature(item,key)),
+    graphNodes:arr(graph.nodes).map((node)=>[
+      node.id||null,node.type||null,node.label||null,node.state||null,
+      confidenceBucket(node.confidence)
+    ]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
+    graphEdges:arr(graph.edges).map((edge)=>[
+      edge.id||null,edge.subjectId||null,edge.predicate||null,edge.objectId||null,
+      edge.state||null,confidenceBucket(edge.confidence)
+    ]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
+    policies:objectValues(input.roomPolicies).map(([roomId,policy])=>policyEvidenceSignature(policy,roomId)),
+    cameras:arr(input.cameras).map((camera)=>[
+      camera.id||null,camera.roomId||null,camera.enabled!==false,camera.primary===true,
+      arr(camera.roomPoints).flatMap((point)=>[Number(point.x||0),Number(point.y||0)])
+    ]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),
+    cameraStatuses:objectValues(input.cameraStatuses).map(([id,status])=>[id,status]),
+    environment:[
+      input.environment?.classification||null,
+      input.environment?.best?.roomId||null,
+      input.environment?.drift?.likelyCameraShift===true
+    ],
+    corrections:correctionSemanticSignature(input.corrections||[])
+  });
+}
+
 export function groundTruthSemanticSignature(state={},health={}){
   return JSON.stringify({
     recoveryMode:state.recoveryMode===true,
