@@ -119,15 +119,17 @@ test('semantic soak detects meaningful transitions while remaining stable betwee
 test('camera outage and recovery changes health without corrupting canonical entity identity',()=>{
   const now=3_000_000;
   let result=reconcile(projectionInput(now),null,now);
-  assert.equal(result.health.status,'healthy');
+  assert.equal(result.health.rooms.find(x=>x.roomId==='OFFICE').status,'healthy');
   const beforeId=result.truth.entities.find(x=>x.entityType==='object').subjectId;
 
   result=reconcile(projectionInput(now+1000,'OFFICE',policies(),[],true,'offline'),result.truth,now+1000);
+  assert.equal(result.health.rooms.find(x=>x.roomId==='OFFICE').status,'needs-attention');
   assert.equal(result.health.status,'needs-attention');
   assert.equal(result.truth.entities.find(x=>x.entityType==='object').subjectId,beforeId);
 
   result=reconcile(projectionInput(now+2000),result.truth,now+2000);
-  assert.equal(result.health.status,'healthy');
+  assert.equal(result.health.rooms.find(x=>x.roomId==='OFFICE').status,'healthy');
+  assert.equal(result.health.status,'limited');
 });
 
 test('privacy policy changes suppress governed object evidence and identity without leaking raw identity',()=>{
