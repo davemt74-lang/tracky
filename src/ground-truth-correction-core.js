@@ -86,7 +86,7 @@ export function interpretGroundTruthCorrection(text,context={},options={},now=Da
     },now),raw};
   }
 
-  m=raw.match(/^(.+?) (?:is|belongs) in (?:the )?(.+)$/i);
+  m=raw.match(/^(.+?) (?:is|are|belongs?|belong) in (?:the )?(.+)$/i);
   if(m){
     const entityMatches=matchByLabel(entities,m[1]);
     const roomMatches=arr(context.rooms).filter((room)=>[
