@@ -1958,8 +1958,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v2\.6-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V2.6 deploy ZIP');
+if (!/tracky-v2\.6\.1-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V2.6.1 deploy ZIP');
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
   fail('CI V1.9 deploy package must include attention core and store');
@@ -2019,10 +2019,15 @@ for (const file of [
   'src/ground-truth-core.js',
   'src/ground-truth-correction-core.js',
   'src/ground-truth-store.js',
-  'src/operational-health-core.js'
+  'src/operational-health-core.js',
+  'src/reliability-policy.js',
+  'src/governed-world-projection-core.js',
+  'src/runtime-reconciliation-core.js',
+  'src/ground-truth-runtime-core.js',
+  'src/ground-truth-runtime-controller.js'
 ]) {
   if (!workflow.includes(file)) {
-    fail('CI V2.6 deploy package must include ' + file);
+    fail('CI V2.6.1 deploy package must include ' + file);
   }
 }
 if (!workflow.includes('src/privacy-policy-core.js')) {
@@ -2056,5 +2061,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, proactive delivery policy, delivery queue coalescing, reconnect recovery, digest delivery, voice handoff boundaries, persistent physical goals, observation-aware expectations, recurring semantic routines, natural-language goal management, goal briefing integration, temporal windows, deadline expectations, durable grace periods, predictive routine sequences, multi-session learned routine proposals, temporal-location learning, explicit proposal confirmation, routine health, authoritative ground truth reconciliation, fact authority, confidence freshness decay, reboot recovery, continuity ambiguity, explicit physical-world corrections, calibration and coverage health, operational reliability diagnostics, Agent ground-truth explanations, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, proactive delivery policy, delivery queue coalescing, reconnect recovery, digest delivery, voice handoff boundaries, persistent physical goals, observation-aware expectations, recurring semantic routines, natural-language goal management, goal briefing integration, temporal windows, deadline expectations, durable grace periods, predictive routine sequences, multi-session learned routine proposals, temporal-location learning, explicit proposal confirmation, routine health, authoritative ground truth reconciliation, fact authority, confidence freshness decay, reboot recovery, continuity ambiguity, explicit physical-world corrections, canonical semantic reads, shared governed projection, dirty reconciliation, semantic input fingerprints, write-on-change persistence, reversible correction lifecycle, runtime controller modularization, reliability soak coverage, calibration and cached coverage health, operational reliability diagnostics, Agent ground-truth explanations, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
