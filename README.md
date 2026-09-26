@@ -57,6 +57,7 @@ Ground-truth runtime responsibilities are split into focused modules:
 - `runtime-reconciliation-core.js`
 - `ground-truth-runtime-core.js`
 - `ground-truth-runtime-controller.js`
+- `agent-runtime-context-core.js`
 
 `agent-eyes.js` remains the browser orchestration surface rather than owning the reconciliation engine itself.
 
