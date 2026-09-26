@@ -65,20 +65,32 @@ export function sanitizeAgentContext(value){
   return sanitizeWalk(value);
 }
 
+function canonicalTruthEntities(context,type){
+  return arr(context.groundTruth?.entities).filter((item)=>item.entityType===type);
+}
 function people(context,rooms,now,limit){
-  return arr(context.multiRoom?.participants)
-    .filter((item)=>['confirmed','transitioning'].includes(String(item.presence||'')))
+  const truth=canonicalTruthEntities(context,'person');
+  const source=truth.length?truth:arr(context.multiRoom?.participants);
+  return source
+    .filter((item)=>{
+      const state=String(item.state||item.presence||'');
+      return ['confirmed','transitioning'].includes(state)&&Boolean(item.roomId);
+    })
     .map((item)=>{
       const roomId=item.roomId||item.lastKnownRoomId||null;
       const roomPolicy=policy(context,roomId);
       if(roomPolicy.allowVisualObservation===false) return null;
-      const hidden=roomPolicy.allowParticipantIdentity===false;
+      const alreadyAnonymous=String(item.subjectId||item.id||'').startsWith('ANON:');
+      const hidden=roomPolicy.allowParticipantIdentity===false||alreadyAnonymous;
+      const rawId=item.participantId||item.subjectId||item.id||null;
       return {
-        participantId:hidden?null:(item.participantId||item.id||null),
-        label:hidden?'Anonymous participant':txt(item.participantName||item.name||item.label||item.participantId||item.id||'Participant',80),
-        roomId,room:roomName(rooms,roomId),presence:txt(item.presence||'confirmed',32),
-        confidence:clamp01(item.confidence),lastObservedAt:numberOrNull(item.lastObservedAt),
-        freshnessMs:freshness(item.lastObservedAt,now)
+        participantId:hidden?null:(String(rawId||'').replace(/^PERSON:/,'')||null),
+        subjectId:item.subjectId||item.id||null,
+        label:hidden?'Anonymous participant':txt(item.participantName||item.name||item.label||rawId||'Participant',80),
+        roomId,room:roomName(rooms,roomId),presence:txt(item.state||item.presence||'confirmed',32),
+        authority:item.authority||null,freshness:item.freshness||null,
+        confidence:clamp01(item.confidence),lastObservedAt:numberOrNull(item.observedAt||item.lastObservedAt),
+        freshnessMs:freshness(item.observedAt||item.lastObservedAt,now)
       };
     })
     .filter(Boolean)
@@ -86,17 +98,25 @@ function people(context,rooms,now,limit){
     .slice(0,limit);
 }
 function objects(context,rooms,now,limit){
-  return arr(context.multiRoom?.objects)
+  const truth=canonicalTruthEntities(context,'object');
+  const source=truth.length?truth:arr(context.multiRoom?.objects);
+  return source
     .map((item)=>{
       const roomId=item.roomId||item.lastKnownRoomId||null;
       const roomPolicy=policy(context,roomId);
       if(roomPolicy.allowVisualObservation===false||roomPolicy.allowObjectObservation===false) return null;
-      const presence=txt(item.presence||(item.roomId?'confirmed':'last-known'),32);
-      if(presence==='last-known'&&roomPolicy.allowSpatialMemory===false) return null;
+      const presence=txt(item.state||item.presence||(item.roomId?'confirmed':'last-known'),32);
+      if(['forgotten','unknown'].includes(presence)) return null;
+      if((presence==='last-known'||item.freshness==='unknown')&&roomPolicy.allowSpatialMemory===false) return null;
       return {
-        objectId:item.objectId||item.id||null,label:txt(item.label||item.className||item.objectClass||item.id||'Object',80),
-        roomId,room:roomName(rooms,roomId),presence,confidence:clamp01(item.confidence),
-        lastObservedAt:numberOrNull(item.lastObservedAt),freshnessMs:freshness(item.lastObservedAt,now)
+        objectId:item.objectId||item.subjectId||item.id||null,
+        subjectId:item.subjectId||item.id||null,
+        label:txt(item.label||item.className||item.objectClass||item.subjectId||item.id||'Object',80),
+        roomId,room:roomName(rooms,roomId),presence,
+        authority:item.authority||null,freshness:item.freshness||null,
+        confidence:clamp01(item.confidence),
+        lastObservedAt:numberOrNull(item.observedAt||item.lastObservedAt),
+        freshnessMs:freshness(item.observedAt||item.lastObservedAt,now)
       };
     })
     .filter(Boolean)
@@ -249,7 +269,7 @@ export function buildAgentContext(context={},options={},now=Date.now()){
       secondaryCameraMs:numberOrNull(context.perceptionBudget.secondaryCameraMs||context.perceptionBudget.secondaryScanMs),
       environmentCheckMs:numberOrNull(context.perceptionBudget.environmentCheckMs)
     }:null,
-    provenance:['multi-room-world','attention-controller','proactive-awareness','scene-intelligence','observation-policy'],
+    provenance:['ground-truth-canonical','multi-room-fallback','attention-controller','proactive-awareness','scene-intelligence','observation-policy'],
     boundaries:['semantic-context-only','no-raw-sensor-payloads','no-autonomous-physical-control','privacy-policy-remains-authoritative']
   });
 }
