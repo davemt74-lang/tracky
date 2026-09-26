@@ -905,7 +905,9 @@ function agentContextSource() {
     attention: attentionSnapshot(runtime.attention),
     anomalies: anomalySnapshot(runtime.anomalyState),
     sceneChanges: sceneState.changes.slice(-40),
-    perceptionBudget: currentPerceptionBudget()
+    perceptionBudget: currentPerceptionBudget(),
+    groundTruth: groundTruthSnapshot(runtime.groundTruth),
+    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
   };
 }
 
@@ -1847,6 +1849,8 @@ function worldQueryContext() {
     spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
     sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
     physicalWorld: worldStateSnapshot(runtime.physicalWorld),
+    groundTruth: groundTruthSnapshot(runtime.groundTruth),
+    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth),
     sceneChanges: sceneState.changes.slice(),
     episodes: sceneState.episodes.slice(),
     anomalies: anomalySnapshot(runtime.anomalyState)
@@ -2281,7 +2285,9 @@ window.TrackyAgentEyes = Object.freeze({
       perceptionBudget: copySerializable(currentPerceptionBudget()),
       proactiveAwareness: anomalySnapshot(runtime.anomalyState),
       physicalGoals: copySerializable(runtime.physicalGoals),
-      routineLearning: routineLearningSnapshot(runtime.routineLearning)
+      routineLearning: routineLearningSnapshot(runtime.routineLearning),
+      groundTruth: groundTruthSnapshot(runtime.groundTruth),
+      operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
     };
   },
   getEnvironmentState() {
@@ -2297,6 +2303,36 @@ window.TrackyAgentEyes = Object.freeze({
   },
   getPhysicalWorldState() {
     return worldStateSnapshot(runtime.physicalWorld);
+  },
+  getGroundTruth() {
+    return groundTruthSnapshot(runtime.groundTruth);
+  },
+  getOperationalHealth() {
+    return operationalHealthSnapshot(runtime.operationalHealth);
+  },
+  getEntityTruth(subjectId) {
+    return copySerializable(
+      (runtime.groundTruth.entities || []).find((item) => item.subjectId === subjectId) || null
+    );
+  },
+  explainGroundTruth(subjectId) {
+    return copySerializable(explainGroundTruth(runtime.groundTruth, subjectId));
+  },
+  applyGroundTruthCorrection(input = {}) {
+    return applyGroundTruthCorrectionRuntime(input, Date.now());
+  },
+  interpretGroundTruthCorrection(text, options = {}) {
+    return copySerializable(interpretGroundTruthCorrection(text, {
+      entities:runtime.groundTruth.entities || [],
+      rooms:runtime.environmentRooms,
+      primaryCameraId:primaryCameraConfig()?.id || null
+    }, options, Date.now()));
+  },
+  processGroundTruthCorrection(text, options = {}) {
+    return processGroundTruthCorrectionRuntime(text, options, Date.now());
+  },
+  clearGroundTruthReliability() {
+    return clearGroundTruthReliabilityRuntime();
   },
   getCameraFusionState() {
     return copySerializable(runtime.fusionState);
@@ -2606,6 +2642,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribeRoutineLearning(listener) {
     routineLearningListeners.add(listener);
     return () => routineLearningListeners.delete(listener);
+  },
+  subscribeGroundTruth(listener) {
+    groundTruthListeners.add(listener);
+    return () => groundTruthListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -4645,6 +4685,7 @@ async function saveCameraCalibrationForm(event) {
   }
 
   await saveCameraConfig(updated);
+  resolveCameraMovedCorrection(updated.id, Date.now());
   await reloadCameraRegistry();
   closeCameraCalibration();
 
@@ -9725,6 +9766,7 @@ await reloadEnvironmentRooms();
 await enumerateCameras();
 await initializeSceneMemory();
 await initializeSpatialMemory();
+await initializeGroundTruthReliability();
 await initializeAnomalyState();
 await initializeAttentionState();
 await initializeWorldQueries();
@@ -9760,3 +9802,8 @@ setInterval(() => {
   );
   void tickSequenceRoutinesRuntime(now);
 }, 30000);
+setInterval(() => {
+  const now = Date.now();
+  const result = updateGroundTruthRuntime(now, 'ground-truth-timer');
+  if (result.changed) refreshAgentContext('ground-truth-timer', now);
+}, 5000);
