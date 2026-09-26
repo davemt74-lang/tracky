@@ -26,22 +26,19 @@ test('multi-room transitions feed sequence runtime and proposal learner',()=>{
  assert.match(source,/processSequenceRoutineEvents\(multiRoomEvents, now\)/);
  assert.match(source,/observeRoutineLearningRuntime\(multiRoomEvents, now\)/);
 });
-test('learning filters transitions through retention and observation policy',()=>{
+test('learning filters transitions through centralized governed retention and observation policy',()=>{
  const start=source.indexOf('function routineLearningTransitionAllowed(');
  const end=source.indexOf('async function publishRoutineLearningProposal(',start);
  const block=source.slice(start,end);
- assert.match(block,/spatialMemoryRetentionAllowed/);
- assert.match(block,/allowParticipantIdentity === false/);
- assert.match(block,/allowObjectObservation === false/);
+ assert.match(block,/semanticTransitionRetentionAllowed/);
+ assert.doesNotMatch(block,/spatialMemoryRetentionAllowed|allowParticipantIdentity|allowObjectObservation/);
 });
-test('temporal-location learning independently enforces cross-session retention permissions',()=>{
+test('temporal-location learning delegates cross-session privacy and retention to governed eligibility',()=>{
  const start=source.indexOf('function routineLearningLocationContext(');
  const end=source.indexOf('async function observeRoutineLearningRuntime(',start);
  const block=source.slice(start,end);
- assert.match(block,/spatialMemoryRetentionAllowed/);
- assert.match(block,/allowParticipantIdentity !== false/);
- assert.match(block,/allowObjectObservation !== false/);
- assert.match(block,/allowVisualObservation !== false/);
+ assert.match(block,/semanticLearningEntityAllowed/);
+ assert.doesNotMatch(block,/spatialMemoryRetentionAllowed|allowParticipantIdentity|allowObjectObservation|allowVisualObservation/);
  assert.match(block,/currentAnchors/);
 });
 
