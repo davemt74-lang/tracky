@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
  createRoutineLearningState,observeRoutineTransitions,observeTemporalLocations,
- confirmRoutineLearningProposal,ignoreRoutineLearningProposal,proposalToPhysicalGoal,routineLearningProposals
+ confirmRoutineLearningProposal,ignoreRoutineLearningProposal,proposalToPhysicalGoal,routineLearningProposals,
+ routineLearningSnapshot
 } from '../src/routine-learning-core.js';
 
 const transition=(from,to,t=1000)=>({id:'E'+t,type:'participant.room_transition',participantId:'p1',participantName:'Dave',fromRoomId:from,toRoomId:to,confidence:.9,timestamp:t});
@@ -19,6 +20,32 @@ test('repeated semantic sequences across multiple sessions create proposal only'
  assert.ok(proposals.some(p=>p.type==='sequence-routine'));
  assert.ok(proposals.every(p=>p.status==='proposed'));
 });
+test('same-session sequence evidence survives consecutive observation calls',()=>{
+ let state=createRoutineLearningState();
+ state=observeRoutineTransitions(state,[transition('OFFICE','HALL',1000)],'s1',1000).state;
+ state=observeRoutineTransitions(state,[transition('HALL','ENTRY',2000)],'s1',2000).state;
+ assert.equal(Object.keys(state.sequences).length,1);
+});
+
+test('persisted learning snapshot reloads safely with fresh ephemeral buffers',()=>{
+ let state=createRoutineLearningState();
+ state=observeRoutineTransitions(state,[transition('OFFICE','HALL',1000)],'s1',1000).state;
+ const persisted=routineLearningSnapshot(state);
+ assert.equal('recentBySubject' in persisted,false);
+ assert.doesNotThrow(()=>{
+   state=observeRoutineTransitions(
+     persisted,
+     [transition('HALL','ENTRY',2000),transition('ENTRY','OUT',3000)],
+     's2',
+     3000
+   ).state;
+ });
+ const context={people:[],objects:[{objectId:'O1',label:'keys',roomId:'OFFICE',presence:'confirmed',confidence:.9}],currentAnchors:{}};
+ assert.doesNotThrow(()=>{
+   state=observeTemporalLocations(routineLearningSnapshot(state),context,'s3',new Date(2026,8,21,18,0,0).getTime()).state;
+ });
+});
+
 test('sequence evidence never stitches transitions across separate sessions',()=>{
  let state=createRoutineLearningState();
  state=observeRoutineTransitions(state,[transition('OFFICE','HALL',1000)],'s1',1000).state;
