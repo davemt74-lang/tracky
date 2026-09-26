@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGovernedSemanticProjection,retentionAllowedForProjectedEntity } from '../src/governed-world-projection-core.js';
+import {
+  buildGovernedSemanticProjection,
+  retentionAllowedForProjectedEntity,
+  semanticLearningEntityAllowed,
+  semanticTransitionRetentionAllowed
+} from '../src/governed-world-projection-core.js';
 
 const baseWorld={
  participants:{
@@ -80,4 +85,24 @@ test('memory transition is suppressed when either origin or destination disallow
  };
  const p=buildGovernedSemanticProjection({runtimeActive:true,activeRoomId:'OFFICE',multiRoom:world,sceneGraph:graph,roomPolicies:policies},{purpose:'memory'});
  assert.deepEqual(p.multiRoom.transitions.map(x=>x.id),['T3']);
+});
+
+test('routine-learning participant eligibility requires identity and retention permission',()=>{
+ const person={participantId:'p1',roomId:'OFFICE',roomPosition:{x:.2,y:.2}};
+ const allowed={OFFICE:{roomId:'OFFICE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:true,sensitiveRegions:[]}};
+ assert.equal(semanticLearningEntityAllowed(person,allowed,'participant'),true);
+ const anonymous={OFFICE:{...allowed.OFFICE,allowParticipantIdentity:false}};
+ assert.equal(semanticLearningEntityAllowed(person,anonymous,'participant'),false);
+ const noMemory={OFFICE:{...allowed.OFFICE,allowSpatialMemory:false}};
+ assert.equal(semanticLearningEntityAllowed(person,noMemory,'participant'),false);
+});
+test('routine-learning transitions require governed observation and retention in both rooms',()=>{
+ const base={
+  OFFICE:{roomId:'OFFICE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:true,sensitiveRegions:[]},
+  KITCHEN:{roomId:'KITCHEN',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:true,sensitiveRegions:[]}
+ };
+ const transition={type:'participant.room_transition',fromRoomId:'OFFICE',toRoomId:'KITCHEN'};
+ assert.equal(semanticTransitionRetentionAllowed(transition,base),true);
+ assert.equal(semanticTransitionRetentionAllowed(transition,{...base,KITCHEN:{...base.KITCHEN,allowParticipantIdentity:false}}),false);
+ assert.equal(semanticTransitionRetentionAllowed(transition,{...base,OFFICE:{...base.OFFICE,allowSpatialMemory:false}}),false);
 });
