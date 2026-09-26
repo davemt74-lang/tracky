@@ -54,3 +54,16 @@ test('ignore privacy region suppresses only entities within the region',()=>{
  assert.equal(Object.keys(p.multiRoom.participants).length,1);
  assert.equal(Object.keys(p.multiRoom.objects).length,0);
 });
+
+test('memory projection filters transitions whose destination room disallows retention',()=>{
+ const world={...baseWorld,transitions:[
+  {id:'T1',fromRoomId:'OFFICE',toRoomId:'PRIVATE'},
+  {id:'T2',fromRoomId:'OFFICE',toRoomId:'OFFICE'}
+ ]};
+ const policies={
+  OFFICE:{roomId:'OFFICE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:true,sensitiveRegions:[]},
+  PRIVATE:{roomId:'PRIVATE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:false,sensitiveRegions:[]}
+ };
+ const p=buildGovernedSemanticProjection({runtimeActive:true,activeRoomId:'OFFICE',multiRoom:world,sceneGraph:graph,roomPolicies:policies},{purpose:'memory'});
+ assert.deepEqual(p.multiRoom.transitions.map(x=>x.id),['T2']);
+});
