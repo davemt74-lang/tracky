@@ -46,22 +46,25 @@ test('persisted ground truth delegates retention filtering to extracted runtime 
  assert.match(runtimeCore,/groundTruthPersistenceSnapshot/);
  assert.match(runtimeCore,/retentionAllowedForProjectedEntity/);
 });
-test('startup recovers persisted truth before Agent context and initializes reconciliation state',()=>{
+test('startup delegates recovery initialization to controller before Agent context',()=>{
+ const controller=fs.readFileSync(new URL('../src/ground-truth-runtime-controller.js',import.meta.url),'utf8');
  const init=source.indexOf('await initializeGroundTruthReliability();');
  const agent=source.indexOf('runtime.agentContext = currentAgentContext({}, Date.now());');
  assert.ok(init>=0);assert.ok(agent>init);
  const start=source.indexOf('async function initializeGroundTruthReliability(');
  const end=source.indexOf('function markGroundTruthDirty(',start);
- const block=source.slice(start,end);
- assert.match(block,/recoverGroundTruthSnapshot/);
- assert.match(block,/createReconciliationState/);
+ assert.match(source.slice(start,end),/initializeGroundTruthRuntimeState/);
+ assert.match(controller,/recoverGroundTruthSnapshot/);
+ assert.match(controller,/createReconciliationState/);
 });
-test('ground truth refresh uses dirty/boundary reconciliation with a lightweight safety timer',()=>{
+test('ground truth refresh delegates dirty/boundary reconciliation to controller with a lightweight safety timer',()=>{
+ const controller=fs.readFileSync(new URL('../src/ground-truth-runtime-controller.js',import.meta.url),'utf8');
  assert.match(source,/ground-truth-timer/);
- assert.match(source,/reconciliationDue/);
- assert.match(source,/consumeReconciliation/);
+ assert.match(source,/reconcileGroundTruthRuntimeState/);
  assert.match(source,/markGroundTruthDirty/);
  assert.match(source,/updateGroundTruthRuntime\(now, 'ground-truth-timer'\)/);
+ assert.match(controller,/reconciliationDue/);
+ assert.match(controller,/consumeReconciliation/);
 });
 test('camera moved correction remains diagnostic until recalibration resolves it',()=>{
  assert.match(source,/resolveCameraMovedCorrection\(updated\.id/);
@@ -84,11 +87,14 @@ test('Agent context source includes V2.6 truth and operational health',()=>{
  assert.match(block,/groundTruthSnapshot/);
  assert.match(block,/operationalHealthSnapshot/);
 });
-test('V2.6.1 emits semantic ground truth browser events only on extracted stable signature changes',()=>{
+test('V2.6.1 emits semantic ground truth browser events only on controller stable signature changes',()=>{
+ const controller=fs.readFileSync(new URL('../src/ground-truth-runtime-controller.js',import.meta.url),'utf8');
+ const runtimeCore=fs.readFileSync(new URL('../src/ground-truth-runtime-core.js',import.meta.url),'utf8');
  assert.match(source,/tracky:ground-truth/);
- assert.match(source,/buildGroundTruthSemanticSignature/);
- assert.match(source,/groundTruthPersistenceSignature/);
- assert.match(source,/persistenceNeeded/);
+ assert.match(controller,/groundTruthSemanticSignature/);
+ assert.match(controller,/groundTruthPersistenceSignature/);
+ assert.match(controller,/persistenceNeeded/);
+ assert.match(runtimeCore,/groundTruthInputSignature/);
 });
 test('V2.6 retains no autonomous physical or camera-control authority',()=>{
  assert.doesNotMatch(source,/unlockDoor|openGarage|armSecuritySystem|sendDeviceCommand/);
