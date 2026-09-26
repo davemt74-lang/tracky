@@ -165,3 +165,17 @@ test('V2.6.1 correction undo is public and merge correction stays reversible',()
  const applyEnd=source.indexOf('async function revokeGroundTruthCorrectionRuntime(',applyStart);
  assert.doesNotMatch(source.slice(applyStart,applyEnd),/objectAliases/);
 });
+
+test('routine learning delegates entity and transition privacy eligibility to governed projection core',()=>{
+ const transitionStart=source.indexOf('function routineLearningTransitionAllowed(');
+ const transitionEnd=source.indexOf('async function publishRoutineLearningProposal(',transitionStart);
+ const transitionBlock=source.slice(transitionStart,transitionEnd);
+ assert.match(transitionBlock,/semanticTransitionRetentionAllowed/);
+ assert.doesNotMatch(transitionBlock,/allowParticipantIdentity|allowObjectObservation|spatialMemoryRetentionAllowed/);
+
+ const locationStart=source.indexOf('function routineLearningLocationContext(');
+ const locationEnd=source.indexOf('async function observeRoutineLearningRuntime(',locationStart);
+ const locationBlock=source.slice(locationStart,locationEnd);
+ assert.match(locationBlock,/semanticLearningEntityAllowed/);
+ assert.doesNotMatch(locationBlock,/allowParticipantIdentity|allowObjectObservation|spatialMemoryRetentionAllowed/);
+});
