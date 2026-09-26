@@ -15,7 +15,7 @@ Multi-room fusion, scene graph, physical-world state, and spatial memory remain 
 
 ### One governed semantic projection
 
-Ground truth and spatial memory now share the same privacy-governed semantic projection.
+Ground truth, spatial memory, and routine learning now share the same privacy-governed semantic projection and eligibility rules.
 
 The shared projection applies:
 
