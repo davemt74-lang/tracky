@@ -121,15 +121,18 @@ export function observeRoutineTransitions(stateInput,events=[],sessionId='sessio
     const transition=semanticTransition(raw);
     if(!transition||transition.confidence<0.7) continue;
     const key=subjectKey(transition);
-    const recent=arr(state.recentBySubject[key])
-      .filter((item)=>now-Number(item.timestamp||0)<=RECENT_SEQUENCE_WINDOW_MS);
+    const recentRecord=state.recentBySubject[key]||{sessionId:null,events:[]};
+    const sameSession=recentRecord.sessionId===sessionId;
+    const recent=sameSession
+      ? arr(recentRecord.events).filter((item)=>now-Number(item.timestamp||0)<=RECENT_SEQUENCE_WINDOW_MS)
+      : [];
     if(
       transition.sourceEventId &&
       recent.some((item)=>item.sourceEventId===transition.sourceEventId)
     ) continue;
     recent.push(transition);
     if(recent.length>6) recent.splice(0,recent.length-6);
-    state.recentBySubject[key]=recent;
+    state.recentBySubject[key]={sessionId,events:recent};
 
     for(const length of [2,3]){
       if(recent.length<length) continue;
