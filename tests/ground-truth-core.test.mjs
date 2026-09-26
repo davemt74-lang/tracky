@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildGroundTruth,
+  detectContinuityIssues,
   explainGroundTruth,
   recoverGroundTruthSnapshot,
   reconcileGroundTruthEntities,
@@ -108,4 +109,38 @@ test('explanation separates current observation from historical evidence',()=>{
  x=explainGroundTruth(state,'O1');
  assert.equal(x.observed,false);
  assert.match(x.summary,/historical|insufficiently fresh/);
+});
+
+test('same-label recent objects remain distinct and surface continuity ambiguity',()=>{
+ const entities=[
+  {subjectId:'O1',entityType:'object',label:'cup',state:'confirmed',freshness:'current',roomId:'OFFICE',confidence:.9},
+  {subjectId:'O2',entityType:'object',label:'cup',state:'confirmed',freshness:'recent',roomId:'KITCHEN',confidence:.8}
+ ];
+ const issues=detectContinuityIssues(entities,[],1000);
+ assert.equal(issues.length,1);
+ assert.equal(issues[0].type,'object-identity-ambiguity');
+ assert.equal(issues[0].requiresConfirmation,true);
+});
+test('explicit entity merge correction canonicalizes alias truth without guessing',()=>{
+ const state=buildGroundTruth({
+  multiRoom:{objects:{
+   O1:object('O1','phone','OFFICE',1000),
+   O9:object('O9','phone','HALL',1000)
+  }},
+  sceneGraph:{nodes:[],edges:[]},
+  corrections:[{id:'M1',type:'entity-merge',aliasEntityId:'O9',canonicalEntityId:'O1',status:'active',source:'user',createdAt:900}]
+ },null,1000);
+ assert.equal(state.entities.filter(x=>x.subjectId==='O9').length,0);
+ assert.ok(state.entities.some(x=>x.subjectId==='O1'));
+});
+test('identity rejection preserves physical presence but rejects asserted identity label',()=>{
+ const state=buildGroundTruth({
+  multiRoom:{participants:{p:person('OFFICE',1000)}},
+  sceneGraph:{nodes:[],edges:[]},
+  corrections:[{id:'R1',type:'identity-rejection',subjectId:'PERSON:p1',label:'Dave',status:'active',source:'user',createdAt:1000}]
+ },null,1000);
+ const e=state.entities[0];
+ assert.equal(e.label,'Unresolved participant');
+ assert.equal(e.state,'uncertain');
+ assert.ok(e.confidence<=.49);
 });
