@@ -30,6 +30,20 @@ export function createRoutineLearningState(){
   };
 }
 
+export function hydrateRoutineLearningState(input={}){
+  const base=createRoutineLearningState();
+  return {
+    ...base,
+    ...(input&&typeof input==='object'?input:{}),
+    sequences:{...(input?.sequences||{})},
+    temporalLocations:{...(input?.temporalLocations||{})},
+    proposals:arr(input?.proposals).map((item)=>({...item})),
+    ignoredProposalKeys:{...(input?.ignoredProposalKeys||{})},
+    recentBySubject:{},
+    lastLocationEvidenceAt:{}
+  };
+}
+
 function proposalByKey(state,key){
   return arr(state.proposals).find((item)=>item.key===key)||null;
 }
@@ -115,7 +129,7 @@ function recordSequencePattern(state,steps,sessionId,confidence,now,newProposals
 }
 
 export function observeRoutineTransitions(stateInput,events=[],sessionId='session',now=Date.now()){
-  const state=stateInput||createRoutineLearningState();
+  const state=hydrateRoutineLearningState(stateInput||{});
   const newProposals=[];
   for(const raw of arr(events)){
     const transition=semanticTransition(raw);
@@ -231,7 +245,7 @@ function maybeTemporalLocationProposal(state,group,now,newProposals){
 }
 
 export function observeTemporalLocations(stateInput,context={},sessionId='session',now=Date.now()){
-  const state=stateInput||createRoutineLearningState();
+  const state=hydrateRoutineLearningState(stateInput||{});
   const newProposals=[];
   const date=new Date(now);
   const dc=dayClass(date);
