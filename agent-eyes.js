@@ -2216,7 +2216,9 @@ window.TrackyAgentEyes = Object.freeze({
       privacyStats: copySerializable(runtime.privacyStats),
       attentionController: attentionSnapshot(runtime.attention),
       perceptionBudget: copySerializable(currentPerceptionBudget()),
-      proactiveAwareness: anomalySnapshot(runtime.anomalyState)
+      proactiveAwareness: anomalySnapshot(runtime.anomalyState),
+      physicalGoals: copySerializable(runtime.physicalGoals),
+      routineLearning: routineLearningSnapshot(runtime.routineLearning)
     };
   },
   getEnvironmentState() {
@@ -2335,15 +2337,48 @@ window.TrackyAgentEyes = Object.freeze({
     return clearPhysicalGoalEventHistory();
   },
   interpretPhysicalGoal(input, options = {}) {
-    return copySerializable(interpretPhysicalGoalCommand(
+    return copySerializable(interpretTemporalGoalCommand(
       input,
       physicalGoalCommandContext(options, Date.now()),
       runtime.physicalGoals,
+      routineLearningProposals(runtime.routineLearning, 'proposed'),
+      Date.now()
+    ));
+  },
+  interpretTemporalGoal(input, options = {}) {
+    return copySerializable(interpretTemporalGoalCommand(
+      input,
+      physicalGoalCommandContext(options, Date.now()),
+      runtime.physicalGoals,
+      routineLearningProposals(runtime.routineLearning, 'proposed'),
       Date.now()
     ));
   },
   processPhysicalGoalCommand(input, options = {}) {
     return processPhysicalGoalCommandRuntime(input, options);
+  },
+  getRoutineHealth(windowMs = 7 * 86400000) {
+    return copySerializable(buildRoutineHealth(
+      runtime.physicalGoals,
+      runtime.physicalGoalHistory,
+      Date.now(),
+      windowMs
+    ));
+  },
+  getRoutineLearning() {
+    return routineLearningSnapshot(runtime.routineLearning);
+  },
+  getRoutineLearningProposals(status = 'proposed') {
+    return copySerializable(routineLearningProposals(runtime.routineLearning, status));
+  },
+  confirmRoutineLearningProposal(id) {
+    return confirmRoutineLearningProposalRuntime(id, Date.now());
+  },
+  ignoreRoutineLearningProposal(id) {
+    return ignoreRoutineLearningProposalRuntime(id, Date.now());
+  },
+  clearRoutineLearning() {
+    return clearRoutineLearningRuntime();
   },
   runPhysicalRoutine(id) {
     return runPhysicalRoutineNow(id);
@@ -2504,6 +2539,10 @@ window.TrackyAgentEyes = Object.freeze({
   subscribePhysicalGoals(listener) {
     physicalGoalListeners.add(listener);
     return () => physicalGoalListeners.delete(listener);
+  },
+  subscribeRoutineLearning(listener) {
+    routineLearningListeners.add(listener);
+    return () => routineLearningListeners.delete(listener);
   },
   confirmMemoryProposal(key) {
     return confirmSpatialMemoryProposal(key);
@@ -3748,7 +3787,11 @@ function updateCameraFusion(now = Date.now(), updateScene = false) {
   if (updateScene) updateSceneIntelligence(now);
   updatePhysicalWorldModel(now);
   if (runtime.running) updateAnomalyAwareness(now);
-  if (runtime.running) updateSpatialMemory(now);
+  if (runtime.running) {
+    updateSpatialMemory(now);
+    void processSequenceRoutineEvents(multiRoomEvents, now);
+    void observeRoutineLearningRuntime(multiRoomEvents, now);
+  }
 }
 
 function sceneInputSnapshot() {
@@ -9358,6 +9401,7 @@ await initializeAttentionState();
 await initializeWorldQueries();
 await initializeWorldWatches();
 await initializeAgentBriefings();
+await initializeRoutineLearning();
 await initializePhysicalGoals();
 runtime.agentContext = currentAgentContext({}, Date.now());
 await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now(), { suppressRoutineTriggers:true });
@@ -9375,3 +9419,15 @@ setInterval(() => {
   ));
   if (due) void reevaluateAgentBriefingDelivery({}, 'delivery-timer', now);
 }, 15000);
+setInterval(() => {
+  const now = Date.now();
+  const context = runtime.agentContext || currentAgentContext({}, now);
+  void evaluatePhysicalGoalsRuntime(
+    context,
+    context,
+    'temporal-timer',
+    now,
+    { suppressRoutineTriggers:true }
+  );
+  void tickSequenceRoutinesRuntime(now);
+}, 30000);
