@@ -3,6 +3,175 @@
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
 
+## V2.5 — Temporal Expectations, Learned Routines & Predictive Deviations
+
+V2.5 adds time-aware expectations and governed pattern learning above V2.4 physical goals.
+
+Tracky can now reason about **when** a physical-world condition is expected, tolerate configured grace periods, recognize ordered routine sequences, propose recurring patterns learned across multiple sessions, and surface meaningful deviations through the existing Agent briefing system.
+
+Learning is proposal-only. Tracky never silently turns an observed pattern into an active rule.
+
+### Temporal expectations
+
+Physical goals can use a local-clock temporal policy:
+
+- always
+- time window
+- deadline
+- selected weekdays/weekends
+- grace period before warning
+
+Examples:
+
+```text
+Make sure the office is empty after 6 PM.
+Keys should be by the door overnight.
+Keys should be by the door by 6 PM.
+Only check goal G1 at night.
+Check goal G1 every weekday.
+Give goal G1 15 minutes before warning me.
+```
+
+Temporal state is persisted with the goal, so a grace period does not reset merely because the page reloads.
+
+### Predictive deviations
+
+V2.5 emits semantic deviation reasons such as:
+
+- `expected-window-missed`
+- `persistent-goal-violation`
+- `persistent-routine-deviation`
+- `routine-step-skipped`
+- `routine-sequence-deviated`
+- `sequence-window-missed`
+
+These are observations and explanations, not commands.
+
+### Ordered routine sequences
+
+Confirmed sequence routines consume governed semantic room-transition events.
+
+For example:
+
+```text
+Office → Hall → Entry → Outside
+```
+
+Tracky can distinguish:
+
+- sequence completed
+- expected step skipped
+- different path taken
+- next expected step did not happen in time
+
+Transitions from unrelated people or objects do not disturb another subject's active routine sequence.
+
+Short-term sequence evidence is session-scoped so separate runtime sessions are never stitched together into a fake routine.
+
+### Learned routine proposals
+
+Tracky can learn from two evidence classes:
+
+- repeated semantic room-transition sequences
+- repeated time-of-day entity locations
+
+A learned proposal requires repeated evidence across multiple runtime sessions and a confidence threshold.
+
+Proposal lifecycle:
+
+```text
+observe → accumulate evidence → propose → user/Agent confirms or ignores
+```
+
+Only **confirmed** proposals can become physical goals.
+
+Ignored proposals remain ignored and are not silently re-created from the same learned pattern.
+
+### Temporal-location learning
+
+Tracky can propose patterns such as:
+
+```text
+Keys are usually by the door on weekday evenings.
+```
+
+Evidence remains semantic and local. Proposals can resolve to:
+
+- entity-in-room expectation
+- entity-at-anchor expectation
+
+When confirmed, the generated goal is marked `origin: learned-confirmed`.
+
+### Routine health
+
+V2.5 can summarize recent routine outcomes using factual event history:
+
+- completed runs
+- deviations
+- unknown / insufficient-evidence runs
+- completion rate
+- most recent event
+
+Example:
+
+```text
+What routines have been failing lately?
+```
+
+This reports observed results; it does not independently score or alter routines.
+
+### Privacy and learning boundaries
+
+Routine learning only receives transitions allowed by current observation and retention policy.
+
+Participant sequence learning additionally requires participant identity permission. Object sequence learning requires object observation permission.
+
+Learned proposal briefings contain compact semantic evidence only.
+
+Every learned proposal declares boundaries including:
+
+- `proposal-only`
+- `requires-user-confirmation`
+- `no-autonomous-physical-control`
+
+### V2.5 Agent APIs
+
+```js
+TrackyAgentEyes.interpretTemporalGoal(text, options)
+TrackyAgentEyes.processPhysicalGoalCommand(text, options)
+
+TrackyAgentEyes.getRoutineHealth(windowMs)
+
+TrackyAgentEyes.getRoutineLearning()
+TrackyAgentEyes.getRoutineLearningProposals(status)
+TrackyAgentEyes.confirmRoutineLearningProposal(id)
+TrackyAgentEyes.ignoreRoutineLearningProposal(id)
+TrackyAgentEyes.clearRoutineLearning()
+
+TrackyAgentEyes.subscribeRoutineLearning(handler)
+```
+
+Browser integrations receive learned-pattern lifecycle events through:
+
+```text
+tracky:routine-learning
+```
+
+Confirmed goal deviations continue through:
+
+```text
+tracky:physical-goal
+```
+
+and briefing-eligible events flow through the existing V2.3 governed Agent delivery queue.
+
+### Authority boundary
+
+V2.5 may observe patterns, model expected timing, propose routines, detect deviations, and brief the Agent.
+
+It cannot autonomously create behavioral rules, operate devices, move objects, unlock doors, or perform any other physical-world action.
+
+
 ## V2.4 — Goals, Expectations & Physical-World Routines
 
 V2.4 adds durable physical-world goals above Tracky's governed semantic context.

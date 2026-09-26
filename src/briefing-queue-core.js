@@ -8,7 +8,7 @@ export const BRIEFING_DEFAULT_TTL_MS=86400000;
 export function briefingSemanticKey(briefing={}){
   const e=briefing.evidence||{};
   return [
-    briefing.goalId||briefing.watchId||briefing.type||'briefing',
+    briefing.proposalId||briefing.goalId||briefing.watchId||briefing.type||'briefing',
     e.subjectId||'',
     e.roomId||'',
     e.anomalySignature||e.anomalyType||'',

@@ -39,6 +39,65 @@ function matchingEntities(context,condition){
 }
 function confidenceOf(item){return clamp01(item?.confidence??1);}
 
+function normalizeV25TemporalPolicy(input){
+  if(!input||typeof input!=='object') return null;
+  const days=Array.isArray(input.days)
+    ? [...new Set(input.days.map(Number).filter((day)=>Number.isInteger(day)&&day>=0&&day<=6))].sort((a,b)=>a-b)
+    : [];
+  const minute=(value,fallback=null)=>{
+    const n=Number(value);
+    return Number.isFinite(n)?Math.max(0,Math.min(1439,Math.round(n))):fallback;
+  };
+  return {
+    schemaVersion:1,
+    mode:['always','window','deadline'].includes(String(input.mode))?String(input.mode):'always',
+    days,
+    startMinute:minute(input.startMinute),
+    endMinute:minute(input.endMinute),
+    deadlineMinute:minute(input.deadlineMinute),
+    graceMs:Math.max(0,Math.min(86400000,Number(input.graceMs||0))),
+    clock:'local',
+    source:['user','learned-confirmed'].includes(String(input.source))?String(input.source):'user'
+  };
+}
+function normalizeV25TemporalState(input={}){
+  return {
+    windowKey:txt(input.windowKey||'',80)||null,
+    pendingViolationSince:Number(input.pendingViolationSince||0)||null,
+    violationNotifiedAt:Number(input.violationNotifiedAt||0)||null,
+    restoredAt:Number(input.restoredAt||0)||null,
+    pendingRoutineSince:Number(input.pendingRoutineSince||0)||null,
+    pendingRoutineEvidence:input.pendingRoutineEvidence&&typeof input.pendingRoutineEvidence==='object'
+      ? {...input.pendingRoutineEvidence}
+      : null,
+    lastTemporalState:txt(input.lastTemporalState||'',40)||null
+  };
+}
+function normalizeV25Sequence(input){
+  if(!input||typeof input!=='object') return null;
+  return {
+    schemaVersion:1,
+    steps:arr(input.steps).slice(0,8).map((step)=>({
+      kind:['person-room-transition','object-room-transition'].includes(String(step?.kind))?String(step.kind):'person-room-transition',
+      subjectId:txt(step?.subjectId||'',120)||null,
+      subjectLabel:txt(step?.subjectLabel||'',100)||null,
+      fromRoomId:txt(step?.fromRoomId||'',120)||null,
+      toRoomId:txt(step?.toRoomId||'',120)||null
+    })),
+    maxGapMs:Math.max(1000,Math.min(86400000,Number(input.maxGapMs||15*60*1000))),
+    sourceProposalId:txt(input.sourceProposalId||'',120)||null
+  };
+}
+function normalizeV25SequenceState(input={}){
+  return {
+    progress:Math.max(0,Number(input.progress||0)),
+    startedAt:Number(input.startedAt||0)||null,
+    lastStepAt:Number(input.lastStepAt||0)||null,
+    completedAt:Number(input.completedAt||0)||null,
+    lastDeviationAt:Number(input.lastDeviationAt||0)||null
+  };
+}
+
 export function normalizePhysicalExpectation(input={}){
   const kind=EXPECTATION_KINDS.has(String(input.kind))?String(input.kind):'entity-in-room';
   return {
@@ -83,7 +142,12 @@ export function normalizePhysicalGoal(input={},now=Date.now()){
     createdAt:Number(input.createdAt||now),
     lastEvaluatedAt:Number(input.lastEvaluatedAt||0)||null,
     lastTriggeredAt:Number(input.lastTriggeredAt||0)||null,
-    lastState:['met','violated','unknown','needs-attention'].includes(String(input.lastState))?String(input.lastState):null
+    lastState:['met','violated','unknown','needs-attention'].includes(String(input.lastState))?String(input.lastState):null,
+    temporalPolicy:normalizeV25TemporalPolicy(input.temporalPolicy),
+    temporalState:normalizeV25TemporalState(input.temporalState),
+    sequence:type==='routine'?normalizeV25Sequence(input.sequence):null,
+    sequenceState:normalizeV25SequenceState(input.sequenceState),
+    origin:['user','learned-confirmed'].includes(String(input.origin))?String(input.origin):'user'
   };
 }
 
@@ -171,7 +235,7 @@ function triggerMatches(trigger,previous={},current={}){
   return null;
 }
 
-function event(goal,type,state,summary,now,evidence={},checks=[]){
+export function buildPhysicalGoalEvent(goal,type,state,summary,now,evidence={},checks=[]){
   return {
     id:id('GOAL-EVENT',now),
     goalId:goal.id,
@@ -205,10 +269,10 @@ export function evaluatePhysicalGoal(input,previous={},current={},now=Date.now()
     const events=[];
     if(check.state==='violated'&&prior!=='violated'&&cooldownReady(goal,now)){
       goal.lastTriggeredAt=now;
-      events.push(event(goal,'expectation-violated','violated',goal.label+': '+check.summary,now,check.evidence,[check]));
+      events.push(buildPhysicalGoalEvent(goal,'expectation-violated','violated',goal.label+': '+check.summary,now,check.evidence,[check]));
     }else if(check.state==='met'&&prior==='violated'){
       goal.lastTriggeredAt=now;
-      events.push(event(goal,'expectation-restored','met',goal.label+': expectation restored.',now,check.evidence,[check]));
+      events.push(buildPhysicalGoalEvent(goal,'expectation-restored','met',goal.label+': expectation restored.',now,check.evidence,[check]));
     }
     return {goal,events};
   }
@@ -230,7 +294,7 @@ export function evaluatePhysicalGoal(input,previous={},current={},now=Date.now()
     : state==='met'
       ? goal.label+': all checks are satisfied.'
       : goal.label+': some checks could not be verified.';
-  return {goal,events:[event(goal,type,state,summary,now,{triggerKind:trigger.kind,triggerRoomId:trigger.roomId||null,triggerSubjectId:trigger.subject?entityKey(trigger.subject):null},checks)]};
+  return {goal,events:[buildPhysicalGoalEvent(goal,type,state,summary,now,{triggerKind:trigger.kind,triggerRoomId:trigger.roomId||null,triggerSubjectId:trigger.subject?entityKey(trigger.subject):null},checks)]};
 }
 
 export function evaluatePhysicalGoals(goals=[],previous={},current={},now=Date.now(),options={}){

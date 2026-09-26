@@ -68,6 +68,11 @@ const requiredFiles = [
   'src/physical-goal-core.js',
   'src/physical-goal-store.js',
   'src/physical-goal-language-core.js',
+  'src/temporal-goal-core.js',
+  'src/temporal-goal-language-core.js',
+  'src/routine-sequence-core.js',
+  'src/routine-learning-core.js',
+  'src/routine-learning-store.js',
   'src/anomaly-core.js'
 ];
 
@@ -126,6 +131,11 @@ const runtimeJs = [
   'src/physical-goal-core.js',
   'src/physical-goal-store.js',
   'src/physical-goal-language-core.js',
+  'src/temporal-goal-core.js',
+  'src/temporal-goal-language-core.js',
+  'src/routine-sequence-core.js',
+  'src/routine-learning-core.js',
+  'src/routine-learning-store.js',
   'src/anomaly-core.js'
 ];
 
@@ -152,8 +162,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '2.4.0') {
-  fail('package.json version must be 2.4.0');
+if (packageJson.version !== '2.5.0') {
+  fail('package.json version must be 2.5.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -215,7 +225,12 @@ for (const file of [
   'src/briefing-queue-core.js',
   'src/physical-goal-core.js',
   'src/physical-goal-store.js',
-  'src/physical-goal-language-core.js'
+  'src/physical-goal-language-core.js',
+  'src/temporal-goal-core.js',
+  'src/temporal-goal-language-core.js',
+  'src/routine-sequence-core.js',
+  'src/routine-learning-core.js',
+  'src/routine-learning-store.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -910,6 +925,10 @@ if (!briefingQueueCore.includes('deliveryHistory')) {
   fail('Briefing queue core must retain a bounded V2.3 delivery transition history');
 }
 
+if (!/briefing\.proposalId\|\|briefing\.goalId\|\|briefing\.watchId/.test(briefingQueueCore)) {
+  fail('V2.5 learned proposal briefings must use proposal identity during queue coalescing');
+}
+
 const physicalGoalCore = read('src/physical-goal-core.js');
 for (const symbol of [
   'PHYSICAL_GOAL_SCHEMA_VERSION',
@@ -964,6 +983,122 @@ for (const symbol of [
 }
 if (!/self-unresolved/.test(physicalGoalLanguageCore) || !/ambiguous/.test(physicalGoalLanguageCore)) {
   fail('V2.4 goal language must preserve unresolved self identity and ambiguity instead of guessing');
+}
+
+const temporalGoalCore = read('src/temporal-goal-core.js');
+for (const symbol of [
+  'TEMPORAL_POLICY_SCHEMA_VERSION',
+  'TEMPORAL_POLICY_MODES',
+  'normalizeTemporalPolicy',
+  'temporalPolicyStatus',
+  'evaluateTemporalPhysicalGoal',
+  'evaluateTemporalPhysicalGoals',
+  'buildRoutineHealth'
+]) {
+  if (!temporalGoalCore.includes(symbol)) {
+    fail('Temporal goal core is missing required V2.5 interface: ' + symbol);
+  }
+}
+for (const eventType of [
+  'expected-window-missed',
+  'persistent-goal-violation',
+  'persistent-routine-deviation'
+]) {
+  if (!temporalGoalCore.includes(eventType)) {
+    fail('Temporal goal core is missing V2.5 deviation event: ' + eventType);
+  }
+}
+if (!/clock:'local'/.test(temporalGoalCore) || !/graceMs/.test(temporalGoalCore)) {
+  fail('V2.5 temporal policy must use explicit local-clock scheduling and durable grace periods');
+}
+
+const temporalGoalLanguageCore = read('src/temporal-goal-language-core.js');
+for (const symbol of [
+  'extractTemporalClause',
+  'interpretTemporalGoalCommand'
+]) {
+  if (!temporalGoalLanguageCore.includes(symbol)) {
+    fail('Temporal goal language core is missing required V2.5 interface: ' + symbol);
+  }
+}
+for (const intent of [
+  'routine-health',
+  'list-learning-proposals',
+  'confirm-learning-proposal',
+  'ignore-learning-proposal',
+  'set-grace',
+  'set-temporal-policy',
+  'set-temporal-days'
+]) {
+  if (!temporalGoalLanguageCore.includes(intent)) {
+    fail('Temporal goal language core is missing V2.5 intent: ' + intent);
+  }
+}
+
+const routineSequenceCore = read('src/routine-sequence-core.js');
+for (const symbol of [
+  'ROUTINE_SEQUENCE_SCHEMA_VERSION',
+  'normalizeRoutineSequence',
+  'semanticTransition',
+  'advanceRoutineSequence',
+  'tickRoutineSequence'
+]) {
+  if (!routineSequenceCore.includes(symbol)) {
+    fail('Routine sequence core is missing required V2.5 interface: ' + symbol);
+  }
+}
+for (const eventType of [
+  'routine-step-skipped',
+  'routine-sequence-deviated',
+  'sequence-window-missed'
+]) {
+  if (!routineSequenceCore.includes(eventType)) {
+    fail('Routine sequence core is missing predictive deviation event: ' + eventType);
+  }
+}
+if (!routineSequenceCore.includes('no-autonomous-physical-control')) {
+  fail('Routine sequence core is missing V2.5 no-control boundary');
+}
+
+const routineLearningCore = read('src/routine-learning-core.js');
+for (const symbol of [
+  'ROUTINE_LEARNING_SCHEMA_VERSION',
+  'createRoutineLearningState',
+  'hydrateRoutineLearningState',
+  'observeRoutineTransitions',
+  'observeTemporalLocations',
+  'confirmRoutineLearningProposal',
+  'ignoreRoutineLearningProposal',
+  'proposalToPhysicalGoal',
+  'routineLearningProposals',
+  'routineLearningSnapshot'
+]) {
+  if (!routineLearningCore.includes(symbol)) {
+    fail('Routine learning core is missing required V2.5 interface: ' + symbol);
+  }
+}
+for (const boundary of [
+  'proposal-only',
+  'requires-user-confirmation',
+  'no-autonomous-physical-control'
+]) {
+  if (!routineLearningCore.includes(boundary)) {
+    fail('Routine learning core is missing V2.5 governance boundary: ' + boundary);
+  }
+}
+if (!/MIN_SEQUENCE_SESSIONS=3/.test(routineLearningCore) || !/MIN_LOCATION_SESSIONS=3/.test(routineLearningCore)) {
+  fail('V2.5 learned routine proposals must require multi-session evidence');
+}
+
+const routineLearningStore = read('src/routine-learning-store.js');
+for (const symbol of [
+  'loadRoutineLearningState',
+  'saveRoutineLearningState',
+  'clearRoutineLearningState'
+]) {
+  if (!routineLearningStore.includes(symbol)) {
+    fail('Routine learning store is missing required V2.5 persistence interface: ' + symbol);
+  }
 }
 
 const agentEyes = read('agent-eyes.js');
@@ -1138,6 +1273,53 @@ if (!/addAndEvaluatePhysicalGoal/.test(agentEyes)) {
 }
 if (!agentEyes.includes('buildPhysicalGoalBriefing') || !agentEyes.includes('queueAgentBriefing')) {
   fail('V2.4 goal violations must route through the governed Agent briefing queue');
+}
+
+for (const symbol of [
+  'interpretTemporalGoal',
+  'getRoutineHealth',
+  'getRoutineLearning',
+  'getRoutineLearningProposals',
+  'confirmRoutineLearningProposal',
+  'ignoreRoutineLearningProposal',
+  'clearRoutineLearning',
+  'subscribeRoutineLearning'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V2.5 temporal/routine-learning API: ' + symbol);
+  }
+}
+if (!/tracky:routine-learning/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level V2.5 routine learning events');
+}
+for (const modulePath of [
+  './src/temporal-goal-core.js',
+  './src/temporal-goal-language-core.js',
+  './src/routine-sequence-core.js',
+  './src/routine-learning-core.js',
+  './src/routine-learning-store.js'
+]) {
+  if (!agentEyes.includes("from '" + modulePath + "'")) {
+    fail('Agent Eyes must explicitly import V2.5 runtime dependency: ' + modulePath);
+  }
+}
+if (!/temporal-timer/.test(agentEyes) || !/tickSequenceRoutinesRuntime/.test(agentEyes)) {
+  fail('Agent Eyes must reevaluate V2.5 temporal deadlines, grace periods, and sequence timeouts');
+}
+if (!/observeRoutineLearningRuntime\(multiRoomEvents, now\)/.test(agentEyes)) {
+  fail('Agent Eyes must feed governed semantic transitions into V2.5 learning');
+}
+
+if (
+  !/routineLearningLocationContext/.test(agentEyes) ||
+  !/spatialMemoryRetentionAllowed/.test(agentEyes) ||
+  !/allowParticipantIdentity !== false/.test(agentEyes) ||
+  !/allowObjectObservation !== false/.test(agentEyes)
+) {
+  fail('V2.5 temporal-location learning must enforce retention and identity/object observation policy');
+}
+if (!agentEyes.includes('buildRoutineLearningBriefing')) {
+  fail('V2.5 learned routine proposals must flow through governed Agent briefings');
 }
 for (const modulePath of [
   './src/world-watch-language-core.js',
@@ -1508,8 +1690,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v2\.4-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V2.4 deploy ZIP');
+if (!/tracky-v2\.5-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V2.5 deploy ZIP');
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
   fail('CI V1.9 deploy package must include attention core and store');
@@ -1552,6 +1734,18 @@ for (const file of [
     fail('CI V2.4 deploy package must include ' + file);
   }
 }
+
+for (const file of [
+  'src/temporal-goal-core.js',
+  'src/temporal-goal-language-core.js',
+  'src/routine-sequence-core.js',
+  'src/routine-learning-core.js',
+  'src/routine-learning-store.js'
+]) {
+  if (!workflow.includes(file)) {
+    fail('CI V2.5 deploy package must include ' + file);
+  }
+}
 if (!workflow.includes('src/privacy-policy-core.js')) {
   fail('CI V1.9 deploy package must include privacy policy core');
 }
@@ -1583,5 +1777,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, proactive delivery policy, delivery queue coalescing, reconnect recovery, digest delivery, voice handoff boundaries, persistent physical goals, observation-aware expectations, recurring semantic routines, natural-language goal management, goal briefing integration, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, proactive delivery policy, delivery queue coalescing, reconnect recovery, digest delivery, voice handoff boundaries, persistent physical goals, observation-aware expectations, recurring semantic routines, natural-language goal management, goal briefing integration, temporal windows, deadline expectations, durable grace periods, predictive routine sequences, multi-session learned routine proposals, temporal-location learning, explicit proposal confirmation, routine health, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
