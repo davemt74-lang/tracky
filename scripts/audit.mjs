@@ -1146,6 +1146,19 @@ if (!/object-identity-ambiguity/.test(groundTruthCore) || !/requiresConfirmation
   fail('V2.6 object continuity ambiguity must require explicit confirmation instead of silent merging');
 }
 
+if (
+  !/recoveredCarry/.test(groundTruthCore) ||
+  !/previous\?\.recoveryMode===true&&!hasFreshEvidence/.test(groundTruthCore)
+) {
+  fail('V2.6 recovered historical truth must survive empty reconciliation cycles until fresh evidence arrives');
+}
+if (
+  !/observedAfterForget/.test(groundTruthCore) ||
+  !/supersededByFreshObservation:true/.test(groundTruthCore)
+) {
+  fail('V2.6 forget corrections must erase retained history without permanently hiding newer direct observations');
+}
+
 const correctionCore = read('src/ground-truth-correction-core.js');
 for (const symbol of [
   'GROUND_TRUTH_CORRECTION_TYPES',
@@ -1442,6 +1455,13 @@ for (const symbol of [
 }
 if (!/tracky:ground-truth/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level V2.6 ground truth semantic changes');
+}
+
+if (!/activeRoomId: runtime\.running/.test(agentEyes)) {
+  fail('V2.6 must not assert configured room metadata as live ground truth while perception is stopped');
+}
+if (!/ground-truth-timer/.test(agentEyes)) {
+  fail('V2.6 must reevaluate ground-truth freshness independently of scene-change events');
 }
 for (const modulePath of [
   './src/ground-truth-core.js',
