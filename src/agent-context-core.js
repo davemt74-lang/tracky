@@ -270,6 +270,36 @@ function stableItem(item){
   }
   return output;
 }
+function stableGroundTruth(value={}){
+  return {
+    recoveryMode:value?.recoveryMode===true,
+    entities:arr(value?.entities).map((item)=>({
+      subjectId:item.subjectId||null,
+      entityType:item.entityType||null,
+      label:item.label||null,
+      roomId:item.roomId||null,
+      lastKnownRoomId:item.lastKnownRoomId||null,
+      state:item.state||null,
+      authority:item.authority||null,
+      freshness:item.freshness||null
+    })),
+    conflicts:arr(value?.conflicts).map((item)=>({
+      id:item.id||null,
+      type:item.type||null,
+      subjectId:item.subjectId||null,
+      roomIds:arr(item.roomIds).map(String),
+      unresolved:item.unresolved!==false
+    })),
+    health:value?.health?{
+      status:value.health.status||null,
+      staleEntityCount:Number(value.health.staleEntityCount||0),
+      conflictedEntityCount:Number(value.health.conflictedEntityCount||0),
+      continuityIssueCount:Number(value.health.continuityIssueCount||0),
+      issueCount:Number(value.health.issueCount||0)
+    }:null
+  };
+}
+
 function itemKey(item,index){
   return String(item?.key||item?.signature||item?.participantId||item?.objectId||item?.id||item?.type||index);
 }
@@ -300,7 +330,7 @@ export function diffAgentContext(previous,current){
     taskChanged:JSON.stringify(previous.task||null)!==JSON.stringify(current?.task||null),
     privacyChanged:JSON.stringify(previous.privacy||null)!==JSON.stringify(current?.privacy||null),
     budgetChanged:JSON.stringify(previous.perceptionBudget||null)!==JSON.stringify(current?.perceptionBudget||null),
-    groundTruthChanged:JSON.stringify(stableItem(previous.groundTruth||null))!==JSON.stringify(stableItem(current?.groundTruth||null)),
+    groundTruthChanged:JSON.stringify(stableGroundTruth(previous.groundTruth||{}))!==JSON.stringify(stableGroundTruth(current?.groundTruth||{})),
     priorities:diffList(previous.priorities,current?.priorities),people:diffList(previous.people,current?.people),
     objects:diffList(previous.objects,current?.objects),anomalies:diffList(previous.anomalies,current?.anomalies),
     recentChanges:diffList(previous.recentChanges,current?.recentChanges)
