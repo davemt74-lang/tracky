@@ -13,7 +13,8 @@ test('Agent Eyes imports V2.6.1 consolidated ground truth runtime modules',()=>{
   './src/governed-world-projection-core.js',
   './src/reliability-policy.js',
   './src/runtime-reconciliation-core.js',
-  './src/ground-truth-runtime-core.js'
+  './src/ground-truth-runtime-core.js',
+  './src/ground-truth-runtime-controller.js'
  ]) assert.ok(source.includes("from '"+path+"'"));
 });
 test('V2.6 runtime exposes ground truth health correction explanation APIs',()=>{
@@ -112,4 +113,38 @@ test('spatial memory consumes shared memory projection instead of duplicating pr
  const block=source.slice(start,end);
  assert.match(block,/governedWorldProjection\('memory'\)/);
  assert.doesNotMatch(block,/spatialMemoryRetentionAllowed/);
+});
+
+test('browser runtime delegates reconciliation orchestration to extracted controller',()=>{
+ const start=source.indexOf('function updateGroundTruthRuntime(');
+ const end=source.indexOf('function purgeForgottenGroundTruthEntity',start);
+ const block=source.slice(start,end);
+ assert.match(block,/reconcileGroundTruthRuntimeState/);
+ assert.match(block,/syncGroundTruthRuntimeState/);
+ assert.doesNotMatch(block,/buildGroundTruth\(/);
+ assert.doesNotMatch(block,/buildOperationalHealth\(/);
+});
+test('semantic input fingerprint prevents timestamp-only camera frames from forcing dirty reconciliation',()=>{
+ const start=source.indexOf('function currentGroundTruthInputSignature(');
+ const end=source.indexOf('function privacyGovernedGroundTruthInput(',start);
+ assert.match(source.slice(start,end),/groundTruthInputSignature/);
+ const updateStart=source.indexOf('function updateGroundTruthRuntime(');
+ const updateEnd=source.indexOf('function purgeForgottenGroundTruthEntity',updateStart);
+ assert.match(source.slice(updateStart,updateEnd),/inputSignature/);
+});
+test('global perception bus marks only camera environment and privacy events explicitly dirty',()=>{
+ const start=source.indexOf("function groundTruthRelevantEvent");
+ const end=source.indexOf("bus.subscribe('*'",start);
+ const block=source.slice(start,end);
+ assert.match(block,/camera/);
+ assert.match(block,/environment/);
+ assert.match(block,/privacy/);
+ assert.doesNotMatch(block,/participant\\\.|object\\\./);
+});
+test('V2.6.1 correction undo is public and merge correction stays reversible',()=>{
+ assert.match(source,/getGroundTruthCorrections/);
+ assert.match(source,/revokeGroundTruthCorrection\(id/);
+ const applyStart=source.indexOf('async function applyGroundTruthCorrectionRuntime(');
+ const applyEnd=source.indexOf('async function revokeGroundTruthCorrectionRuntime(',applyStart);
+ assert.doesNotMatch(source.slice(applyStart,applyEnd),/objectAliases/);
 });
