@@ -3,6 +3,7 @@ import {
   cameraCoveragePolygon,
   polygonArea
 } from './camera-core.js';
+import { RELIABILITY_POLICY } from './reliability-policy.js';
 
 const arr=(v)=>Array.isArray(v)?v:(v&&typeof v==='object'?Object.values(v):[]);
 const clamp01=(v)=>Math.max(0,Math.min(1,Number.isFinite(Number(v))?Number(v):0));
@@ -48,16 +49,21 @@ export function cameraOperationalHealth(camera={},status='offline',environment=n
   if(camera.enabled===false) issues.push('disabled');
   else if(!online) issues.push('offline');
   if(!valid) issues.push('invalid-calibration');
-  if(valid&&coverageArea<.01) issues.push('very-low-calibrated-coverage');
+  if(valid&&coverageArea<RELIABILITY_POLICY.operationalHealth.minimumCalibrationCoverage) issues.push('very-low-calibrated-coverage');
   if(primaryShift) issues.push('camera-pose-shift');
   const statusLabel=issues.some((issue)=>['invalid-calibration','camera-pose-shift'].includes(issue))
     ?'needs-review'
     :issues.includes('offline')?'offline'
       :issues.length?'degraded':'healthy';
   const trust=statusLabel==='healthy'
-    ?Math.min(1,.75+Math.min(.2,coverageArea)+(.05*(online?1:0)))
-    :statusLabel==='degraded'?.55
-      :statusLabel==='needs-review'?.35:.15;
+    ?Math.min(
+      1,
+      RELIABILITY_POLICY.operationalHealth.healthyCameraBaseTrust+
+      Math.min(RELIABILITY_POLICY.operationalHealth.healthyCoverageTrustBonus,coverageArea)+
+      (RELIABILITY_POLICY.operationalHealth.healthyOnlineTrustBonus*(online?1:0))
+    )
+    :statusLabel==='degraded'?RELIABILITY_POLICY.operationalHealth.degradedCameraTrust
+      :statusLabel==='needs-review'?RELIABILITY_POLICY.operationalHealth.reviewCameraTrust:RELIABILITY_POLICY.operationalHealth.offlineCameraTrust;
   return {
     cameraId:camera.id||null,
     name:camera.name||camera.id||null,
@@ -89,13 +95,13 @@ export function roomOperationalHealth(room={},cameras=[],statuses={},policy={},e
   const blindSpot=(policy.sensitiveRegions||[]).some((region)=>(
     region.enabled!==false&&region.mode==='ignore'&&(region.appliesTo||[]).includes('participant')
   ));
-  const occupancyVerifiable=privacyAllowsOccupancy&&!blindSpot&&coverage>=.85;
+  const occupancyVerifiable=privacyAllowsOccupancy&&!blindSpot&&coverage>=RELIABILITY_POLICY.operationalHealth.occupancyCoverage;
   const issues=[];
   if(!roomCameras.length) issues.push('no-enabled-cameras');
   if(roomCameras.length&&!activeCameras.length) issues.push('no-live-cameras');
   if(cameraHealth.some((camera)=>camera.status==='needs-review')) issues.push('camera-calibration-review');
-  if(coverage<.5) issues.push('low-room-coverage');
-  else if(coverage<.85) issues.push('partial-room-coverage');
+  if(coverage<RELIABILITY_POLICY.operationalHealth.lowRoomCoverage) issues.push('low-room-coverage');
+  else if(coverage<RELIABILITY_POLICY.operationalHealth.occupancyCoverage) issues.push('partial-room-coverage');
   if(!privacyAllowsOccupancy) issues.push('occupancy-observation-disabled');
   if(blindSpot) issues.push('participant-privacy-blind-spot');
   const status=issues.some((issue)=>['no-live-cameras','camera-calibration-review'].includes(issue))
