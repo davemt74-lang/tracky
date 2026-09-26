@@ -925,6 +925,10 @@ if (!briefingQueueCore.includes('deliveryHistory')) {
   fail('Briefing queue core must retain a bounded V2.3 delivery transition history');
 }
 
+if (!/briefing\.proposalId\|\|briefing\.goalId\|\|briefing\.watchId/.test(briefingQueueCore)) {
+  fail('V2.5 learned proposal briefings must use proposal identity during queue coalescing');
+}
+
 const physicalGoalCore = read('src/physical-goal-core.js');
 for (const symbol of [
   'PHYSICAL_GOAL_SCHEMA_VERSION',
