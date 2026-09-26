@@ -5,8 +5,7 @@ function stableEntity(item={}){
   return [
     item.subjectId||null,item.entityType||null,item.label||null,
     item.state||null,item.roomId||null,item.lastKnownRoomId||null,
-    item.authority||null,item.freshness||null,
-    Math.round(Number(item.confidence||0)*20)/20
+    item.authority||null,item.freshness||null
   ];
 }
 function stableConflict(item={}){
