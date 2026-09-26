@@ -111,6 +111,7 @@ test('delta captures object anomaly task and privacy changes',()=>{
   const before=buildAgentContext(context(),{},10000);
   const next=context();
   next.multiRoom.objects.O3={id:'O3',label:'wallet',roomId:'ROOM01',presence:'confirmed',confidence:.81,lastObservedAt:10100};
+  next.groundTruth.entities.push({subjectId:'O3',entityType:'object',label:'wallet',roomId:'ROOM01',state:'confirmed',authority:'direct-observation',freshness:'current',confidence:.81,observedAt:10100});
   next.anomalies.active={};
   next.attention.activeTask={id:'T2',mode:'general',label:'General awareness',status:'active',startedAt:10100};
   next.roomPolicies.ROOM01.allowRoomAudio=false;
@@ -151,4 +152,21 @@ test('ground truth conflicts participate in semantic context delta',()=>{
   const delta=diffAgentContext(before,after);
   assert.equal(delta.changed,true);
   assert.equal(delta.groundTruthChanged,true);
+});
+
+test('canonical ground truth overrides conflicting legacy multi-room object location',()=>{
+  const ctx=context();
+  ctx.multiRoom.objects.O1.roomId='ROOM02';
+  ctx.multiRoom.objects.O1.lastKnownRoomId='ROOM02';
+  ctx.groundTruth.entities[0]={...ctx.groundTruth.entities[0],roomId:'ROOM01',lastKnownRoomId:'ROOM01'};
+  const result=buildAgentContext(ctx,{},10000);
+  const phone=result.objects.find(item=>item.objectId==='O1');
+  assert.equal(phone.roomId,'ROOM01');
+  assert.equal(phone.authority,'direct-observation');
+});
+test('canonical ground truth suppresses noncanonical extra object evidence when truth exists',()=>{
+  const ctx=context();
+  ctx.multiRoom.objects.O9={id:'O9',label:'ghost-object',roomId:'ROOM01',presence:'confirmed',confidence:1,lastObservedAt:9999};
+  const result=buildAgentContext(ctx,{},10000);
+  assert.equal(result.objects.some(item=>item.objectId==='O9'),false);
 });
