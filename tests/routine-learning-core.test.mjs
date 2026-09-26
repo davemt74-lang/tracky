@@ -19,6 +19,13 @@ test('repeated semantic sequences across multiple sessions create proposal only'
  assert.ok(proposals.some(p=>p.type==='sequence-routine'));
  assert.ok(proposals.every(p=>p.status==='proposed'));
 });
+test('sequence evidence never stitches transitions across separate sessions',()=>{
+ let state=createRoutineLearningState();
+ state=observeRoutineTransitions(state,[transition('OFFICE','HALL',1000)],'s1',1000).state;
+ state=observeRoutineTransitions(state,[transition('HALL','ENTRY',2000)],'s2',2000).state;
+ assert.equal(Object.keys(state.sequences).length,0);
+});
+
 test('sequence proposal threshold is not met from one session alone',()=>{
  let state=createRoutineLearningState();
  for(let i=0;i<6;i++){
