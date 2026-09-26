@@ -71,19 +71,26 @@ export function semanticLearningEntityAllowed(entity={},policies={},kind=null){
   return spatialMemoryRetentionAllowed(policy,entity.roomPosition||null);
 }
 
+export function transitionMemoryRetentionAllowed(transition={},policies={}){
+  const roomIds=[transition.fromRoomId,transition.toRoomId].filter(Boolean);
+  return roomIds.length>0&&roomIds.every((roomId)=>(
+    spatialMemoryRetentionAllowed(policyFor(policies,roomId),null)
+  ));
+}
+
 export function semanticTransitionRetentionAllowed(transition={},policies={}){
+  if(!transitionMemoryRetentionAllowed(transition,policies)) return false;
   const entityKind=String(transition.type||'').startsWith('participant.')
     ?'participant'
     :String(transition.type||'').startsWith('object.')?'object':null;
   if(!entityKind) return false;
   const roomIds=[transition.fromRoomId,transition.toRoomId].filter(Boolean);
-  if(!roomIds.length) return false;
   return roomIds.every((roomId)=>{
     const policy=policyFor(policies,roomId);
     const decision=observationDecision({policy,kind:entityKind,position:null,roomId});
     if(!decision.allowed) return false;
     if(entityKind==='participant'&&decision.anonymize) return false;
-    return spatialMemoryRetentionAllowed(policy,null);
+    return true;
   });
 }
 
@@ -126,7 +133,7 @@ export function buildGovernedSemanticProjection(input={},options={}){
 
   const transitions=purpose==='memory'
     ? arr(world.transitions).filter((transition)=>(
-        semanticTransitionRetentionAllowed(transition,policies)
+        transitionMemoryRetentionAllowed(transition,policies)
       ))
     : arr(world.transitions);
 
