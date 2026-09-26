@@ -1,0 +1,376 @@
+import { decayConfidence, entityHalfLife } from './world-state-core.js';
+
+const arr=(v)=>Array.isArray(v)?v:(v&&typeof v==='object'?Object.values(v):[]);
+const txt=(v,max=180)=>String(v==null?'':v).replace(/\s+/g,' ').trim().slice(0,max);
+const clamp01=(v)=>Math.max(0,Math.min(1,Number.isFinite(Number(v))?Number(v):0));
+
+export const GROUND_TRUTH_SCHEMA_VERSION=1;
+export const FACT_AUTHORITY=Object.freeze({
+  'user-confirmed':5,
+  'direct-observation':4,
+  'reconciled-observation':3.5,
+  'semantic-inference':2,
+  'remembered':1,
+  'recovered-history':0.5
+});
+export const TRUTH_FRESHNESS=Object.freeze(['current','recent','stale','unknown']);
+export const TRUTH_STATES=Object.freeze(['confirmed','uncertain','conflicted','last-known','unknown','forgotten']);
+
+function entityId(item={}){
+  return String(item.participantId?('PERSON:'+item.participantId):(item.objectId||item.id||''));
+}
+function entityType(item={}){
+  return item.participantId||String(item.id||'').startsWith('PERSON:')?'person':'object';
+}
+function observedAuthority(item={}){
+  if(item.identityAuthority==='enrolled-participant') return 'reconciled-observation';
+  return 'direct-observation';
+}
+function halfLifeForTruth(item={}){
+  return entityHalfLife({
+    type:entityType(item),
+    label:item.label||item.participantName||item.objectLabel||''
+  });
+}
+export function truthFreshness(item={},now=Date.now()){
+  const at=Number(item.observedAt||item.lastObservedAt||item.updatedAt||0);
+  if(!at) return {state:'unknown',ageMs:null,confidence:0};
+  const ageMs=Math.max(0,now-at);
+  const halfLife=halfLifeForTruth(item);
+  const confidence=decayConfidence(Number(item.baseConfidence??item.confidence??0),ageMs,halfLife);
+  const state=ageMs<=Math.min(15000,halfLife*.15)
+    ?'current'
+    :ageMs<=halfLife?'recent'
+      :ageMs<=halfLife*4?'stale':'unknown';
+  return {state,ageMs,confidence:clamp01(confidence),halfLifeMs:halfLife};
+}
+function correctionAuthority(correction={}){
+  return correction.source==='user'||correction.authority==='user-confirmed'
+    ?'user-confirmed'
+    :'semantic-inference';
+}
+function correctionEvidence(correction){
+  return {
+    source:'ground-truth-correction',
+    correctionId:correction.id||null,
+    authority:correctionAuthority(correction),
+    timestamp:Number(correction.createdAt||correction.updatedAt||Date.now())
+  };
+}
+function factKey(fact){
+  return [fact.subjectId,fact.predicate||'exists',fact.objectId||''].join('::');
+}
+function candidateFromEntity(item,source,now){
+  const id=entityId(item);
+  if(!id) return null;
+  const presence=String(item.presence||item.status||(item.roomId?'confirmed':'last-known'));
+  const authority=source==='multi-room'?observedAuthority(item):'direct-observation';
+  const observedAt=Number(item.lastObservedAt||item.updatedAt||now);
+  const fresh=truthFreshness({
+    ...item,
+    observedAt,
+    baseConfidence:Number(item.confidence??0.5)
+  },now);
+  return {
+    id:'truth:'+id,
+    subjectId:id,
+    entityType:entityType(item),
+    label:txt(item.participantName||item.label||item.objectLabel||id,100),
+    roomId:item.roomId||null,
+    lastKnownRoomId:item.lastKnownRoomId||item.roomId||null,
+    presence,
+    state:['confirmed','transitioning'].includes(presence)?'confirmed':presence==='uncertain'?'uncertain':'last-known',
+    authority,
+    authorityRank:FACT_AUTHORITY[authority],
+    baseConfidence:clamp01(item.confidence??0.5),
+    confidence:fresh.confidence,
+    freshness:fresh.state,
+    ageMs:fresh.ageMs,
+    observedAt,
+    cameraIds:arr(item.cameraIds).map(String),
+    holderParticipantId:item.holderParticipantId||null,
+    evidence:[{
+      source,
+      authority,
+      timestamp:observedAt,
+      cameraIds:arr(item.cameraIds).map(String)
+    }]
+  };
+}
+function correctionForEntity(corrections,id){
+  return arr(corrections)
+    .filter((item)=>item.subjectId===id&&item.status!=='superseded')
+    .sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
+}
+function applyCorrections(entity,corrections,now){
+  let result={...entity,evidence:[...(entity.evidence||[])]};
+  for(const correction of correctionForEntity(corrections,entity.subjectId)){
+    if(correction.type==='forget-entity'){
+      return {
+        ...result,
+        state:'forgotten',
+        freshness:'unknown',
+        confidence:0,
+        roomId:null,
+        forgottenAt:Number(correction.createdAt||now),
+        evidence:[...result.evidence,correctionEvidence(correction)]
+      };
+    }
+    if(correction.type==='entity-label'){
+      result.label=txt(correction.label||result.label,100);
+      result.authority='user-confirmed';
+      result.authorityRank=FACT_AUTHORITY['user-confirmed'];
+      result.evidence.push(correctionEvidence(correction));
+    }
+    if(correction.type==='entity-location'){
+      const correctionAt=Number(correction.createdAt||now);
+      const observedAfterCorrection=Number(entity.observedAt||0)>correctionAt;
+      if(!observedAfterCorrection){
+        result.roomId=correction.roomId||null;
+        result.lastKnownRoomId=correction.roomId||result.lastKnownRoomId||null;
+        result.state='confirmed';
+        result.freshness='current';
+        result.confidence=Math.max(.98,result.confidence);
+        result.authority='user-confirmed';
+        result.authorityRank=FACT_AUTHORITY['user-confirmed'];
+      }else if(result.roomId!==correction.roomId){
+        result.correctionConflict={
+          type:'observation-after-user-location-correction',
+          correctionId:correction.id,
+          correctionRoomId:correction.roomId,
+          observedRoomId:result.roomId
+        };
+      }
+      result.evidence.push(correctionEvidence(correction));
+    }
+  }
+  return result;
+}
+function comparableAuthority(a,b){
+  return Math.abs(Number(a.authorityRank||0)-Number(b.authorityRank||0))<=0.6;
+}
+function conflictRecord(subjectId,candidates,kind='simultaneous-location'){
+  return {
+    id:'CONFLICT:'+kind+':'+subjectId,
+    type:kind,
+    subjectId,
+    roomIds:[...new Set(candidates.map((item)=>item.roomId).filter(Boolean))],
+    candidateIds:candidates.map((item)=>item.id),
+    authorities:[...new Set(candidates.map((item)=>item.authority))],
+    confidence:clamp01(Math.max(...candidates.map((item)=>Number(item.confidence||0)),0)),
+    unresolved:true,
+    summary:'Conflicting current physical-world evidence was preserved instead of silently choosing a winner.'
+  };
+}
+export function reconcileGroundTruthEntities(input={},now=Date.now()){
+  const candidates=[];
+  for(const item of arr(input.multiRoom?.participants)){
+    const candidate=candidateFromEntity(item,'multi-room',now);
+    if(candidate) candidates.push(candidate);
+  }
+  for(const item of arr(input.multiRoom?.objects)){
+    const candidate=candidateFromEntity(item,'multi-room',now);
+    if(candidate) candidates.push(candidate);
+  }
+
+  const sceneNodes=arr(input.sceneGraph?.nodes).filter((node)=>['person','object'].includes(node.type));
+  for(const node of sceneNodes){
+    const roomEdge=arr(input.sceneGraph?.edges).find((edge)=>(
+      edge.subjectId===node.id&&edge.predicate==='located-in'&&edge.state!=='expired'
+    ));
+    const candidate=candidateFromEntity({
+      id:node.id,
+      participantId:node.type==='person'?(node.properties?.participantId||String(node.id).replace(/^PERSON:/,'')):null,
+      label:node.label,
+      roomId:roomEdge?.objectId||input.sceneGraph?.roomId||null,
+      presence:node.state==='observed'?'confirmed':node.state==='last-known'?'last-known':'uncertain',
+      confidence:node.confidence,
+      lastObservedAt:node.lastObservedAt,
+      cameraIds:node.properties?.cameraIds||[]
+    },'scene-graph',now);
+    if(candidate){
+      candidate.id='scene:'+candidate.subjectId+':'+(candidate.roomId||'none');
+      candidate.authority=node.state==='user-confirmed'?'user-confirmed':node.state==='inferred'?'semantic-inference':'direct-observation';
+      candidate.authorityRank=FACT_AUTHORITY[candidate.authority];
+      candidates.push(candidate);
+    }
+  }
+
+  const bySubject=new Map();
+  for(const candidate of candidates){
+    if(!bySubject.has(candidate.subjectId)) bySubject.set(candidate.subjectId,[]);
+    bySubject.get(candidate.subjectId).push(candidate);
+  }
+
+  const entities=[];
+  const conflicts=[];
+  for(const [subjectId,items] of bySubject){
+    const current=items.filter((item)=>item.freshness==='current'&&item.roomId&&item.state!=='last-known');
+    const distinctRooms=[...new Set(current.map((item)=>item.roomId))];
+    let selected=null;
+    if(distinctRooms.length>1){
+      const bestRank=Math.max(...current.map((item)=>item.authorityRank));
+      const top=current.filter((item)=>bestRank-Number(item.authorityRank||0)<=0.6);
+      const topRooms=[...new Set(top.map((item)=>item.roomId))];
+      if(topRooms.length>1&&top.some((item,index)=>top.slice(index+1).some((other)=>comparableAuthority(item,other)))){
+        conflicts.push(conflictRecord(subjectId,top));
+        selected=[...top].sort((a,b)=>b.confidence-a.confidence)[0];
+        selected={...selected,state:'conflicted',roomId:null,candidateRoomIds:topRooms,confidence:Math.min(.49,selected.confidence)};
+      }
+    }
+    if(!selected){
+      selected=[...items].sort((a,b)=>(
+        Number(b.authorityRank||0)-Number(a.authorityRank||0)||
+        Number(b.freshness==='current')-Number(a.freshness==='current')||
+        Number(b.confidence||0)-Number(a.confidence||0)||
+        Number(b.observedAt||0)-Number(a.observedAt||0)
+      ))[0];
+    }
+    const mergedEvidence=items.flatMap((item)=>item.evidence||[]).slice(-12);
+    selected={...selected,evidence:mergedEvidence};
+    selected=applyCorrections(selected,input.corrections||[],now);
+    if(selected.correctionConflict){
+      conflicts.push({
+        id:'CONFLICT:correction:'+subjectId,
+        type:'user-correction-conflict',
+        subjectId,
+        unresolved:true,
+        confidence:selected.confidence,
+        summary:'A newer observation conflicts with a user-confirmed correction.',
+        data:selected.correctionConflict
+      });
+      selected.state='conflicted';
+    }
+    entities.push(selected);
+  }
+
+  for(const correction of arr(input.corrections)){
+    if(correction.status==='superseded'||!correction.subjectId) continue;
+    if(entities.some((item)=>item.subjectId===correction.subjectId)) continue;
+    if(correction.type==='forget-entity') continue;
+    entities.push(applyCorrections({
+      id:'truth:'+correction.subjectId,
+      subjectId:correction.subjectId,
+      entityType:correction.entityType||'object',
+      label:txt(correction.label||correction.subjectId,100),
+      roomId:null,lastKnownRoomId:null,presence:'unknown',state:'unknown',
+      authority:'remembered',authorityRank:FACT_AUTHORITY.remembered,
+      baseConfidence:.2,confidence:.2,freshness:'unknown',ageMs:null,observedAt:null,evidence:[]
+    },input.corrections,now));
+  }
+
+  return {entities,conflicts,candidates};
+}
+
+export function createGroundTruthState(now=Date.now()){
+  return {
+    schemaVersion:GROUND_TRUTH_SCHEMA_VERSION,
+    generatedAt:now,
+    recoveryMode:false,
+    activeRoomId:null,
+    entities:[],
+    conflicts:[],
+    facts:[],
+    health:null,
+    provenance:['multi-room-world','scene-graph','user-corrections'],
+    boundaries:['semantic-ground-truth-only','conflicts-preserved','persisted-state-is-not-fresh-observation','no-autonomous-physical-control']
+  };
+}
+export function buildGroundTruth(input={},previous=null,now=Date.now()){
+  const reconciled=reconcileGroundTruthEntities(input,now);
+  const state=createGroundTruthState(now);
+  state.activeRoomId=input.activeRoomId||null;
+  state.entities=reconciled.entities.filter((item)=>item.state!=='forgotten');
+  state.conflicts=reconciled.conflicts;
+  state.recoveryMode=false;
+  state.facts=state.entities.flatMap((entity)=>{
+    const facts=[{
+      id:'FACT:'+entity.subjectId+':presence',
+      subjectId:entity.subjectId,
+      predicate:'presence',
+      objectId:entity.state,
+      state:entity.state,
+      authority:entity.authority,
+      confidence:entity.confidence,
+      freshness:entity.freshness,
+      observedAt:entity.observedAt,
+      evidence:entity.evidence
+    }];
+    if(entity.roomId){
+      facts.push({
+        id:'FACT:'+entity.subjectId+':located-in:'+entity.roomId,
+        subjectId:entity.subjectId,
+        predicate:'located-in',
+        objectId:entity.roomId,
+        state:entity.state,
+        authority:entity.authority,
+        confidence:entity.confidence,
+        freshness:entity.freshness,
+        observedAt:entity.observedAt,
+        evidence:entity.evidence
+      });
+    }
+    return facts;
+  });
+  return state;
+}
+export function recoverGroundTruthSnapshot(saved={},now=Date.now()){
+  const recovered=createGroundTruthState(now);
+  recovered.recoveryMode=true;
+  recovered.activeRoomId=saved.activeRoomId||null;
+  recovered.entities=arr(saved.entities).map((entity)=>({
+    ...entity,
+    state:entity.state==='forgotten'?'forgotten':'last-known',
+    freshness:'unknown',
+    confidence:Math.min(.35,Number(entity.confidence||0)),
+    authority:'recovered-history',
+    authorityRank:FACT_AUTHORITY['recovered-history'],
+    recoveredAt:now,
+    roomId:null,
+    lastKnownRoomId:entity.roomId||entity.lastKnownRoomId||null
+  })).filter((item)=>item.state!=='forgotten');
+  recovered.conflicts=[];
+  recovered.facts=[];
+  return recovered;
+}
+export function explainGroundTruth(state={},subjectId){
+  const entity=arr(state.entities).find((item)=>item.subjectId===subjectId)||null;
+  if(!entity){
+    return {
+      status:'not-found',subjectId,
+      summary:'Tracky has no current ground-truth record for this entity.',
+      observed:false,evidence:[],conflicts:[]
+    };
+  }
+  const conflicts=arr(state.conflicts).filter((item)=>item.subjectId===subjectId);
+  const observed=entity.freshness==='current'&&['direct-observation','reconciled-observation','user-confirmed'].includes(entity.authority);
+  const location=entity.roomId
+    ?'in '+entity.roomId
+    :entity.candidateRoomIds?.length
+      ?'with conflicting room candidates '+entity.candidateRoomIds.join(', ')
+      :entity.lastKnownRoomId
+        ?'last known in '+entity.lastKnownRoomId
+        :'at an unknown location';
+  return {
+    status:conflicts.length?'conflicted':entity.state,
+    subjectId,
+    label:entity.label,
+    summary:(entity.label||subjectId)+' is '+location+'. '+(
+      observed?'This is based on current governed evidence.':
+      entity.authority==='user-confirmed'?'This is based on a user-confirmed correction.':
+      'This is historical or insufficiently fresh evidence, not a current observation.'
+    ),
+    observed,
+    authority:entity.authority,
+    confidence:entity.confidence,
+    freshness:entity.freshness,
+    observedAt:entity.observedAt,
+    roomId:entity.roomId,
+    lastKnownRoomId:entity.lastKnownRoomId,
+    evidence:arr(entity.evidence).slice(-12),
+    conflicts
+  };
+}
+export function groundTruthSnapshot(state){
+  return JSON.parse(JSON.stringify(state||createGroundTruthState()));
+}
