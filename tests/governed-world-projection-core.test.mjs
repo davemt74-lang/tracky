@@ -67,3 +67,17 @@ test('memory projection filters transitions whose destination room disallows ret
  const p=buildGovernedSemanticProjection({runtimeActive:true,activeRoomId:'OFFICE',multiRoom:world,sceneGraph:graph,roomPolicies:policies},{purpose:'memory'});
  assert.deepEqual(p.multiRoom.transitions.map(x=>x.id),['T2']);
 });
+
+test('memory transition is suppressed when either origin or destination disallows retention',()=>{
+ const world={...baseWorld,transitions:[
+  {id:'T1',fromRoomId:'PRIVATE',toRoomId:'OFFICE'},
+  {id:'T2',fromRoomId:'OFFICE',toRoomId:'PRIVATE'},
+  {id:'T3',fromRoomId:'OFFICE',toRoomId:'OFFICE'}
+ ]};
+ const policies={
+  OFFICE:{roomId:'OFFICE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:true,sensitiveRegions:[]},
+  PRIVATE:{roomId:'PRIVATE',allowVisualObservation:true,allowParticipantIdentity:true,allowAnonymousTracking:true,allowObjectObservation:true,allowSpatialMemory:false,sensitiveRegions:[]}
+ };
+ const p=buildGovernedSemanticProjection({runtimeActive:true,activeRoomId:'OFFICE',multiRoom:world,sceneGraph:graph,roomPolicies:policies},{purpose:'memory'});
+ assert.deepEqual(p.multiRoom.transitions.map(x=>x.id),['T3']);
+});
