@@ -18,7 +18,7 @@ export function normalizeGroundTruthCorrection(input={},now=Date.now()){
     schemaVersion:GROUND_TRUTH_CORRECTION_SCHEMA_VERSION,
     id,
     type,
-    status:['active','superseded'].includes(String(input.status))?String(input.status):'active',
+    status:['active','superseded','revoked'].includes(String(input.status))?String(input.status):'active',
     subjectId,
     entityType:['person','object'].includes(String(input.entityType))?String(input.entityType):null,
     label:txt(input.label||'',100)||null,
@@ -34,32 +34,57 @@ export function normalizeGroundTruthCorrection(input={},now=Date.now()){
     boundaries:['explicit-user-correction','semantic-only','no-autonomous-physical-control']
   };
 }
+function correctionKey(item={}){
+  if(item.type==='camera-moved'&&item.cameraId) return 'camera-moved::'+item.cameraId;
+  if(item.type==='entity-merge'&&item.aliasEntityId) return 'entity-merge::'+item.aliasEntityId;
+  if(item.subjectId) return item.type+'::'+item.subjectId;
+  return item.type+'::'+(item.id||'unkeyed');
+}
 export function appendGroundTruthCorrection(items=[],input={},now=Date.now(),limit=250){
   const correction=normalizeGroundTruthCorrection(input,now);
   const next=arr(items).map((item)=>({...item}));
-  if(correction.subjectId){
-    for(const item of next){
-      if(
-        item.status!=='superseded' &&
-        item.subjectId===correction.subjectId &&
-        item.type===correction.type
-      ){
-        item.status='superseded';
-        item.updatedAt=now;
-        item.supersededBy=correction.id;
-      }
+  const key=correctionKey(correction);
+  const supersededIds=[];
+  for(const item of next){
+    if(item.status==='active'&&correctionKey(item)===key){
+      item.status='superseded';
+      item.updatedAt=now;
+      item.supersededBy=correction.id;
+      supersededIds.push(item.id);
     }
   }
-  if(correction.type==='camera-moved'&&correction.cameraId){
-    for(const item of next){
-      if(item.status!=='superseded'&&item.type==='camera-moved'&&item.cameraId===correction.cameraId){
-        item.status='superseded';item.updatedAt=now;item.supersededBy=correction.id;
-      }
-    }
-  }
+  correction.supersededIds=supersededIds;
   next.push(correction);
   if(next.length>limit) next.splice(0,next.length-limit);
   return {correction,corrections:next};
+}
+export function revokeGroundTruthCorrection(items=[],id,reason='user-undo',now=Date.now()){
+  const next=arr(items).map((item)=>({...item}));
+  const target=next.find((item)=>item.id===id);
+  if(!target) return {status:'not-found',correction:null,corrections:next,reactivated:[]};
+  if(target.status==='revoked') return {status:'already-revoked',correction:target,corrections:next,reactivated:[]};
+
+  target.status='revoked';
+  target.revokedAt=now;
+  target.revokeReason=txt(reason,240)||'user-undo';
+  target.updatedAt=now;
+
+  const reactivated=[];
+  for(const priorId of arr(target.supersededIds)){
+    const prior=next.find((item)=>item.id===priorId);
+    if(prior&&prior.status==='superseded'&&prior.supersededBy===target.id){
+      prior.status='active';
+      prior.updatedAt=now;
+      delete prior.supersededBy;
+      reactivated.push(prior.id);
+    }
+  }
+  return {status:'revoked',correction:target,corrections:next,reactivated};
+}
+export function groundTruthCorrectionHistory(items=[],subjectId=null){
+  return arr(items)
+    .filter((item)=>!subjectId||item.subjectId===subjectId||item.aliasEntityId===subjectId||item.canonicalEntityId===subjectId)
+    .sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
 }
 function matchByLabel(items=[],label){
   const q=txt(label,100).toLowerCase();
@@ -128,5 +153,5 @@ export function interpretGroundTruthCorrection(text,context={},options={},now=Da
   return {status:'unsupported',intent:'unknown',raw};
 }
 export function activeGroundTruthCorrections(items=[]){
-  return arr(items).filter((item)=>item.status!=='superseded');
+  return arr(items).filter((item)=>item.status==='active');
 }
