@@ -144,3 +144,50 @@ test('identity rejection preserves physical presence but rejects asserted identi
  assert.equal(e.state,'uncertain');
  assert.ok(e.confidence<=.49);
 });
+
+test('recovery history survives empty timer reconciliation until fresh evidence arrives',()=>{
+ const saved=buildGroundTruth({
+  activeRoomId:'OFFICE',
+  multiRoom:{objects:{O1:object('O1','keys','OFFICE',1000)}},
+  sceneGraph:{nodes:[],edges:[]}
+ },null,1000);
+ let recovered=recoverGroundTruthSnapshot(saved,5000);
+ let next=buildGroundTruth({
+  activeRoomId:null,
+  multiRoom:{participants:{},objects:{}},
+  sceneGraph:{nodes:[],edges:[]}
+ },recovered,10000);
+ assert.equal(next.recoveryMode,true);
+ assert.equal(next.entities.length,1);
+ assert.equal(next.entities[0].authority,'recovered-history');
+ assert.equal(next.entities[0].roomId,null);
+ assert.equal(next.entities[0].lastKnownRoomId,'OFFICE');
+
+ next=buildGroundTruth({
+  activeRoomId:'OFFICE',
+  multiRoom:{objects:{O1:object('O1','keys','OFFICE',11000)}},
+  sceneGraph:{nodes:[],edges:[]}
+ },next,11000);
+ assert.equal(next.recoveryMode,false);
+ assert.equal(next.entities[0].authority,'direct-observation');
+ assert.equal(next.entities[0].roomId,'OFFICE');
+});
+test('forget removes retained history but newer fresh observation can re-establish entity',()=>{
+ const correction={id:'F1',type:'forget-entity',subjectId:'O1',source:'user',createdAt:5000,status:'active'};
+ let state=buildGroundTruth({
+  multiRoom:{objects:{O1:object('O1','keys','OFFICE',4000)}},
+  sceneGraph:{nodes:[],edges:[]},
+  corrections:[correction]
+ },null,5000);
+ assert.equal(state.entities.some(x=>x.subjectId==='O1'),false);
+
+ state=buildGroundTruth({
+  multiRoom:{objects:{O1:object('O1','keys','OFFICE',7000)}},
+  sceneGraph:{nodes:[],edges:[]},
+  corrections:[correction]
+ },state,7000);
+ const entity=state.entities.find(x=>x.subjectId==='O1');
+ assert.ok(entity);
+ assert.equal(entity.state,'confirmed');
+ assert.equal(entity.roomId,'OFFICE');
+});
