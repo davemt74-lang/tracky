@@ -30,6 +30,13 @@ test('ground truth is built from privacy-governed semantic world not raw sensors
  assert.match(block,/allowObjectObservation === false/);
  assert.doesNotMatch(block,/imageDataUrl|pixels|audioQueue|rawObjects/);
 });
+test('configured camera room is not asserted as live ground-truth room while runtime is stopped',()=>{
+ const start=source.indexOf('function privacyGovernedGroundTruthInput(');
+ const end=source.indexOf('function groundTruthPersistenceSnapshot(',start);
+ const block=source.slice(start,end);
+ assert.match(block,/activeRoomId: runtime\.running/);
+});
+
 test('persisted ground truth obeys spatial-memory retention policy',()=>{
  const start=source.indexOf('function groundTruthPersistenceSnapshot(');
  const end=source.indexOf('async function persistGroundTruthState(',start);
