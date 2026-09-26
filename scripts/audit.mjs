@@ -1568,11 +1568,13 @@ if (!/observeRoutineLearningRuntime\(multiRoomEvents, now\)/.test(agentEyes)) {
 
 if (
   !/routineLearningLocationContext/.test(agentEyes) ||
-  !/spatialMemoryRetentionAllowed/.test(agentEyes) ||
-  !/allowParticipantIdentity !== false/.test(agentEyes) ||
-  !/allowObjectObservation !== false/.test(agentEyes)
+  !/semanticLearningEntityAllowed/.test(agentEyes) ||
+  !/semanticTransitionRetentionAllowed/.test(agentEyes) ||
+  !/spatialMemoryRetentionAllowed/.test(governedProjectionCore) ||
+  !/observationDecision/.test(governedProjectionCore) ||
+  !/entityKind==='participant'&&decision\.anonymize/.test(governedProjectionCore)
 ) {
-  fail('V2.5 temporal-location learning must enforce retention and identity/object observation policy');
+  fail('V2.5 temporal-location learning must enforce retention and identity/object observation policy through centralized governed eligibility');
 }
 if (!agentEyes.includes('buildRoutineLearningBriefing')) {
   fail('V2.5 learned routine proposals must flow through governed Agent briefings');
@@ -1901,8 +1903,12 @@ if (!/applyParticipantObservationPolicy/.test(agentEyes) || !/applyObjectObserva
 if (!/transcriptRetentionAllowed/.test(agentEyes) || !/event\.privacy\?\.retentionAllowed/.test(agentEyes)) {
   fail('Transcript persistence must be gated by privacy retention policy');
 }
-if (!/spatialMemoryRetentionAllowed/.test(agentEyes)) {
-  fail('Spatial memory training must be gated by privacy retention policy');
+if (
+  !/governedWorldProjection\('memory'\)/.test(agentEyes) ||
+  !/spatialMemoryRetentionAllowed/.test(governedProjectionCore) ||
+  !/transitionMemoryRetentionAllowed/.test(governedProjectionCore)
+) {
+  fail('Spatial memory training must be gated by centralized privacy retention policy');
 }
 if (!/allowVisualObservation/.test(agentEyes) || !/Disabled by privacy/.test(agentEyes)) {
   fail('Agent Eyes must stop visual inference when room visual observation is disabled');
