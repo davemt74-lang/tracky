@@ -92,8 +92,10 @@ export function buildGovernedSemanticProjection(input={},options={}){
 
   const transitions=purpose==='memory'
     ? arr(world.transitions).filter((transition)=>{
-        const roomId=transition.toRoomId||transition.fromRoomId||null;
-        return roomId?spatialMemoryRetentionAllowed(policyFor(policies,roomId),null):false;
+        const roomIds=[transition.fromRoomId,transition.toRoomId].filter(Boolean);
+        return roomIds.length>0&&roomIds.every((roomId)=>(
+          spatialMemoryRetentionAllowed(policyFor(policies,roomId),null)
+        ));
       })
     : arr(world.transitions);
 
