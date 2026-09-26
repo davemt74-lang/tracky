@@ -1280,6 +1280,7 @@ for (const symbol of [
   'buildGovernedSemanticProjection',
   'retentionAllowedForProjectedEntity',
   'semanticLearningEntityAllowed',
+  'transitionMemoryRetentionAllowed',
   'semanticTransitionRetentionAllowed'
 ]) {
   if (!governedProjectionCore.includes(symbol)) {
