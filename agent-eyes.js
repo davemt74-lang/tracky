@@ -334,6 +334,13 @@ import {
   groundTruthSemanticSignature as buildGroundTruthSemanticSignature,
   reportedMovedCameraIds
 } from './src/ground-truth-runtime-core.js';
+import {
+  groundTruthPersistencePlan,
+  initializeGroundTruthRuntimeState,
+  reconcileGroundTruthRuntimeState,
+  replaceRuntimeCorrections,
+  resetGroundTruthRuntimeState
+} from './src/ground-truth-runtime-controller.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -752,6 +759,7 @@ const runtime = {
   groundTruthSignature: null,
   groundTruthReconciliation: createReconciliationState(),
   groundTruthInputSignature: null,
+  groundTruthRuntime: resetGroundTruthRuntimeState(),
   operationalHealth: buildOperationalHealth({})
 };
 
@@ -3174,17 +3182,25 @@ function groundTruthPersistenceSnapshot() {
   );
 }
 
+function syncGroundTruthRuntimeState(state) {
+  runtime.groundTruthRuntime = state;
+  runtime.groundTruth = state.groundTruth;
+  runtime.operationalHealth = state.operationalHealth;
+  runtime.groundTruthCorrections = state.corrections;
+  runtime.groundTruthReconciliation = state.reconciliation;
+  runtime.groundTruthSignature = state.semanticSignature;
+  runtime.groundTruthInputSignature = state.inputSignature;
+  return state;
+}
+
 async function persistGroundTruthState(force = false) {
   const now = Date.now();
-  const signature = groundTruthPersistenceSignature(
-    runtime.groundTruth,
-    runtime.operationalHealth,
-    runtime.groundTruthCorrections,
-    runtime.roomPolicies
+  const plan = groundTruthPersistencePlan(
+    runtime.groundTruthRuntime,
+    runtime.roomPolicies,
+    force
   );
-  if (!persistenceNeeded(runtime.groundTruthReconciliation, signature, force)) {
-    return false;
-  }
+  if (!plan.needed) return false;
   if (
     !force &&
     now - Number(runtime.groundTruthLastSavedAt || 0) <
@@ -3198,7 +3214,7 @@ async function persistGroundTruthState(force = false) {
   try {
     await saveGroundTruthState(groundTruthPersistenceSnapshot());
     await replaceGroundTruthCorrections(runtime.groundTruthCorrections);
-    notePersisted(runtime.groundTruthReconciliation, signature);
+    notePersisted(runtime.groundTruthReconciliation, plan.signature);
     return true;
   } catch (error) {
     runtime.groundTruthReconciliation.persistencePending = true;
@@ -3209,40 +3225,31 @@ async function persistGroundTruthState(force = false) {
 
 async function initializeGroundTruthReliability() {
   const now = Date.now();
+  let saved = null;
+  let corrections = [];
   try {
-    const [saved, corrections] = await Promise.all([
+    [saved, corrections] = await Promise.all([
       loadGroundTruthState(),
       listGroundTruthCorrections()
     ]);
-    runtime.groundTruthCorrections = corrections || [];
-    runtime.groundTruth = saved
-      ? recoverGroundTruthSnapshot(saved, now)
-      : createGroundTruthState(now);
   } catch (error) {
     console.error('Could not load V2.6.1 ground truth state', error);
-    runtime.groundTruthCorrections = [];
-    runtime.groundTruth = createGroundTruthState(now);
   }
 
-  runtime.groundTruthReconciliation = createReconciliationState(now);
-  runtime.operationalHealth = buildOperationalHealth({
-    activeRoomId: runtime.groundTruth.activeRoomId || null,
-    rooms: runtime.environmentRooms,
-    cameras: runtime.cameraConfigs,
-    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
-    roomPolicies: runtime.roomPolicies,
-    environment: runtime.environmentAnalysis,
-    groundTruth: runtime.groundTruth
-  }, now);
-  runtime.groundTruthSignature = null;
-  runtime.groundTruthInputSignature = currentGroundTruthInputSignature();
-  runtime.groundTruthReconciliation.lastPersistedSignature =
-    groundTruthPersistenceSignature(
-      runtime.groundTruth,
-      runtime.operationalHealth,
-      runtime.groundTruthCorrections,
-      runtime.roomPolicies
-    );
+  const state = initializeGroundTruthRuntimeState({
+    saved,
+    corrections:corrections || [],
+    inputSignature:currentGroundTruthInputSignature(),
+    roomPolicies:runtime.roomPolicies,
+    healthInput:{
+      rooms:runtime.environmentRooms,
+      cameras:runtime.cameraConfigs,
+      cameraStatuses:Object.fromEntries(runtime.cameraStatuses),
+      roomPolicies:runtime.roomPolicies,
+      environment:runtime.environmentAnalysis
+    }
+  },now);
+  syncGroundTruthRuntimeState(state);
 }
 
 function markGroundTruthDirty(reason = 'world') {
@@ -3250,79 +3257,44 @@ function markGroundTruthDirty(reason = 'world') {
 }
 
 function updateGroundTruthRuntime(now = Date.now(), reason = 'world-update') {
-  if (reason !== 'ground-truth-timer') {
-    const inputSignature = currentGroundTruthInputSignature();
-    if (inputSignature !== runtime.groundTruthInputSignature) {
-      runtime.groundTruthInputSignature = inputSignature;
-      markGroundTruthDirty(reason);
-    }
-  }
-  if (!reconciliationDue(runtime.groundTruthReconciliation, now)) {
+  const inputSignature = currentGroundTruthInputSignature();
+  const result = reconcileGroundTruthRuntimeState(
+    runtime.groundTruthRuntime,
+    {
+      inputSignature,
+      groundTruthInput:privacyGovernedGroundTruthInput(),
+      healthInput:{
+        rooms:runtime.environmentRooms,
+        cameras:runtime.cameraConfigs,
+        cameraStatuses:Object.fromEntries(runtime.cameraStatuses),
+        roomPolicies:runtime.roomPolicies,
+        environment:runtime.environmentAnalysis
+      }
+    },
+    now,
+    reason
+  );
+  syncGroundTruthRuntimeState(result.state);
+  if (!result.reconciled) {
     return {
-      groundTruth: groundTruthSnapshot(runtime.groundTruth),
-      operationalHealth: operationalHealthSnapshot(runtime.operationalHealth),
-      changed: false,
-      reconciled: false
+      groundTruth:result.groundTruth,
+      operationalHealth:result.operationalHealth,
+      changed:false,
+      reconciled:false
     };
   }
 
-  runtime.groundTruth = buildGroundTruth(
-    privacyGovernedGroundTruthInput(),
-    runtime.groundTruth,
-    now
-  );
-
-  runtime.operationalHealth = buildOperationalHealth({
-    activeRoomId: runtime.groundTruth.activeRoomId || null,
-    rooms: runtime.environmentRooms,
-    cameras: runtime.cameraConfigs,
-    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
-    roomPolicies: runtime.roomPolicies,
-    environment:{
-      ...(runtime.environmentAnalysis || {}),
-      reportedMovedCameraIds: reportedMovedCameraIds(
-        runtime.groundTruthCorrections
-      )
-    },
-    groundTruth:runtime.groundTruth
-  }, now);
-
-  runtime.groundTruth.health = {
-    status:runtime.operationalHealth.status,
-    staleEntityCount:runtime.operationalHealth.staleEntityCount,
-    conflictedEntityCount:runtime.operationalHealth.conflictedEntityCount,
-    continuityIssueCount:runtime.operationalHealth.continuityIssueCount,
-    issueCount:(runtime.operationalHealth.issues || []).length
-  };
-
-  const signature = buildGroundTruthSemanticSignature(
-    runtime.groundTruth,
-    runtime.operationalHealth
-  );
-  const changed = signature !== runtime.groundTruthSignature;
-  runtime.groundTruthSignature = signature;
-  consumeReconciliation(
-    runtime.groundTruthReconciliation,
-    runtime.groundTruth.entities || [],
-    now
-  );
   void persistGroundTruthState(false);
-
-  if (changed) {
+  if (result.changed) {
     const detail = copySerializable({
-      groundTruth:groundTruthSnapshot(runtime.groundTruth),
-      operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
+      groundTruth:result.groundTruth,
+      operationalHealth:result.operationalHealth,
       reason
     });
     for (const listener of groundTruthListeners) listener(detail);
     window.dispatchEvent(new CustomEvent('tracky:ground-truth', { detail }));
   }
-  return {
-    groundTruth:groundTruthSnapshot(runtime.groundTruth),
-    operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
-    changed,
-    reconciled:true
-  };
+  return result;
 }
 
 function purgeForgottenGroundTruthEntity(subjectId) {
@@ -3353,14 +3325,22 @@ function resolveCameraMovedCorrection(cameraId, now = Date.now()) {
     }
     return item;
   });
-  if (changed) void persistGroundTruthState(true);
+  if (changed) {
+    syncGroundTruthRuntimeState(
+      replaceRuntimeCorrections(runtime.groundTruthRuntime, runtime.groundTruthCorrections)
+    );
+    updateGroundTruthRuntime(now, 'camera-recalibrated');
+    void persistGroundTruthState(true);
+  }
   return changed;
 }
 
 async function applyGroundTruthCorrectionRuntime(input = {}, now = Date.now()) {
   const normalized = normalizeGroundTruthCorrection(input, now);
   const result = appendGroundTruthCorrection(runtime.groundTruthCorrections, normalized, now);
-  runtime.groundTruthCorrections = result.corrections;
+  syncGroundTruthRuntimeState(
+    replaceRuntimeCorrections(runtime.groundTruthRuntime, result.corrections)
+  );
 
   if (result.correction.type === 'forget-entity') {
     purgeForgottenGroundTruthEntity(result.correction.subjectId);
@@ -3385,7 +3365,9 @@ async function revokeGroundTruthCorrectionRuntime(id, reason = 'user-undo', now 
   );
   if (result.status !== 'revoked') return copySerializable(result);
 
-  runtime.groundTruthCorrections = result.corrections;
+  syncGroundTruthRuntimeState(
+    replaceRuntimeCorrections(runtime.groundTruthRuntime, result.corrections)
+  );
   const updated = updateGroundTruthRuntime(now, 'correction-revoked');
   await persistGroundTruthState(true);
   refreshAgentContext('ground-truth-correction-revoked', now);
@@ -3413,12 +3395,8 @@ async function processGroundTruthCorrectionRuntime(text, options = {}, now = Dat
 
 async function clearGroundTruthReliabilityRuntime() {
   await clearGroundTruthStore();
-  runtime.groundTruthCorrections = [];
-  runtime.groundTruth = createGroundTruthState(Date.now());
-  runtime.operationalHealth = buildOperationalHealth({});
-  runtime.groundTruthSignature = null;
-  runtime.groundTruthReconciliation = createReconciliationState(Date.now());
-  runtime.groundTruthInputSignature = null;
+  syncGroundTruthRuntimeState(resetGroundTruthRuntimeState(Date.now()));
+  runtime.groundTruthLastSavedAt = 0;
   updateGroundTruthRuntime(Date.now(), 'ground-truth-cleared');
   refreshAgentContext('ground-truth-cleared', Date.now());
   return true;
