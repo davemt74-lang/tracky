@@ -216,7 +216,7 @@ export function reconcileGroundTruthEntities(input={},now=Date.now()){
     if(candidate) candidates.push(candidate);
   }
   for(const item of arr(input.multiRoom?.objects)){
-    const candidate=candidateFromEntity(item,'multi-room',now);
+    const candidate=canonicalize(candidateFromEntity(item,'multi-room',now));
     if(candidate) candidates.push(candidate);
   }
 
