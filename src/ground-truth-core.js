@@ -163,9 +163,32 @@ function conflictRecord(subjectId,candidates,kind='simultaneous-location'){
   };
 }
 export function reconcileGroundTruthEntities(input={},now=Date.now()){
+  const mergeMap=new Map(
+    arr(input.corrections)
+      .filter((item)=>item.type==='entity-merge'&&item.status!=='superseded'&&item.aliasEntityId&&item.canonicalEntityId)
+      .map((item)=>[String(item.aliasEntityId),String(item.canonicalEntityId)])
+  );
+  const canonicalize=(candidate)=>{
+    if(!candidate) return null;
+    const canonical=mergeMap.get(candidate.subjectId);
+    return canonical?{
+      ...candidate,
+      originalSubjectId:candidate.subjectId,
+      subjectId:canonical,
+      id:candidate.id.replace(candidate.subjectId,canonical),
+      evidence:[...(candidate.evidence||[]),{
+        source:'ground-truth-correction',
+        authority:'user-confirmed',
+        kind:'entity-merge',
+        aliasEntityId:candidate.subjectId,
+        canonicalEntityId:canonical,
+        timestamp:now
+      }]
+    }:candidate;
+  };
   const candidates=[];
   for(const item of arr(input.multiRoom?.participants)){
-    const candidate=candidateFromEntity(item,'multi-room',now);
+    const candidate=canonicalize(candidateFromEntity(item,'multi-room',now));
     if(candidate) candidates.push(candidate);
   }
   for(const item of arr(input.multiRoom?.objects)){
@@ -189,6 +212,8 @@ export function reconcileGroundTruthEntities(input={},now=Date.now()){
       cameraIds:node.properties?.cameraIds||[]
     },'scene-graph',now);
     if(candidate){
+      const canonical=canonicalize(candidate);
+      Object.assign(candidate,canonical);
       candidate.id='scene:'+candidate.subjectId+':'+(candidate.roomId||'none');
       candidate.authority=node.state==='user-confirmed'?'user-confirmed':node.state==='inferred'?'semantic-inference':'direct-observation';
       candidate.authorityRank=FACT_AUTHORITY[candidate.authority];
