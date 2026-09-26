@@ -1278,7 +1278,9 @@ if (!/RELIABILITY_POLICY\.operationalHealth\.occupancyCoverage/.test(operational
 }
 for (const symbol of [
   'buildGovernedSemanticProjection',
-  'retentionAllowedForProjectedEntity'
+  'retentionAllowedForProjectedEntity',
+  'semanticLearningEntityAllowed',
+  'semanticTransitionRetentionAllowed'
 ]) {
   if (!governedProjectionCore.includes(symbol)) {
     fail('V2.6.1 governed projection is missing required interface: ' + symbol);
@@ -1299,6 +1301,12 @@ if (
   !/roomIds\.every/.test(governedProjectionCore)
 ) {
   fail('V2.6.1 remembered transitions must require retention permission in both origin and destination rooms');
+}
+if (
+  !/semanticTransitionRetentionAllowed/.test(read('agent-eyes.js')) ||
+  !/semanticLearningEntityAllowed/.test(read('agent-eyes.js'))
+) {
+  fail('V2.6.1 routine learning must delegate privacy and retention eligibility to the shared governed projection');
 }
 for (const symbol of [
   'groundTruthInputSignature',
