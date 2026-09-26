@@ -726,6 +726,7 @@ const runtime = {
   groundTruth: createGroundTruthState(),
   groundTruthCorrections: [],
   groundTruthLastSavedAt: 0,
+  groundTruthSignature: null,
   operationalHealth: buildOperationalHealth({})
 };
 
