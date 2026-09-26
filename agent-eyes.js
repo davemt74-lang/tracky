@@ -287,6 +287,30 @@ import {
   loadRoutineLearningState,
   saveRoutineLearningState
 } from './src/routine-learning-store.js';
+import {
+  buildGroundTruth,
+  createGroundTruthState,
+  explainGroundTruth,
+  groundTruthSnapshot,
+  recoverGroundTruthSnapshot
+} from './src/ground-truth-core.js';
+import {
+  appendGroundTruthCorrection,
+  activeGroundTruthCorrections,
+  interpretGroundTruthCorrection,
+  normalizeGroundTruthCorrection
+} from './src/ground-truth-correction-core.js';
+import {
+  clearGroundTruthStore,
+  listGroundTruthCorrections,
+  loadGroundTruthState,
+  replaceGroundTruthCorrections,
+  saveGroundTruthState
+} from './src/ground-truth-store.js';
+import {
+  buildOperationalHealth,
+  operationalHealthSnapshot
+} from './src/operational-health-core.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -591,6 +615,7 @@ const agentBriefingListeners = new Set();
 const agentDeliveryListeners = new Set();
 const physicalGoalListeners = new Set();
 const routineLearningListeners = new Set();
+const groundTruthListeners = new Set();
 
 const runtime = {
   stream: null,
@@ -697,7 +722,11 @@ const runtime = {
   physicalGoals: [],
   physicalGoalHistory: [],
   routineLearning: createRoutineLearningState(),
-  routineLearningLastSavedAt: 0
+  routineLearningLastSavedAt: 0,
+  groundTruth: createGroundTruthState(),
+  groundTruthCorrections: [],
+  groundTruthLastSavedAt: 0,
+  operationalHealth: buildOperationalHealth({})
 };
 
 const SCAN_INTERVAL_MS = 550;
