@@ -1244,6 +1244,39 @@ async function publishRoutineLearningProposal(proposal, reason = 'learned-patter
   return detail;
 }
 
+function routineLearningLocationContext(now = Date.now()) {
+  const context = physicalGoalCommandContext({}, now);
+  const allowedPeople = (context.people || []).filter((person) => {
+    const policy = policyForRoom(person.roomId);
+    return (
+      policy.allowVisualObservation !== false &&
+      policy.allowParticipantIdentity !== false &&
+      spatialMemoryRetentionAllowed(policy, null)
+    );
+  });
+  const allowedObjects = (context.objects || []).filter((object) => {
+    const policy = policyForRoom(object.roomId);
+    return (
+      policy.allowVisualObservation !== false &&
+      policy.allowObjectObservation !== false &&
+      spatialMemoryRetentionAllowed(policy, null)
+    );
+  });
+  const allowedIds = new Set([
+    ...allowedPeople.map((person) => person.participantId).filter(Boolean),
+    ...allowedObjects.map((object) => object.objectId).filter(Boolean)
+  ]);
+  const currentAnchors = Object.fromEntries(
+    Object.entries(context.currentAnchors || {}).filter(([id]) => allowedIds.has(id))
+  );
+  return {
+    ...context,
+    people:allowedPeople,
+    objects:allowedObjects,
+    currentAnchors
+  };
+}
+
 async function observeRoutineLearningRuntime(events = [], now = Date.now()) {
   const sessionId = routineLearningSessionId(now);
   const allowedTransitions = events.filter(routineLearningTransitionAllowed);
@@ -1260,7 +1293,7 @@ async function observeRoutineLearningRuntime(events = [], now = Date.now()) {
 
   const locationResult = observeTemporalLocations(
     runtime.routineLearning,
-    physicalGoalCommandContext({}, now),
+    routineLearningLocationContext(now),
     sessionId,
     now
   );
