@@ -82,6 +82,8 @@ const requiredFiles = [
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
   'src/ground-truth-runtime-controller.js',
+  'src/agent-runtime-context-core.js',
+  'src/agent-runtime-context-core.js',
   'src/anomaly-core.js'
 ];
 
@@ -1224,6 +1226,29 @@ const governedProjectionCore = read('src/governed-world-projection-core.js');
 const reliabilityPolicy = read('src/reliability-policy.js');
 const reconciliationCore = read('src/runtime-reconciliation-core.js');
 const groundTruthRuntimeCore = read('src/ground-truth-runtime-core.js');
+const agentRuntimeContextCore = read('src/agent-runtime-context-core.js');
+for (const symbol of [
+  'runtimeActiveRoomId',
+  'buildAgentRuntimeContextSource',
+  'buildWorldQueryRuntimeContext',
+  'buildWorldWatchRuntimeContext',
+  'buildAgentDeliveryRuntimeContext',
+  'canonicalParticipantLocation',
+  'canonicalObjectLocation'
+]) {
+  if (!agentRuntimeContextCore.includes(symbol)) {
+    fail('V2.6.1 Agent runtime context core is missing required interface: ' + symbol);
+  }
+}
+if (
+  !/buildAgentRuntimeContextSource/.test(agentEyes) ||
+  !/buildWorldQueryRuntimeContext/.test(agentEyes) ||
+  !/canonicalParticipantLocation/.test(agentEyes) ||
+  !/canonicalObjectLocation/.test(agentEyes)
+) {
+  fail('V2.6.1 browser runtime must delegate semantic context and canonical location coordination');
+}
+
 const groundTruthRuntimeController = read('src/ground-truth-runtime-controller.js');
 for (const symbol of [
   'combinedCoverage',
