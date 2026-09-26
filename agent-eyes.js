@@ -921,7 +921,9 @@ function anomalyAttentionItems() {
 
 function agentContextSource() {
   return {
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || roomState.roomId || null,
+    activeRoomId: runtime.groundTruth.activeRoomId || (runtime.running
+      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || roomState.roomId || null)
+      : null),
     rooms: runtime.environmentRooms,
     roomPolicies: runtime.roomPolicies,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
@@ -1865,7 +1867,7 @@ function refreshAgentContext(reason = 'runtime-update', now = Date.now()) {
 
 function worldQueryContext() {
   return {
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    activeRoomId: runtime.groundTruth.activeRoomId || null,
     rooms: runtime.environmentRooms,
     roomPolicies: runtime.roomPolicies,
     multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
@@ -2272,6 +2274,7 @@ function emit(type, payload = {}) {
 
 bus.subscribe('*', (event) => {
   applyPerceptionEvent(roomState, event);
+  markGroundTruthDirty('perception:' + event.type);
   if (meaningfulAttentionEvent(event.type)) {
     markMeaningfulActivity(runtime.attention, event.timestamp || Date.now());
     updateAttentionController(event.timestamp || Date.now());
@@ -2354,6 +2357,14 @@ window.TrackyAgentEyes = Object.freeze({
   processGroundTruthCorrection(text, options = {}) {
     return processGroundTruthCorrectionRuntime(text, options, Date.now());
   },
+  getGroundTruthCorrections(subjectId = null) {
+    return copySerializable(
+      groundTruthCorrectionHistory(runtime.groundTruthCorrections, subjectId)
+    );
+  },
+  revokeGroundTruthCorrection(id, reason = 'user-undo') {
+    return revokeGroundTruthCorrectionRuntime(id, reason, Date.now());
+  },
   clearGroundTruthReliability() {
     return clearGroundTruthReliabilityRuntime();
   },
@@ -2379,12 +2390,21 @@ window.TrackyAgentEyes = Object.freeze({
     };
   },
   getParticipantLocation(participantId) {
+    const subjectId = String(participantId || '').startsWith('PERSON:')
+      ? String(participantId)
+      : 'PERSON:' + String(participantId || '');
     return copySerializable(
-      runtime.multiRoomWorld.participants['PERSON:' + participantId] || null
+      (runtime.groundTruth.entities || []).find((item) => (
+        item.entityType === 'person' && item.subjectId === subjectId
+      )) || runtime.multiRoomWorld.participants[subjectId] || null
     );
   },
   getObjectLocation(objectId) {
-    return copySerializable(runtime.multiRoomWorld.objects[objectId] || null);
+    return copySerializable(
+      (runtime.groundTruth.entities || []).find((item) => (
+        item.entityType === 'object' && item.subjectId === objectId
+      )) || runtime.multiRoomWorld.objects[objectId] || null
+    );
   },
   getWorldTopology() {
     return copySerializable(runtime.worldTopology);
@@ -3319,18 +3339,6 @@ async function applyGroundTruthCorrectionRuntime(input = {}, now = Date.now()) {
     purgeForgottenGroundTruthEntity(result.correction.subjectId);
   }
 
-  if (
-    result.correction.type === 'entity-merge' &&
-    result.correction.aliasEntityId &&
-    result.correction.canonicalEntityId
-  ) {
-    for (const [alias, canonical] of Object.entries(runtime.multiRoomWorld.objectAliases || {})) {
-      if (canonical === result.correction.aliasEntityId) {
-        runtime.multiRoomWorld.objectAliases[alias] = result.correction.canonicalEntityId;
-      }
-    }
-  }
-
   await persistGroundTruthState(true);
   const updated = updateGroundTruthRuntime(now, 'user-correction');
   refreshAgentContext('ground-truth-correction', now);
@@ -3338,6 +3346,30 @@ async function applyGroundTruthCorrectionRuntime(input = {}, now = Date.now()) {
     status:'ready',
     correction:result.correction,
     ...updated
+  });
+}
+
+async function revokeGroundTruthCorrectionRuntime(id, reason = 'user-undo', now = Date.now()) {
+  const result = revokeGroundTruthCorrection(
+    runtime.groundTruthCorrections,
+    id,
+    reason,
+    now
+  );
+  if (result.status !== 'revoked') return copySerializable(result);
+
+  runtime.groundTruthCorrections = result.corrections;
+  await persistGroundTruthState(true);
+  const updated = updateGroundTruthRuntime(now, 'correction-revoked');
+  refreshAgentContext('ground-truth-correction-revoked', now);
+  return copySerializable({
+    ...result,
+    ...updated,
+    boundaries:[
+      'correction-audit-history-preserved',
+      'forget-history-cannot-be-restored-after-explicit-purge',
+      'no-autonomous-physical-control'
+    ]
   });
 }
 
@@ -3358,6 +3390,7 @@ async function clearGroundTruthReliabilityRuntime() {
   runtime.groundTruth = createGroundTruthState(Date.now());
   runtime.operationalHealth = buildOperationalHealth({});
   runtime.groundTruthSignature = null;
+  runtime.groundTruthReconciliation = createReconciliationState(Date.now());
   updateGroundTruthRuntime(Date.now(), 'ground-truth-cleared');
   refreshAgentContext('ground-truth-cleared', Date.now());
   return true;
@@ -9784,4 +9817,7 @@ setInterval(() => {
   const now = Date.now();
   const result = updateGroundTruthRuntime(now, 'ground-truth-timer');
   if (result.changed) refreshAgentContext('ground-truth-timer', now);
-}, 5000);
+  if (runtime.groundTruthReconciliation.persistencePending) {
+    void persistGroundTruthState(false);
+  }
+}, 1000);
