@@ -37,7 +37,8 @@ export function cameraOperationalHealth(camera={},status='offline',environment=n
   const valid=cameraCalibrationValid(camera);
   const coverageArea=valid?polygonArea(cameraCoveragePolygon(camera)):0;
   const online=['online','starting'].includes(String(status));
-  const primaryShift=(
+  const reportedMoved=arr(environment?.reportedMovedCameraIds).includes(camera.id);
+  const primaryShift=reportedMoved||(
     camera.primary===true &&
     environment?.drift?.likelyCameraShift===true
   );
