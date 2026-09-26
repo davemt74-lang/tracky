@@ -73,6 +73,10 @@ const requiredFiles = [
   'src/routine-sequence-core.js',
   'src/routine-learning-core.js',
   'src/routine-learning-store.js',
+  'src/ground-truth-core.js',
+  'src/ground-truth-correction-core.js',
+  'src/ground-truth-store.js',
+  'src/operational-health-core.js',
   'src/anomaly-core.js'
 ];
 
@@ -136,6 +140,10 @@ const runtimeJs = [
   'src/routine-sequence-core.js',
   'src/routine-learning-core.js',
   'src/routine-learning-store.js',
+  'src/ground-truth-core.js',
+  'src/ground-truth-correction-core.js',
+  'src/ground-truth-store.js',
+  'src/operational-health-core.js',
   'src/anomaly-core.js'
 ];
 
@@ -162,8 +170,8 @@ function read(file) {
 for (const file of requiredFiles) read(file);
 
 const packageJson = JSON.parse(read('package.json') || '{}');
-if (packageJson.version !== '2.5.0') {
-  fail('package.json version must be 2.5.0');
+if (packageJson.version !== '2.6.0') {
+  fail('package.json version must be 2.6.0');
 }
 if (packageJson.type !== 'module') {
   fail('package.json must use ESM via type=module');
@@ -230,7 +238,11 @@ for (const file of [
   'src/temporal-goal-language-core.js',
   'src/routine-sequence-core.js',
   'src/routine-learning-core.js',
-  'src/routine-learning-store.js'
+  'src/routine-learning-store.js',
+  'src/ground-truth-core.js',
+  'src/ground-truth-correction-core.js',
+  'src/ground-truth-store.js',
+  'src/operational-health-core.js'
 ]) {
   if (!packageJson.scripts?.test?.includes(file)) {
     fail('test script must syntax-check ' + file);
@@ -1101,6 +1113,98 @@ for (const symbol of [
   }
 }
 
+const groundTruthCore = read('src/ground-truth-core.js');
+for (const symbol of [
+  'GROUND_TRUTH_SCHEMA_VERSION',
+  'FACT_AUTHORITY',
+  'truthFreshness',
+  'reconcileGroundTruthEntities',
+  'detectContinuityIssues',
+  'buildGroundTruth',
+  'recoverGroundTruthSnapshot',
+  'explainGroundTruth',
+  'groundTruthSnapshot'
+]) {
+  if (!groundTruthCore.includes(symbol)) {
+    fail('Ground truth core is missing required V2.6 interface: ' + symbol);
+  }
+}
+for (const boundary of [
+  'semantic-ground-truth-only',
+  'conflicts-preserved',
+  'persisted-state-is-not-fresh-observation',
+  'no-autonomous-physical-control'
+]) {
+  if (!groundTruthCore.includes(boundary)) {
+    fail('Ground truth core is missing V2.6 authority boundary: ' + boundary);
+  }
+}
+if (!/recovered-history/.test(groundTruthCore) || !/roomId:null/.test(groundTruthCore)) {
+  fail('V2.6 reboot recovery must not restore persisted location as current observation');
+}
+if (!/object-identity-ambiguity/.test(groundTruthCore) || !/requiresConfirmation:true/.test(groundTruthCore)) {
+  fail('V2.6 object continuity ambiguity must require explicit confirmation instead of silent merging');
+}
+
+const correctionCore = read('src/ground-truth-correction-core.js');
+for (const symbol of [
+  'GROUND_TRUTH_CORRECTION_TYPES',
+  'normalizeGroundTruthCorrection',
+  'appendGroundTruthCorrection',
+  'interpretGroundTruthCorrection',
+  'activeGroundTruthCorrections'
+]) {
+  if (!correctionCore.includes(symbol)) {
+    fail('Ground truth correction core is missing required V2.6 interface: ' + symbol);
+  }
+}
+for (const correctionType of [
+  'entity-label','entity-location','forget-entity','camera-moved','entity-merge','identity-rejection'
+]) {
+  if (!correctionCore.includes(correctionType)) {
+    fail('Ground truth correction core is missing V2.6 correction type: ' + correctionType);
+  }
+}
+if (!correctionCore.includes('explicit-user-correction')) {
+  fail('V2.6 corrections must remain explicit user authority');
+}
+
+const groundTruthStore = read('src/ground-truth-store.js');
+for (const symbol of [
+  'loadGroundTruthState',
+  'saveGroundTruthState',
+  'listGroundTruthCorrections',
+  'replaceGroundTruthCorrections',
+  'clearGroundTruthStore'
+]) {
+  if (!groundTruthStore.includes(symbol)) {
+    fail('Ground truth store is missing required V2.6 persistence interface: ' + symbol);
+  }
+}
+
+const operationalHealthCore = read('src/operational-health-core.js');
+for (const symbol of [
+  'combinedCoverage',
+  'cameraOperationalHealth',
+  'roomOperationalHealth',
+  'buildOperationalHealth',
+  'operationalHealthSnapshot'
+]) {
+  if (!operationalHealthCore.includes(symbol)) {
+    fail('Operational health core is missing required V2.6 interface: ' + symbol);
+  }
+}
+for (const boundary of [
+  'diagnostic-only',
+  'privacy-policy-aware',
+  'no-autonomous-camera-reconfiguration',
+  'no-autonomous-physical-control'
+]) {
+  if (!operationalHealthCore.includes(boundary)) {
+    fail('Operational health core is missing V2.6 boundary: ' + boundary);
+  }
+}
+
 const agentEyes = read('agent-eyes.js');
 if (!/window\.TrackyAgentEyes/.test(agentEyes)) {
   fail('Agent Eyes must expose the browser Agent integration interface');
@@ -1321,6 +1425,44 @@ if (
 if (!agentEyes.includes('buildRoutineLearningBriefing')) {
   fail('V2.5 learned routine proposals must flow through governed Agent briefings');
 }
+for (const symbol of [
+  'getGroundTruth',
+  'getOperationalHealth',
+  'getEntityTruth',
+  'explainGroundTruth',
+  'applyGroundTruthCorrection',
+  'interpretGroundTruthCorrection',
+  'processGroundTruthCorrection',
+  'clearGroundTruthReliability',
+  'subscribeGroundTruth'
+]) {
+  if (!agentEyes.includes(symbol)) {
+    fail('Agent Eyes is missing V2.6 ground truth reliability API: ' + symbol);
+  }
+}
+if (!/tracky:ground-truth/.test(agentEyes)) {
+  fail('Agent Eyes must emit browser-level V2.6 ground truth semantic changes');
+}
+for (const modulePath of [
+  './src/ground-truth-core.js',
+  './src/ground-truth-correction-core.js',
+  './src/ground-truth-store.js',
+  './src/operational-health-core.js'
+]) {
+  if (!agentEyes.includes("from '" + modulePath + "'")) {
+    fail('Agent Eyes must explicitly import V2.6 runtime dependency: ' + modulePath);
+  }
+}
+if (!/groundTruthPersistenceSnapshot/.test(agentEyes) || !/spatialMemoryRetentionAllowed/.test(agentEyes)) {
+  fail('V2.6 persisted ground truth must obey spatial-memory retention policy');
+}
+if (!/recoverGroundTruthSnapshot/.test(agentEyes) || !/initializeGroundTruthReliability/.test(agentEyes)) {
+  fail('V2.6 must recover persisted ground truth as historical state');
+}
+if (!/resolveCameraMovedCorrection\(updated\.id/.test(agentEyes)) {
+  fail('V2.6 user-reported camera movement must require recalibration to clear');
+}
+
 for (const modulePath of [
   './src/world-watch-language-core.js',
   './src/agent-briefing-core.js',
@@ -1690,8 +1832,8 @@ const workflow = read('.github/workflows/test.yml');
 if (!/npm run validate/.test(workflow)) {
   fail('CI must execute npm run validate');
 }
-if (!/tracky-v2\.5-deploy\.zip/.test(workflow)) {
-  fail('CI must build the V2.5 deploy ZIP');
+if (!/tracky-v2\.6-deploy\.zip/.test(workflow)) {
+  fail('CI must build the V2.6 deploy ZIP');
 }
 if (!workflow.includes('src/attention-core.js') || !workflow.includes('src/attention-store.js')) {
   fail('CI V1.9 deploy package must include attention core and store');
@@ -1746,6 +1888,17 @@ for (const file of [
     fail('CI V2.5 deploy package must include ' + file);
   }
 }
+
+for (const file of [
+  'src/ground-truth-core.js',
+  'src/ground-truth-correction-core.js',
+  'src/ground-truth-store.js',
+  'src/operational-health-core.js'
+]) {
+  if (!workflow.includes(file)) {
+    fail('CI V2.6 deploy package must include ' + file);
+  }
+}
 if (!workflow.includes('src/privacy-policy-core.js')) {
   fail('CI V1.9 deploy package must include privacy policy core');
 }
@@ -1777,5 +1930,5 @@ if (failures.length) {
 console.log('Tracky release audit: PASS');
 console.log(
   'Checked ' + requiredFiles.length +
-  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, proactive delivery policy, delivery queue coalescing, reconnect recovery, digest delivery, voice handoff boundaries, persistent physical goals, observation-aware expectations, recurring semantic routines, natural-language goal management, goal briefing integration, temporal windows, deadline expectations, durable grace periods, predictive routine sequences, multi-session learned routine proposals, temporal-location learning, explicit proposal confirmation, routine health, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
+  ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, proactive delivery policy, delivery queue coalescing, reconnect recovery, digest delivery, voice handoff boundaries, persistent physical goals, observation-aware expectations, recurring semantic routines, natural-language goal management, goal briefing integration, temporal windows, deadline expectations, durable grace periods, predictive routine sequences, multi-session learned routine proposals, temporal-location learning, explicit proposal confirmation, routine health, authoritative ground truth reconciliation, fact authority, confidence freshness decay, reboot recovery, continuity ambiguity, explicit physical-world corrections, calibration and coverage health, operational reliability diagnostics, Agent ground-truth explanations, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
