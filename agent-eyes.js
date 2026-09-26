@@ -1403,6 +1403,111 @@ async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Dat
   return copySerializable(result);
 }
 
+function resetSequenceState(goal) {
+  return {
+    ...goal,
+    sequenceState:{
+      ...(goal.sequenceState || {}),
+      progress:0,
+      startedAt:null,
+      lastStepAt:null
+    }
+  };
+}
+
+async function processSequenceRoutineEvents(events = [], now = Date.now()) {
+  const semanticEvents = events.filter(routineLearningTransitionAllowed);
+  if (!semanticEvents.length) return [];
+
+  const emitted = [];
+  for (let index = 0; index < runtime.physicalGoals.length; index += 1) {
+    let goal = runtime.physicalGoals[index];
+    if (!goal.enabled || !goal.sequence?.steps?.length) continue;
+
+    const temporal = temporalPolicyStatus(goal.temporalPolicy || {}, now);
+    if (!temporal.active) {
+      if (Number(goal.sequenceState?.progress || 0) > 0) {
+        goal = resetSequenceState(goal);
+        runtime.physicalGoals[index] = goal;
+        await savePhysicalGoal(goal);
+      }
+      continue;
+    }
+
+    for (const event of semanticEvents) {
+      const beforeState = JSON.stringify(goal.sequenceState || {});
+      const result = advanceRoutineSequence(goal, event, event.timestamp || now);
+      goal = result.goal;
+      if (result.events.length) {
+        const lastEvent = result.events[result.events.length - 1];
+        goal.lastState = lastEvent.state;
+        goal.lastTriggeredAt = lastEvent.generatedAt;
+        for (const sequenceEvent of result.events) {
+          emitted.push(sequenceEvent);
+          await publishPhysicalGoalEvent(
+            sequenceEvent,
+            goal,
+            'routine-sequence',
+            sequenceEvent.generatedAt
+          );
+        }
+      }
+      if (
+        beforeState !== JSON.stringify(goal.sequenceState || {}) ||
+        result.events.length
+      ) {
+        runtime.physicalGoals[index] = goal;
+        await savePhysicalGoal(goal);
+      }
+    }
+  }
+  return copySerializable(emitted);
+}
+
+async function tickSequenceRoutinesRuntime(now = Date.now()) {
+  const emitted = [];
+  for (let index = 0; index < runtime.physicalGoals.length; index += 1) {
+    let goal = runtime.physicalGoals[index];
+    if (!goal.enabled || !goal.sequence?.steps?.length) continue;
+
+    const temporal = temporalPolicyStatus(goal.temporalPolicy || {}, now);
+    if (!temporal.active) {
+      if (Number(goal.sequenceState?.progress || 0) > 0) {
+        goal = resetSequenceState(goal);
+        runtime.physicalGoals[index] = goal;
+        await savePhysicalGoal(goal);
+      }
+      continue;
+    }
+
+    const beforeState = JSON.stringify(goal.sequenceState || {});
+    const result = tickRoutineSequence(goal, now);
+    goal = result.goal;
+    if (result.events.length) {
+      const lastEvent = result.events[result.events.length - 1];
+      goal.lastState = lastEvent.state;
+      goal.lastTriggeredAt = lastEvent.generatedAt;
+      for (const sequenceEvent of result.events) {
+        emitted.push(sequenceEvent);
+        await publishPhysicalGoalEvent(
+          sequenceEvent,
+          goal,
+          'routine-sequence-timer',
+          sequenceEvent.generatedAt
+        );
+      }
+    }
+    if (
+      beforeState !== JSON.stringify(goal.sequenceState || {}) ||
+      result.events.length
+    ) {
+      runtime.physicalGoals[index] = goal;
+      await savePhysicalGoal(goal);
+    }
+  }
+  return copySerializable(emitted);
+}
+
 async function runPhysicalRoutineNow(id, now = Date.now()) {
   const goal = runtime.physicalGoals.find((item) => item.id === id);
   if (!goal) return { status:'not-found', message:'Physical routine not found.' };
