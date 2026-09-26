@@ -173,6 +173,7 @@ function groundTruth(context={},rooms,limit=20){
     status:txt(context.operationalHealth.status||'unknown',32),
     staleEntityCount:Number(context.operationalHealth.staleEntityCount||0),
     conflictedEntityCount:Number(context.operationalHealth.conflictedEntityCount||0),
+    continuityIssueCount:Number(context.operationalHealth.continuityIssueCount||0),
     issueCount:arr(context.operationalHealth.issues).length
   }:null;
   return {
