@@ -85,3 +85,13 @@ test('canonical location lookups retain backwards-compatible multi-room fallback
   assert.equal(canonicalParticipantLocation(noTruth,'p1').roomId,'KITCHEN');
   assert.equal(canonicalObjectLocation(noTruth,'O1').roomId,'KITCHEN');
 });
+
+test('delivery context inherits active task when stored delivery task mode is absent',()=>{
+  const result=buildAgentDeliveryRuntimeContext({
+    deliveryContext:{},
+    groundTruth:truth,
+    running:true,
+    activeTask:{mode:'low-power'}
+  },1000);
+  assert.equal(result.taskMode,'low-power');
+});
