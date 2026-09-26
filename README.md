@@ -3,6 +3,189 @@
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
 
+## V2.6 — Physical-World Ground Truth & Operational Reliability
+
+V2.6 strengthens the reliability of everything Tracky already knows before adding more predictive behavior.
+
+The new ground-truth layer reconciles live multi-room state, scene-graph evidence, user corrections, privacy policy, camera health, and retained semantic memory without collapsing them into one undifferentiated answer.
+
+### Explicit fact authority
+
+Physical-world statements now preserve where they came from.
+
+Authority classes include:
+
+- user-confirmed
+- direct observation
+- reconciled observation
+- semantic inference
+- remembered state
+- recovered history
+
+A higher-authority fact can outrank a weaker one, but comparable contradictory current evidence is preserved as a conflict instead of silently choosing a winner.
+
+### Freshness and confidence decay
+
+Ground-truth entities are classified as:
+
+- current
+- recent
+- stale
+- unknown
+
+Confidence decays according to entity type and evidence age.
+
+A stale or reboot-recovered location can remain useful as **last-known** context, but it is never presented as if Tracky is currently seeing it.
+
+### Reboot recovery
+
+V2.6 persists only governed semantic ground-truth state.
+
+After reload, the saved snapshot enters recovery mode:
+
+```text
+persisted fact → recovered history → live evidence refreshes truth
+```
+
+Recovered entities lose current-room authority until fresh evidence re-establishes it.
+
+This prevents a restart from turning yesterday's last observation into a new current observation.
+
+### Conflict handling
+
+Tracky preserves unresolved conflicts such as:
+
+- the same enrolled participant appearing in incompatible rooms
+- a newer observation conflicting with a user-confirmed correction
+- multiple current facts with comparable authority
+
+Ground-truth explanations identify the conflict rather than hiding it.
+
+### Person and object continuity
+
+Tracky does not automatically merge identities merely because labels match.
+
+When multiple recent object identities share the same label, V2.6 records an `object-identity-ambiguity` continuity issue and waits for explicit evidence or a user correction.
+
+The same rule applies to incompatible enrolled-person location continuity.
+
+Explicit `entity-merge` corrections can unify known aliases when the user or downstream Agent has authoritative context.
+
+### Operational health
+
+V2.6 adds diagnostics for:
+
+- camera online/offline state
+- calibration validity
+- calibrated coverage area
+- combined room coverage
+- camera pose shift
+- user-reported camera movement
+- room occupancy observability
+- privacy blind spots
+- stale ground truth
+- conflicted ground truth
+- continuity ambiguity
+
+A room is only considered occupancy-verifiable when privacy policy permits the observation and calibrated live camera coverage is sufficiently broad.
+
+Operational health is diagnostic only. Tracky does not autonomously move cameras or change calibration.
+
+### Physical-world corrections
+
+Explicit user corrections are durable local semantic records.
+
+Supported correction types include:
+
+- entity label
+- entity location
+- forget entity
+- camera moved
+- entity merge
+- identity rejection
+
+Examples:
+
+```text
+Those are my keys.
+That is not Sarah.
+Keys are in Office.
+This camera moved.
+Forget that object.
+```
+
+Deictic corrections such as “that” or “this” require the downstream Agent to provide the already-resolved subject or camera context. Tracky does not guess the referent.
+
+A camera-moved correction remains active until that camera is recalibrated.
+
+### Forgetting retained entity knowledge
+
+A `forget-entity` correction removes the entity from V2.6 ground truth and clears its retained semantic spatial-memory record and proposals.
+
+Fresh future observation can still create a new observation, but the forgotten historical memory is not silently restored.
+
+### Agent explanations
+
+The Agent can request a ground-truth explanation for an entity.
+
+The response explicitly reports:
+
+- current vs historical evidence
+- authority
+- confidence
+- freshness
+- current room or last-known room
+- compact semantic evidence
+- unresolved conflicts
+
+Example:
+
+```text
+Why do you think the keys are in the office?
+```
+
+Tracky's explanation can distinguish “I currently observe them there” from “that was the last retained location before restart.”
+
+### V2.6 Agent APIs
+
+```js
+TrackyAgentEyes.getGroundTruth()
+TrackyAgentEyes.getOperationalHealth()
+TrackyAgentEyes.getEntityTruth(subjectId)
+TrackyAgentEyes.explainGroundTruth(subjectId)
+
+TrackyAgentEyes.applyGroundTruthCorrection(input)
+TrackyAgentEyes.interpretGroundTruthCorrection(text, options)
+TrackyAgentEyes.processGroundTruthCorrection(text, options)
+TrackyAgentEyes.clearGroundTruthReliability()
+
+TrackyAgentEyes.subscribeGroundTruth(handler)
+```
+
+Semantic ground-truth changes emit:
+
+```text
+tracky:ground-truth
+```
+
+The Agent context also receives a compact ground-truth projection so current observation, recovered history, conflicts, and operational health remain distinguishable.
+
+### Privacy and authority boundary
+
+Ground truth is built from privacy-governed semantic state.
+
+Persisted entity truth additionally obeys spatial-memory retention policy.
+
+V2.6 declares boundaries including:
+
+- semantic ground truth only
+- conflicts preserved
+- persisted state is not fresh observation
+- diagnostic only
+- no autonomous camera reconfiguration
+- no autonomous physical control
+
+
 ## V2.5 — Temporal Expectations, Learned Routines & Predictive Deviations
 
 V2.5 adds time-aware expectations and governed pattern learning above V2.4 physical goals.
