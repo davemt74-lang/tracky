@@ -3510,50 +3510,14 @@ function updateSpatialMemory(now = Date.now()) {
     ? 'session-' + runtime.startedAt
     : 'session-' + Math.floor(now / 60000);
 
-  const memoryWorld = multiRoomSnapshot(runtime.multiRoomWorld);
-  for (const [id, participant] of Object.entries(memoryWorld.participants || {})) {
-    if (!spatialMemoryRetentionAllowed(
-      policyForRoom(participant.roomId || participant.lastKnownRoomId),
-      participant.roomPosition
-    )) {
-      delete memoryWorld.participants[id];
-    }
-  }
-  for (const [id, object] of Object.entries(memoryWorld.objects || {})) {
-    if (!spatialMemoryRetentionAllowed(
-      policyForRoom(object.roomId || object.lastKnownRoomId),
-      object.roomPosition
-    )) {
-      delete memoryWorld.objects[id];
-    }
-  }
-
-  const graph = sceneGraphSnapshot(runtime.sceneGraph);
-  const activePolicy = policyForRoom(graph.roomId);
-  const allowedGraphNodes = new Set(
-    (graph.nodes || [])
-      .filter((node) => (
-        !node.position ||
-        spatialMemoryRetentionAllowed(activePolicy, node.position)
-      ))
-      .map((node) => node.id)
-  );
-  graph.edges = (graph.edges || []).filter((edge) => (
-    allowedGraphNodes.has(edge.subjectId) &&
-    allowedGraphNodes.has(edge.objectId)
-  ));
+  const memoryProjection = governedWorldProjection('memory');
 
   observeSpatialMemory(runtime.spatialMemory, {
     sessionId,
-    multiRoom: memoryWorld,
+    multiRoom: memoryProjection.multiRoom,
     landmarksByRoom: spatialLandmarksByRoom(),
-    sceneGraph: graph,
-    transitions: (runtime.multiRoomEvents || []).filter((transition) => (
-      spatialMemoryRetentionAllowed(
-        policyForRoom(transition.toRoomId || transition.fromRoomId),
-        null
-      )
-    ))
+    sceneGraph: memoryProjection.sceneGraph,
+    transitions: memoryProjection.multiRoom.transitions || []
   }, now);
 
   for (const proposal of runtime.spatialMemory.proposals) {
