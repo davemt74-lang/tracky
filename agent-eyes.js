@@ -156,7 +156,6 @@ import {
   normalizePrivacyRegion,
   privacySummary,
   sanitizeEventPayload,
-  spatialMemoryRetentionAllowed,
   transcriptRetentionAllowed
 } from './src/privacy-policy-core.js';
 import {
