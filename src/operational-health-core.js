@@ -9,6 +9,22 @@ const arr=(v)=>Array.isArray(v)?v:(v&&typeof v==='object'?Object.values(v):[]);
 const clamp01=(v)=>Math.max(0,Math.min(1,Number.isFinite(Number(v))?Number(v):0));
 
 export const OPERATIONAL_HEALTH_SCHEMA_VERSION=1;
+const coverageCache=new Map();
+const MAX_COVERAGE_CACHE=64;
+
+function coverageSignature(cameras=[],grid=20){
+  return JSON.stringify([
+    grid,
+    ...arr(cameras).map((camera)=>[
+      camera.id||null,camera.enabled!==false,
+      ...(camera.sourcePoints||[]).flatMap((point)=>[Number(point.x||0),Number(point.y||0)]),
+      ...(camera.roomPoints||[]).flatMap((point)=>[Number(point.x||0),Number(point.y||0)])
+    ])
+  ]);
+}
+export function clearCoverageCache(){
+  coverageCache.clear();
+}
 
 function pointInside(point,polygon=[]){
   let inside=false;
@@ -21,10 +37,13 @@ function pointInside(point,polygon=[]){
   return inside;
 }
 export function combinedCoverage(cameras=[],grid=20){
-  const polygons=arr(cameras)
-    .filter((camera)=>camera.enabled!==false&&cameraCalibrationValid(camera))
-    .map(cameraCoveragePolygon);
-  if(!polygons.length) return 0;
+  const valid=arr(cameras)
+    .filter((camera)=>camera.enabled!==false&&cameraCalibrationValid(camera));
+  if(!valid.length) return 0;
+  const signature=coverageSignature(valid,grid);
+  if(coverageCache.has(signature)) return coverageCache.get(signature);
+
+  const polygons=valid.map(cameraCoveragePolygon);
   let covered=0;
   for(let y=0;y<grid;y+=1){
     for(let x=0;x<grid;x+=1){
@@ -32,7 +51,12 @@ export function combinedCoverage(cameras=[],grid=20){
       if(polygons.some((polygon)=>pointInside(point,polygon))) covered+=1;
     }
   }
-  return covered/(grid*grid);
+  const value=covered/(grid*grid);
+  coverageCache.set(signature,value);
+  if(coverageCache.size>MAX_COVERAGE_CACHE){
+    coverageCache.delete(coverageCache.keys().next().value);
+  }
+  return value;
 }
 export function cameraOperationalHealth(camera={},status='offline',environment=null,now=Date.now()){
   const valid=cameraCalibrationValid(camera);
