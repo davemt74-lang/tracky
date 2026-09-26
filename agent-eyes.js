@@ -1512,8 +1512,22 @@ async function runPhysicalRoutineNow(id, now = Date.now()) {
   const goal = runtime.physicalGoals.find((item) => item.id === id);
   if (!goal) return { status:'not-found', message:'Physical routine not found.' };
   if (goal.type !== 'routine') return { status:'invalid', message:'Only routines can be run manually.' };
+  if (goal.sequence?.steps?.length) {
+    const progress = Number(goal.sequenceState?.progress || 0);
+    return copySerializable({
+      status:'ready',
+      mode:'sequence-status',
+      goal,
+      progress,
+      stepCount:goal.sequence.steps.length,
+      nextStep:goal.sequence.steps[progress] || null,
+      message:progress
+        ? 'Sequence routine is in progress at step '+(progress+1)+' of '+goal.sequence.steps.length+'.'
+        : 'Sequence routine is waiting for its first physical transition.'
+    });
+  }
   const context = physicalGoalCommandContext({}, now);
-  const result = evaluatePhysicalGoal(goal, context, context, now, { manual:true });
+  const result = evaluateTemporalPhysicalGoal(goal, context, context, now, { manual:true });
   runtime.physicalGoals = runtime.physicalGoals.map((item) => item.id === goal.id ? result.goal : item);
   await savePhysicalGoal(result.goal);
   for (const event of result.events) {
@@ -1523,16 +1537,100 @@ async function runPhysicalRoutineNow(id, now = Date.now()) {
 }
 
 async function processPhysicalGoalCommandRuntime(input, options = {}) {
-  const interpreted = interpretPhysicalGoalCommand(
+  const now = Date.now();
+  const interpreted = interpretTemporalGoalCommand(
     input,
-    physicalGoalCommandContext(options, Date.now()),
+    physicalGoalCommandContext(options, now),
     runtime.physicalGoals,
-    Date.now()
+    routineLearningProposals(runtime.routineLearning, 'proposed'),
+    now
   );
   if (interpreted.status !== 'ready') return copySerializable(interpreted);
 
+  if (interpreted.intent === 'routine-health') {
+    const health = buildRoutineHealth(runtime.physicalGoals, runtime.physicalGoalHistory, now);
+    return copySerializable({
+      ...interpreted,
+      health,
+      message:health.length
+        ? 'Routine health summarized from recent verified goal events.'
+        : 'No physical routines are configured.'
+    });
+  }
+  if (interpreted.intent === 'list-learning-proposals') {
+    const proposals = routineLearningProposals(runtime.routineLearning, 'proposed');
+    return copySerializable({
+      ...interpreted,
+      proposals,
+      message:proposals.length
+        ? proposals.length+' learned physical-world '+(proposals.length===1?'proposal is':'proposals are')+' awaiting confirmation.'
+        : 'There are no learned routine proposals awaiting confirmation.'
+    });
+  }
+  if (interpreted.intent === 'confirm-learning-proposal') {
+    return copySerializable(
+      await confirmRoutineLearningProposalRuntime(interpreted.proposal.id, now)
+    );
+  }
+  if (interpreted.intent === 'ignore-learning-proposal') {
+    return copySerializable(
+      await ignoreRoutineLearningProposalRuntime(interpreted.proposal.id, now)
+    );
+  }
+  if (interpreted.intent === 'set-grace') {
+    const policy = normalizeTemporalPolicy({
+      ...(interpreted.goal.temporalPolicy || {}),
+      graceMs:interpreted.graceMs
+    });
+    const goal = await addAndEvaluatePhysicalGoal(
+      { ...interpreted.goal, temporalPolicy:policy },
+      'temporal-grace-updated',
+      now
+    );
+    return copySerializable({
+      ...interpreted,
+      goal,
+      message:'Grace period updated for '+goal.label+'.'
+    });
+  }
+  if (interpreted.intent === 'set-temporal-policy') {
+    const existing = normalizeTemporalPolicy(interpreted.goal.temporalPolicy || {});
+    const incoming = interpreted.temporalPolicy || {};
+    const policy = normalizeTemporalPolicy({
+      ...existing,
+      ...incoming,
+      days:incoming.days?.length ? incoming.days : existing.days,
+      graceMs:existing.graceMs
+    });
+    const goal = await addAndEvaluatePhysicalGoal(
+      { ...interpreted.goal, temporalPolicy:policy },
+      'temporal-policy-updated',
+      now
+    );
+    return copySerializable({
+      ...interpreted,
+      goal,
+      message:'Temporal window updated for '+goal.label+'.'
+    });
+  }
+  if (interpreted.intent === 'set-temporal-days') {
+    const policy = normalizeTemporalPolicy({
+      ...(interpreted.goal.temporalPolicy || {}),
+      days:interpreted.days
+    });
+    const goal = await addAndEvaluatePhysicalGoal(
+      { ...interpreted.goal, temporalPolicy:policy },
+      'temporal-days-updated',
+      now
+    );
+    return copySerializable({
+      ...interpreted,
+      goal,
+      message:'Schedule days updated for '+goal.label+'.'
+    });
+  }
   if (interpreted.intent === 'create') {
-    const goal = await addAndEvaluatePhysicalGoal(interpreted.goal, 'goal-created', Date.now());
+    const goal = await addAndEvaluatePhysicalGoal(interpreted.goal, 'goal-created', now);
     return copySerializable({ ...interpreted, goal, message:'Physical goal created: ' + goal.label + '.' });
   }
   if (interpreted.intent === 'list') {
@@ -1551,12 +1649,12 @@ async function processPhysicalGoalCommandRuntime(input, options = {}) {
   if (interpreted.intent === 'pause' || interpreted.intent === 'resume') {
     const enabled = interpreted.intent === 'resume';
     const goal = enabled
-      ? await addAndEvaluatePhysicalGoal({ ...interpreted.goal, enabled:true }, 'goal-resumed', Date.now())
+      ? await addAndEvaluatePhysicalGoal({ ...interpreted.goal, enabled:true }, 'goal-resumed', now)
       : await addPhysicalGoalDefinition({ ...interpreted.goal, enabled:false });
     return copySerializable({ ...interpreted, goal, message:(enabled ? 'Physical goal resumed: ' : 'Physical goal paused: ') + goal.label + '.' });
   }
   if (interpreted.intent === 'run') {
-    return runPhysicalRoutineNow(interpreted.goal.id, Date.now());
+    return runPhysicalRoutineNow(interpreted.goal.id, now);
   }
   if (interpreted.intent === 'clear-history') {
     await clearPhysicalGoalEventHistory();
