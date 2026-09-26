@@ -116,6 +116,20 @@ function applyCorrections(entity,corrections,now){
         evidence:[...result.evidence,correctionEvidence(correction)]
       };
     }
+    if(correction.type==='identity-rejection'){
+      if(
+        !correction.label ||
+        String(result.label||'').toLowerCase()===String(correction.label).toLowerCase()
+      ){
+        result.rejectedIdentityLabel=correction.label||result.label||null;
+        result.label='Unresolved participant';
+        result.state='uncertain';
+        result.confidence=Math.min(.49,result.confidence);
+        result.authority='user-confirmed';
+        result.authorityRank=FACT_AUTHORITY['user-confirmed'];
+      }
+      result.evidence.push(correctionEvidence(correction));
+    }
     if(correction.type==='entity-label'){
       result.label=txt(correction.label||result.label,100);
       result.authority='user-confirmed';
@@ -287,6 +301,62 @@ export function reconcileGroundTruthEntities(input={},now=Date.now()){
   return {entities,conflicts,candidates};
 }
 
+export function detectContinuityIssues(entities=[],candidates=[],now=Date.now()){
+  const issues=[];
+  const objects=arr(entities).filter((item)=>item.entityType==='object'&&item.state!=='forgotten');
+  const byLabel=new Map();
+  for(const item of objects){
+    const label=String(item.label||'').toLowerCase();
+    if(!label) continue;
+    if(!byLabel.has(label)) byLabel.set(label,[]);
+    byLabel.get(label).push(item);
+  }
+  for(const [label,items] of byLabel){
+    if(items.length<2) continue;
+    const current=items.filter((item)=>['current','recent'].includes(item.freshness));
+    if(current.length<2) continue;
+    issues.push({
+      id:'CONTINUITY:object-label:'+label,
+      type:'object-identity-ambiguity',
+      label,
+      subjectIds:current.map((item)=>item.subjectId),
+      roomIds:[...new Set(current.map((item)=>item.roomId||item.lastKnownRoomId).filter(Boolean))],
+      confidence:Math.max(...current.map((item)=>Number(item.confidence||0))),
+      requiresConfirmation:true,
+      suggestedCorrection:'entity-merge',
+      summary:'Multiple recent object identities share the same label. Tracky will not merge them without explicit evidence or correction.'
+    });
+  }
+
+  for(const candidate of arr(candidates)){
+    if(candidate.entityType!=='person'||candidate.authority!=='reconciled-observation') continue;
+    const same=arr(candidates).filter((other)=>(
+      other!==candidate &&
+      other.subjectId===candidate.subjectId &&
+      other.roomId &&
+      candidate.roomId &&
+      other.roomId!==candidate.roomId &&
+      other.freshness==='current' &&
+      candidate.freshness==='current'
+    ));
+    if(same.length){
+      const id='CONTINUITY:person:'+candidate.subjectId;
+      if(!issues.some((item)=>item.id===id)){
+        issues.push({
+          id,
+          type:'person-location-continuity-conflict',
+          subjectIds:[candidate.subjectId],
+          roomIds:[...new Set([candidate.roomId,...same.map((item)=>item.roomId)])],
+          confidence:Math.max(candidate.confidence,...same.map((item)=>item.confidence)),
+          requiresConfirmation:true,
+          summary:'The same enrolled participant has incompatible current room evidence.'
+        });
+      }
+    }
+  }
+  return issues;
+}
+
 export function createGroundTruthState(now=Date.now()){
   return {
     schemaVersion:GROUND_TRUTH_SCHEMA_VERSION,
@@ -295,6 +365,7 @@ export function createGroundTruthState(now=Date.now()){
     activeRoomId:null,
     entities:[],
     conflicts:[],
+    continuityIssues:[],
     facts:[],
     health:null,
     provenance:['multi-room-world','scene-graph','user-corrections'],
@@ -307,6 +378,7 @@ export function buildGroundTruth(input={},previous=null,now=Date.now()){
   state.activeRoomId=input.activeRoomId||null;
   state.entities=reconciled.entities.filter((item)=>item.state!=='forgotten');
   state.conflicts=reconciled.conflicts;
+  state.continuityIssues=detectContinuityIssues(state.entities,reconciled.candidates,now);
   state.recoveryMode=false;
   state.facts=state.entities.flatMap((entity)=>{
     const facts=[{
@@ -355,6 +427,7 @@ export function recoverGroundTruthSnapshot(saved={},now=Date.now()){
     lastKnownRoomId:entity.roomId||entity.lastKnownRoomId||null
   })).filter((item)=>item.state!=='forgotten');
   recovered.conflicts=[];
+  recovered.continuityIssues=[];
   recovered.facts=[];
   return recovered;
 }
