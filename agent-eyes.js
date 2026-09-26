@@ -3136,7 +3136,9 @@ function privacyGovernedGroundTruthInput() {
   ));
 
   return {
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    activeRoomId: runtime.running
+      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null)
+      : null,
     multiRoom:{ ...world, participants, objects },
     sceneGraph:graph,
     corrections:activeGroundTruthCorrections(runtime.groundTruthCorrections)
