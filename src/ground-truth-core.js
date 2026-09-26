@@ -109,7 +109,7 @@ function candidateFromEntity(item,source,now){
 }
 function correctionForEntity(corrections,id){
   return arr(corrections)
-    .filter((item)=>item.subjectId===id&&item.status!=='superseded')
+    .filter((item)=>item.subjectId===id&&item.status==='active')
     .sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
 }
 function applyCorrections(entity,corrections,now){
@@ -197,7 +197,7 @@ function conflictRecord(subjectId,candidates,kind='simultaneous-location'){
 export function reconcileGroundTruthEntities(input={},now=Date.now()){
   const mergeMap=new Map(
     arr(input.corrections)
-      .filter((item)=>item.type==='entity-merge'&&item.status!=='superseded'&&item.aliasEntityId&&item.canonicalEntityId)
+      .filter((item)=>item.type==='entity-merge'&&item.status==='active'&&item.aliasEntityId&&item.canonicalEntityId)
       .map((item)=>[String(item.aliasEntityId),String(item.canonicalEntityId)])
   );
   const canonicalize=(candidate)=>{
@@ -344,7 +344,7 @@ export function reconcileGroundTruthEntities(input={},now=Date.now()){
   }
 
   for(const correction of arr(input.corrections)){
-    if(correction.status==='superseded'||!correction.subjectId) continue;
+    if(correction.status!=='active'||!correction.subjectId) continue;
     if(entities.some((item)=>item.subjectId===correction.subjectId)) continue;
     if(correction.type==='forget-entity') continue;
     entities.push(applyCorrections({
