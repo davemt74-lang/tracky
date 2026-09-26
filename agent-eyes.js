@@ -1193,6 +1193,124 @@ async function initializePhysicalGoals() {
   }
 }
 
+function routineLearningSessionId(now = Date.now()) {
+  return runtime.startedAt
+    ? 'session-' + runtime.startedAt
+    : 'session-' + new Date(now).toISOString().slice(0, 10);
+}
+
+async function persistRoutineLearning(force = false) {
+  const now = Date.now();
+  if (!force && now - Number(runtime.routineLearningLastSavedAt || 0) < 10000) return;
+  runtime.routineLearningLastSavedAt = now;
+  try {
+    await saveRoutineLearningState(routineLearningSnapshot(runtime.routineLearning));
+  } catch (error) {
+    console.error('Could not persist routine learning state', error);
+  }
+}
+
+async function initializeRoutineLearning() {
+  try {
+    runtime.routineLearning = await loadRoutineLearningState() || createRoutineLearningState();
+  } catch (error) {
+    console.error('Could not load routine learning state', error);
+    runtime.routineLearning = createRoutineLearningState();
+  }
+}
+
+function routineLearningTransitionAllowed(event) {
+  if (!['participant.room_transition','object.room_transition'].includes(event?.type)) return false;
+  const roomIds = [event.fromRoomId, event.toRoomId].filter(Boolean);
+  for (const roomId of roomIds) {
+    const policy = policyForRoom(roomId);
+    if (!spatialMemoryRetentionAllowed(policy, null)) return false;
+    if (policy.allowVisualObservation === false) return false;
+    if (event.type === 'participant.room_transition' && policy.allowParticipantIdentity === false) return false;
+    if (event.type === 'object.room_transition' && policy.allowObjectObservation === false) return false;
+  }
+  return true;
+}
+
+async function publishRoutineLearningProposal(proposal, reason = 'learned-pattern', now = Date.now()) {
+  const detail = copySerializable({ type:'proposal', proposal, reason });
+  for (const listener of routineLearningListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:routine-learning', { detail }));
+  await queueAgentBriefing(
+    buildRoutineLearningBriefing(proposal, now),
+    reason,
+    now
+  );
+  return detail;
+}
+
+async function observeRoutineLearningRuntime(events = [], now = Date.now()) {
+  const sessionId = routineLearningSessionId(now);
+  const allowedTransitions = events.filter(routineLearningTransitionAllowed);
+  const newById = new Map();
+
+  const transitionResult = observeRoutineTransitions(
+    runtime.routineLearning,
+    allowedTransitions,
+    sessionId,
+    now
+  );
+  runtime.routineLearning = transitionResult.state;
+  for (const proposal of transitionResult.newProposals) newById.set(proposal.id, proposal);
+
+  const locationResult = observeTemporalLocations(
+    runtime.routineLearning,
+    physicalGoalCommandContext({}, now),
+    sessionId,
+    now
+  );
+  runtime.routineLearning = locationResult.state;
+  for (const proposal of locationResult.newProposals) newById.set(proposal.id, proposal);
+
+  await persistRoutineLearning(false);
+  for (const proposal of newById.values()) {
+    await publishRoutineLearningProposal(proposal, 'learned-pattern', now);
+  }
+  return copySerializable({
+    proposals:[...newById.values()],
+    state:routineLearningSnapshot(runtime.routineLearning)
+  });
+}
+
+async function confirmRoutineLearningProposalRuntime(id, now = Date.now()) {
+  const proposal = confirmRoutineLearningProposal(runtime.routineLearning, id, now);
+  if (!proposal) return { status:'not-found', message:'Routine learning proposal not found or already resolved.' };
+  const definition = proposalToPhysicalGoal(proposal, now);
+  if (!definition) return { status:'invalid', message:'Routine learning proposal cannot be converted to a physical goal.' };
+  const goal = await addAndEvaluatePhysicalGoal(definition, 'learning-proposal-confirmed', now);
+  proposal.activatedGoalId = goal.id;
+  await persistRoutineLearning(true);
+  const detail = copySerializable({ type:'confirmed', proposal, goal });
+  for (const listener of routineLearningListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:routine-learning', { detail }));
+  return { status:'ready', proposal:copySerializable(proposal), goal };
+}
+
+async function ignoreRoutineLearningProposalRuntime(id, now = Date.now()) {
+  const proposal = ignoreRoutineLearningProposal(runtime.routineLearning, id, now);
+  if (!proposal) return { status:'not-found', message:'Routine learning proposal not found.' };
+  await persistRoutineLearning(true);
+  const detail = copySerializable({ type:'ignored', proposal });
+  for (const listener of routineLearningListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:routine-learning', { detail }));
+  return { status:'ready', proposal:copySerializable(proposal) };
+}
+
+async function clearRoutineLearningRuntime() {
+  await clearRoutineLearningState();
+  runtime.routineLearning = createRoutineLearningState();
+  runtime.routineLearningLastSavedAt = 0;
+  const detail = { type:'cleared' };
+  for (const listener of routineLearningListeners) listener(detail);
+  window.dispatchEvent(new CustomEvent('tracky:routine-learning', { detail }));
+  return true;
+}
+
 async function addPhysicalGoalDefinition(input = {}) {
   const goal = normalizePhysicalGoal(input, Date.now());
   await savePhysicalGoal(goal);
