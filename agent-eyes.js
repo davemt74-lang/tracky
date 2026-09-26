@@ -288,11 +288,9 @@ import {
   saveRoutineLearningState
 } from './src/routine-learning-store.js';
 import {
-  buildGroundTruth,
   createGroundTruthState,
   explainGroundTruth,
-  groundTruthSnapshot,
-  recoverGroundTruthSnapshot
+  groundTruthSnapshot
 } from './src/ground-truth-core.js';
 import {
   appendGroundTruthCorrection,
@@ -320,19 +318,13 @@ import {
   RELIABILITY_POLICY
 } from './src/reliability-policy.js';
 import {
-  consumeReconciliation,
   createReconciliationState,
   markReconciliationDirty,
-  notePersisted,
-  persistenceNeeded,
-  reconciliationDue
+  notePersisted
 } from './src/runtime-reconciliation-core.js';
 import {
   groundTruthInputSignature,
-  groundTruthPersistenceSignature,
-  groundTruthPersistenceSnapshot as buildGroundTruthPersistenceSnapshot,
-  groundTruthSemanticSignature as buildGroundTruthSemanticSignature,
-  reportedMovedCameraIds
+  groundTruthPersistenceSnapshot as buildGroundTruthPersistenceSnapshot
 } from './src/ground-truth-runtime-core.js';
 import {
   groundTruthPersistencePlan,
