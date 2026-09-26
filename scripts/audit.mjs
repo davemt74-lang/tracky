@@ -1220,6 +1220,11 @@ for (const symbol of [
 }
 
 const operationalHealthCore = read('src/operational-health-core.js');
+const governedProjectionCore = read('src/governed-world-projection-core.js');
+const reliabilityPolicy = read('src/reliability-policy.js');
+const reconciliationCore = read('src/runtime-reconciliation-core.js');
+const groundTruthRuntimeCore = read('src/ground-truth-runtime-core.js');
+const groundTruthRuntimeController = read('src/ground-truth-runtime-controller.js');
 for (const symbol of [
   'combinedCoverage',
   'cameraOperationalHealth',
@@ -1301,11 +1306,11 @@ if (!/ground-truth-canonical/.test(read('src/agent-context-core.js')) ||
     !/ground-truth-canonical/.test(read('src/world-query-core.js'))) {
   fail('V2.6.1 Agent context and physical-world queries must use canonical ground-truth reads');
 }
-if (!/reconcileGroundTruthRuntimeState/.test(agentEyes) ||
-    /buildGroundTruth\(/.test(agentEyes)) {
+if (!/reconcileGroundTruthRuntimeState/.test(read('agent-eyes.js')) ||
+    /buildGroundTruth\(/.test(read('agent-eyes.js'))) {
   fail('V2.6.1 Agent Eyes must orchestrate the extracted ground-truth controller instead of owning reconciliation logic');
 }
-if (!/getGroundTruthCorrections/.test(agentEyes) || !/revokeGroundTruthCorrection/.test(agentEyes)) {
+if (!/getGroundTruthCorrections/.test(read('agent-eyes.js')) || !/revokeGroundTruthCorrection/.test(read('agent-eyes.js'))) {
   fail('V2.6.1 Agent API must expose correction history and revocation');
 }
 if (!fs.existsSync(path.join(root, 'tests/reliability-soak.test.mjs'))) {
@@ -1550,12 +1555,6 @@ for (const symbol of [
 if (!/tracky:ground-truth/.test(agentEyes)) {
   fail('Agent Eyes must emit browser-level V2.6 ground truth semantic changes');
 }
-
-const governedProjectionCore = read('src/governed-world-projection-core.js');
-const reliabilityPolicy = read('src/reliability-policy.js');
-const reconciliationCore = read('src/runtime-reconciliation-core.js');
-const groundTruthRuntimeCore = read('src/ground-truth-runtime-core.js');
-const groundTruthRuntimeController = read('src/ground-truth-runtime-controller.js');
 
 if (!/activeRoomId:input\.runtimeActive===true/.test(governedProjectionCore)) {
   fail('V2.6.1 governed projection must not assert configured room metadata as live truth while perception is stopped');
