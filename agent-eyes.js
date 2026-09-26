@@ -1325,7 +1325,7 @@ async function addAndEvaluatePhysicalGoal(input = {}, reason = 'goal-created', n
   const created = await addPhysicalGoalDefinition(input);
   const stored = runtime.physicalGoals.find((item) => item.id === created.id);
   const context = physicalGoalCommandContext({}, now);
-  const result = evaluatePhysicalGoal(stored, context, context, now);
+  const result = evaluateTemporalPhysicalGoal(stored, context, context, now);
   runtime.physicalGoals = runtime.physicalGoals.map((item) => (
     item.id === result.goal.id ? result.goal : item
   ));
@@ -1374,7 +1374,7 @@ async function publishPhysicalGoalEvent(event, goal, reason, now = Date.now()) {
 
 async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Date.now(), options = {}) {
   const beforeById = new Map(runtime.physicalGoals.map((goal) => [goal.id, goal]));
-  const result = evaluatePhysicalGoals(
+  const result = evaluateTemporalPhysicalGoals(
     runtime.physicalGoals,
     physicalGoalContextFromAgent(previous || {}, {}, now),
     physicalGoalContextFromAgent(current || {}, {}, now),
@@ -1388,7 +1388,10 @@ async function evaluatePhysicalGoalsRuntime(previous, current, reason, now = Dat
     if (
       !before ||
       before.lastState !== goal.lastState ||
-      before.lastTriggeredAt !== goal.lastTriggeredAt
+      before.lastTriggeredAt !== goal.lastTriggeredAt ||
+      JSON.stringify(before.temporalPolicy || null) !== JSON.stringify(goal.temporalPolicy || null) ||
+      JSON.stringify(before.temporalState || null) !== JSON.stringify(goal.temporalState || null) ||
+      JSON.stringify(before.sequenceState || null) !== JSON.stringify(goal.sequenceState || null)
     ) {
       try { await savePhysicalGoal(goal); } catch (error) { console.error('Could not persist physical goal state', error); }
     }
