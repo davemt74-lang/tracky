@@ -34,6 +34,17 @@ test('learning filters transitions through retention and observation policy',()=
  assert.match(block,/allowParticipantIdentity === false/);
  assert.match(block,/allowObjectObservation === false/);
 });
+test('temporal-location learning independently enforces cross-session retention permissions',()=>{
+ const start=source.indexOf('function routineLearningLocationContext(');
+ const end=source.indexOf('async function observeRoutineLearningRuntime(',start);
+ const block=source.slice(start,end);
+ assert.match(block,/spatialMemoryRetentionAllowed/);
+ assert.match(block,/allowParticipantIdentity !== false/);
+ assert.match(block,/allowObjectObservation !== false/);
+ assert.match(block,/allowVisualObservation !== false/);
+ assert.match(block,/currentAnchors/);
+});
+
 test('learned proposals only activate through explicit confirmation handler',()=>{
  const start=source.indexOf('async function confirmRoutineLearningProposalRuntime(');
  const end=source.indexOf('async function ignoreRoutineLearningProposalRuntime(',start);
