@@ -75,31 +75,63 @@ function roomLabel(context, roomId) {
 
 function currentEntities(context = {}) {
   const byId = new Map();
+  const truth = Array.isArray(context.groundTruth?.entities)
+    ? context.groundTruth.entities
+    : [];
   const world = context.multiRoom || {};
 
-  for (const [id, participant] of Object.entries(world.participants || {})) {
-    byId.set(id, {
-      id,
-      type: 'person',
-      label: participant.participantName || participant.id || id,
-      aliases: [
-        participant.participantName,
-        participant.participantId,
-        participant.id,
-        id
-      ].filter(Boolean),
-      current: participant
-    });
-  }
+  if (truth.length) {
+    for (const entity of truth) {
+      if (!entity?.subjectId || entity.state === 'forgotten') continue;
+      const id = String(entity.subjectId);
+      const type = entity.entityType || 'entity';
+      byId.set(id, {
+        id,
+        type,
+        label: entity.label || id,
+        aliases: [entity.label,id,id.replace(/^PERSON:/,'')].filter(Boolean),
+        current: {
+          id,
+          participantId:type==='person'?id.replace(/^PERSON:/,''):null,
+          participantName:type==='person'?entity.label:null,
+          objectId:type==='object'?id:null,
+          label:entity.label || id,
+          roomId:entity.roomId || null,
+          lastKnownRoomId:entity.lastKnownRoomId || null,
+          presence:entity.state || 'unknown',
+          confidence:Number(entity.confidence || 0),
+          lastObservedAt:entity.observedAt || null,
+          authority:entity.authority || null,
+          freshness:entity.freshness || null
+        },
+        groundTruth:entity
+      });
+    }
+  } else {
+    for (const [id, participant] of Object.entries(world.participants || {})) {
+      byId.set(id, {
+        id,
+        type: 'person',
+        label: participant.participantName || participant.id || id,
+        aliases: [
+          participant.participantName,
+          participant.participantId,
+          participant.id,
+          id
+        ].filter(Boolean),
+        current: participant
+      });
+    }
 
-  for (const [id, object] of Object.entries(world.objects || {})) {
-    byId.set(id, {
-      id,
-      type: 'object',
-      label: object.label || id,
-      aliases: [object.label, object.id, id].filter(Boolean),
-      current: object
-    });
+    for (const [id, object] of Object.entries(world.objects || {})) {
+      byId.set(id, {
+        id,
+        type: 'object',
+        label: object.label || id,
+        aliases: [object.label, object.id, id].filter(Boolean),
+        current: object
+      });
+    }
   }
 
   for (const [id, memory] of Object.entries(context.spatialMemory?.entities || {})) {
@@ -643,8 +675,8 @@ function answerWhere(parsed, context, now) {
       lastObservedAt:current.lastObservedAt || null
     });
     answer.provenance.push({
-      source:'multi-room-world',
-      timestamp:current.lastObservedAt || context.multiRoom?.updatedAt || now,
+      source:entity.groundTruth?'ground-truth-canonical':'multi-room-world',
+      timestamp:current.lastObservedAt || context.groundTruth?.generatedAt || context.multiRoom?.updatedAt || now,
       confidence:answer.confidence
     });
     return sanitizeFacts(answer);
@@ -672,7 +704,7 @@ function answerWhere(parsed, context, now) {
       lastObservedAt:lastAt
     });
     answer.provenance.push({
-      source:latest?.source || 'multi-room-world',
+      source:latest?.source || (entity.groundTruth?'ground-truth-canonical':'multi-room-world'),
       timestamp:lastAt,
       confidence:answer.confidence
     });
@@ -731,7 +763,7 @@ function answerLastSeen(parsed, context, now) {
     anchorLabel:roomAnchorLabel(latest, context)
   });
   answer.provenance.push({
-    source:latest?.source || 'multi-room-world',
+    source:latest?.source || (entity.groundTruth?'ground-truth-canonical':'multi-room-world'),
     timestamp,
     confidence:answer.confidence
   });
@@ -875,18 +907,32 @@ function answerRoomOccupants(parsed, context, now) {
   }
 
   const roomId = resolved.room.id;
-  const occupants = Object.values(context.multiRoom?.participants || {})
+  const truthPeople=(context.groundTruth?.entities || []).filter((item)=>item.entityType==='person');
+  const occupantSource=truthPeople.length
+    ? truthPeople.map((person)=>({
+        id:person.subjectId,
+        participantId:String(person.subjectId||'').replace(/^PERSON:/,'')||null,
+        participantName:person.label,
+        roomId:person.roomId,
+        presence:person.state,
+        confidence:person.confidence,
+        lastObservedAt:person.observedAt,
+        authority:person.authority
+      }))
+    : Object.values(context.multiRoom?.participants || {});
+  const occupants = occupantSource
     .filter((person) => (
       person.roomId === roomId &&
       ['confirmed','transitioning'].includes(person.presence)
     ))
     .map((person) => ({
-      participantId:person.participantId || null,
+      participantId:String(person.id||'').startsWith('ANON:')?null:(person.participantId || null),
       entityId:person.id,
-      name:person.participantName || person.id,
+      name:String(person.id||'').startsWith('ANON:')?'Anonymous participant':(person.participantName || person.id),
       presence:person.presence,
       confidence:Number(person.confidence || 0),
-      lastObservedAt:person.lastObservedAt || null
+      lastObservedAt:person.lastObservedAt || null,
+      authority:person.authority || null
     }));
 
   answer.status='answered';
@@ -902,8 +948,8 @@ function answerRoomOccupants(parsed, context, now) {
     : null;
   answer.facts = occupants.map((item)=>({type:'room-occupant',roomId,...item}));
   answer.provenance.push({
-    source:'multi-room-world',
-    timestamp:context.multiRoom?.updatedAt || now,
+    source:truthPeople.length?'ground-truth-canonical':'multi-room-world',
+    timestamp:context.groundTruth?.generatedAt || context.multiRoom?.updatedAt || now,
     confidence:answer.confidence
   });
   return sanitizeFacts(answer);

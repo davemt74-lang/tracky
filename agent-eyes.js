@@ -156,7 +156,6 @@ import {
   normalizePrivacyRegion,
   privacySummary,
   sanitizeEventPayload,
-  spatialMemoryRetentionAllowed,
   transcriptRetentionAllowed
 } from './src/privacy-policy-core.js';
 import {
@@ -203,6 +202,14 @@ import {
   buildAgentContext,
   diffAgentContext
 } from './src/agent-context-core.js';
+import {
+  buildAgentDeliveryRuntimeContext,
+  buildAgentRuntimeContextSource,
+  buildWorldQueryRuntimeContext,
+  buildWorldWatchRuntimeContext,
+  canonicalObjectLocation,
+  canonicalParticipantLocation
+} from './src/agent-runtime-context-core.js';
 import {
   evaluateWorldWatches,
   normalizeWorldWatch
@@ -288,17 +295,17 @@ import {
   saveRoutineLearningState
 } from './src/routine-learning-store.js';
 import {
-  buildGroundTruth,
   createGroundTruthState,
   explainGroundTruth,
-  groundTruthSnapshot,
-  recoverGroundTruthSnapshot
+  groundTruthSnapshot
 } from './src/ground-truth-core.js';
 import {
   appendGroundTruthCorrection,
   activeGroundTruthCorrections,
+  groundTruthCorrectionHistory,
   interpretGroundTruthCorrection,
-  normalizeGroundTruthCorrection
+  normalizeGroundTruthCorrection,
+  revokeGroundTruthCorrection
 } from './src/ground-truth-correction-core.js';
 import {
   clearGroundTruthStore,
@@ -311,6 +318,30 @@ import {
   buildOperationalHealth,
   operationalHealthSnapshot
 } from './src/operational-health-core.js';
+import {
+  buildGovernedSemanticProjection,
+  semanticLearningEntityAllowed,
+  semanticTransitionRetentionAllowed
+} from './src/governed-world-projection-core.js';
+import {
+  RELIABILITY_POLICY
+} from './src/reliability-policy.js';
+import {
+  createReconciliationState,
+  markReconciliationDirty,
+  notePersisted
+} from './src/runtime-reconciliation-core.js';
+import {
+  groundTruthInputSignature,
+  groundTruthPersistenceSnapshot as buildGroundTruthPersistenceSnapshot
+} from './src/ground-truth-runtime-core.js';
+import {
+  groundTruthPersistencePlan,
+  initializeGroundTruthRuntimeState,
+  reconcileGroundTruthRuntimeState,
+  replaceRuntimeCorrections,
+  resetGroundTruthRuntimeState
+} from './src/ground-truth-runtime-controller.js';
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -727,6 +758,9 @@ const runtime = {
   groundTruthCorrections: [],
   groundTruthLastSavedAt: 0,
   groundTruthSignature: null,
+  groundTruthReconciliation: createReconciliationState(),
+  groundTruthInputSignature: null,
+  groundTruthRuntime: resetGroundTruthRuntimeState(),
   operationalHealth: buildOperationalHealth({})
 };
 
@@ -896,19 +930,30 @@ function anomalyAttentionItems() {
 }
 
 
-function agentContextSource() {
+function runtimeContextInput() {
   return {
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || roomState.roomId || null,
-    rooms: runtime.environmentRooms,
-    roomPolicies: runtime.roomPolicies,
-    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-    attention: attentionSnapshot(runtime.attention),
-    anomalies: anomalySnapshot(runtime.anomalyState),
-    sceneChanges: sceneState.changes.slice(-40),
-    perceptionBudget: currentPerceptionBudget(),
-    groundTruth: groundTruthSnapshot(runtime.groundTruth),
-    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
+    groundTruth:groundTruthSnapshot(runtime.groundTruth),
+    operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
+    running:runtime.running,
+    primaryRoomId:primaryCameraConfig()?.roomId||null,
+    fusionRoomId:runtime.fusionState.roomId||null,
+    roomStateRoomId:roomState.roomId||null,
+    rooms:runtime.environmentRooms,
+    roomPolicies:runtime.roomPolicies,
+    multiRoom:multiRoomSnapshot(runtime.multiRoomWorld),
+    attention:attentionSnapshot(runtime.attention),
+    anomalies:anomalySnapshot(runtime.anomalyState),
+    sceneChanges:sceneState.changes,
+    perceptionBudget:currentPerceptionBudget(),
+    spatialMemory:spatialMemorySnapshot(runtime.spatialMemory),
+    sceneGraph:sceneGraphSnapshot(runtime.sceneGraph),
+    physicalWorld:worldStateSnapshot(runtime.physicalWorld),
+    episodes:sceneState.episodes
   };
+}
+
+function agentContextSource() {
+  return buildAgentRuntimeContextSource(runtimeContextInput());
 }
 
 function currentAgentContext(options = {}, now = Date.now()) {
@@ -927,30 +972,21 @@ async function initializeWorldWatches() {
 }
 
 function worldWatchCommandContext() {
-  const context = currentAgentContext({}, Date.now());
-  return {
-    ...context,
-    rooms: runtime.environmentRooms.map((room) => ({
-      id: room.id,
-      name: room.name || room.label || room.id,
-      label: room.label || room.name || room.id
-    }))
-  };
+  return buildWorldWatchRuntimeContext(
+    currentAgentContext({}, Date.now()),
+    runtime.environmentRooms
+  );
 }
 
 function currentAgentDeliveryContext(now = Date.now()) {
-  const activeRoomId = runtime.agentDeliveryContext.activeRoomId ||
-    primaryCameraConfig()?.roomId ||
-    runtime.fusionState.roomId ||
-    roomState.roomId ||
-    null;
-  const taskMode = runtime.agentDeliveryContext.taskMode !== 'general'
-    ? runtime.agentDeliveryContext.taskMode
-    : runtime.attention.activeTask?.mode || 'general';
-  return normalizeDeliveryContext({
-    ...runtime.agentDeliveryContext,
-    activeRoomId,
-    taskMode
+  return buildAgentDeliveryRuntimeContext({
+    deliveryContext:runtime.agentDeliveryContext,
+    groundTruth:groundTruthSnapshot(runtime.groundTruth),
+    running:runtime.running,
+    primaryRoomId:primaryCameraConfig()?.roomId||null,
+    fusionRoomId:runtime.fusionState.roomId||null,
+    roomStateRoomId:roomState.roomId||null,
+    activeTask:runtime.attention.activeTask
   }, now);
 }
 
@@ -1252,16 +1288,7 @@ async function initializeRoutineLearning() {
 }
 
 function routineLearningTransitionAllowed(event) {
-  if (!['participant.room_transition','object.room_transition'].includes(event?.type)) return false;
-  const roomIds = [event.fromRoomId, event.toRoomId].filter(Boolean);
-  for (const roomId of roomIds) {
-    const policy = policyForRoom(roomId);
-    if (!spatialMemoryRetentionAllowed(policy, null)) return false;
-    if (policy.allowVisualObservation === false) return false;
-    if (event.type === 'participant.room_transition' && policy.allowParticipantIdentity === false) return false;
-    if (event.type === 'object.room_transition' && policy.allowObjectObservation === false) return false;
-  }
-  return true;
+  return semanticTransitionRetentionAllowed(event, runtime.roomPolicies);
 }
 
 async function publishRoutineLearningProposal(proposal, reason = 'learned-pattern', now = Date.now()) {
@@ -1278,22 +1305,12 @@ async function publishRoutineLearningProposal(proposal, reason = 'learned-patter
 
 function routineLearningLocationContext(now = Date.now()) {
   const context = physicalGoalCommandContext({}, now);
-  const allowedPeople = (context.people || []).filter((person) => {
-    const policy = policyForRoom(person.roomId);
-    return (
-      policy.allowVisualObservation !== false &&
-      policy.allowParticipantIdentity !== false &&
-      spatialMemoryRetentionAllowed(policy, null)
-    );
-  });
-  const allowedObjects = (context.objects || []).filter((object) => {
-    const policy = policyForRoom(object.roomId);
-    return (
-      policy.allowVisualObservation !== false &&
-      policy.allowObjectObservation !== false &&
-      spatialMemoryRetentionAllowed(policy, null)
-    );
-  });
+  const allowedPeople = (context.people || []).filter((person) => (
+    semanticLearningEntityAllowed(person, runtime.roomPolicies, 'participant')
+  ));
+  const allowedObjects = (context.objects || []).filter((object) => (
+    semanticLearningEntityAllowed(object, runtime.roomPolicies, 'object')
+  ));
   const allowedIds = new Set([
     ...allowedPeople.map((person) => person.participantId).filter(Boolean),
     ...allowedObjects.map((object) => object.objectId).filter(Boolean)
@@ -1841,20 +1858,7 @@ function refreshAgentContext(reason = 'runtime-update', now = Date.now()) {
 }
 
 function worldQueryContext() {
-  return {
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
-    rooms: runtime.environmentRooms,
-    roomPolicies: runtime.roomPolicies,
-    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
-    spatialMemory: spatialMemorySnapshot(runtime.spatialMemory),
-    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
-    physicalWorld: worldStateSnapshot(runtime.physicalWorld),
-    groundTruth: groundTruthSnapshot(runtime.groundTruth),
-    operationalHealth: operationalHealthSnapshot(runtime.operationalHealth),
-    sceneChanges: sceneState.changes.slice(),
-    episodes: sceneState.episodes.slice(),
-    anomalies: anomalySnapshot(runtime.anomalyState)
-  };
+  return buildWorldQueryRuntimeContext(runtimeContextInput());
 }
 
 async function initializeWorldQueries() {
@@ -2247,8 +2251,15 @@ function emit(type, payload = {}) {
   });
 }
 
+function groundTruthRelevantEvent(type = '') {
+  return /^(camera\.|environment\.|privacy\.)/.test(type);
+}
+
 bus.subscribe('*', (event) => {
   applyPerceptionEvent(roomState, event);
+  if (groundTruthRelevantEvent(event.type)) {
+    markGroundTruthDirty('perception:' + event.type);
+  }
   if (meaningfulAttentionEvent(event.type)) {
     markMeaningfulActivity(runtime.attention, event.timestamp || Date.now());
     updateAttentionController(event.timestamp || Date.now());
@@ -2331,6 +2342,14 @@ window.TrackyAgentEyes = Object.freeze({
   processGroundTruthCorrection(text, options = {}) {
     return processGroundTruthCorrectionRuntime(text, options, Date.now());
   },
+  getGroundTruthCorrections(subjectId = null) {
+    return copySerializable(
+      groundTruthCorrectionHistory(runtime.groundTruthCorrections, subjectId)
+    );
+  },
+  revokeGroundTruthCorrection(id, reason = 'user-undo') {
+    return revokeGroundTruthCorrectionRuntime(id, reason, Date.now());
+  },
   clearGroundTruthReliability() {
     return clearGroundTruthReliabilityRuntime();
   },
@@ -2356,12 +2375,16 @@ window.TrackyAgentEyes = Object.freeze({
     };
   },
   getParticipantLocation(participantId) {
-    return copySerializable(
-      runtime.multiRoomWorld.participants['PERSON:' + participantId] || null
-    );
+    return canonicalParticipantLocation({
+      groundTruth:runtime.groundTruth,
+      multiRoom:runtime.multiRoomWorld
+    }, participantId);
   },
   getObjectLocation(objectId) {
-    return copySerializable(runtime.multiRoomWorld.objects[objectId] || null);
+    return canonicalObjectLocation({
+      groundTruth:runtime.groundTruth,
+      multiRoom:runtime.multiRoomWorld
+    }, objectId);
   },
   getWorldTopology() {
     return copySerializable(runtime.worldTopology);
@@ -3085,184 +3108,157 @@ function discardEnvironmentMapping() {
   renderEnvironmentMapping();
 }
 
+function governedWorldProjection(purpose = 'ground-truth') {
+  return buildGovernedSemanticProjection({
+    runtimeActive: runtime.running,
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    roomPolicies: runtime.roomPolicies
+  }, { purpose });
+}
+
+function currentGroundTruthInputSignature() {
+  return groundTruthInputSignature({
+    runtimeActive: runtime.running,
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    roomPolicies: runtime.roomPolicies,
+    cameras: runtime.cameraConfigs,
+    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
+    environment: runtime.environmentAnalysis,
+    corrections: runtime.groundTruthCorrections
+  });
+}
+
 function privacyGovernedGroundTruthInput() {
-  const world = multiRoomSnapshot(runtime.multiRoomWorld);
-  const participants = {};
-  for (const [key, participant] of Object.entries(world.participants || {})) {
-    const roomId = participant.roomId || participant.lastKnownRoomId || null;
-    const policy = policyForRoom(roomId);
-    if (policy.allowVisualObservation === false) continue;
-    if (policy.allowParticipantIdentity === false) {
-      if (policy.allowAnonymousTracking === false) continue;
-      const anonId = 'ANON:' + (roomId || 'ROOM') + ':' + (participant.localRoomEntityId || key.replace(/[^a-zA-Z0-9]/g, ''));
-      participants[anonId] = {
-        ...participant,
-        id:anonId,
-        participantId:null,
-        participantName:'Anonymous participant',
-        identityAuthority:'anonymous'
-      };
-      continue;
-    }
-    participants[key] = participant;
-  }
-
-  const objects = {};
-  for (const [key, object] of Object.entries(world.objects || {})) {
-    const roomId = object.roomId || object.lastKnownRoomId || null;
-    const policy = policyForRoom(roomId);
-    if (
-      policy.allowVisualObservation === false ||
-      policy.allowObjectObservation === false
-    ) continue;
-    objects[key] = object;
-  }
-
-  const graph = sceneGraphSnapshot(runtime.sceneGraph);
-  const graphPolicy = policyForRoom(graph.roomId);
-  const allowedNodes = new Set(
-    (graph.nodes || []).filter((node) => {
-      if (!['person','object'].includes(node.type)) return true;
-      if (graphPolicy.allowVisualObservation === false) return false;
-      if (node.type === 'person' && graphPolicy.allowParticipantIdentity === false) return false;
-      if (node.type === 'object' && graphPolicy.allowObjectObservation === false) return false;
-      return true;
-    }).map((node) => node.id)
-  );
-  graph.nodes = (graph.nodes || []).filter((node) => allowedNodes.has(node.id));
-  graph.edges = (graph.edges || []).filter((edge) => (
-    allowedNodes.has(edge.subjectId) &&
-    allowedNodes.has(edge.objectId)
-  ));
-
   return {
-    activeRoomId: runtime.running
-      ? (primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null)
-      : null,
-    multiRoom:{ ...world, participants, objects },
-    sceneGraph:graph,
-    corrections:activeGroundTruthCorrections(runtime.groundTruthCorrections)
+    ...governedWorldProjection('ground-truth'),
+    corrections: activeGroundTruthCorrections(runtime.groundTruthCorrections)
   };
 }
 
 function groundTruthPersistenceSnapshot() {
-  const snapshot = groundTruthSnapshot(runtime.groundTruth);
-  snapshot.entities = (snapshot.entities || []).filter((entity) => {
-    const roomId = entity.roomId || entity.lastKnownRoomId || null;
-    if (!roomId) return false;
-    return spatialMemoryRetentionAllowed(policyForRoom(roomId), null);
-  });
-  const allowed = new Set(snapshot.entities.map((entity) => entity.subjectId));
-  snapshot.facts = (snapshot.facts || []).filter((fact) => allowed.has(fact.subjectId));
-  snapshot.conflicts = (snapshot.conflicts || []).filter((conflict) => allowed.has(conflict.subjectId));
-  return snapshot;
+  return buildGroundTruthPersistenceSnapshot(
+    runtime.groundTruth,
+    runtime.roomPolicies
+  );
+}
+
+function syncGroundTruthRuntimeState(state) {
+  runtime.groundTruthRuntime = state;
+  runtime.groundTruth = state.groundTruth;
+  runtime.operationalHealth = state.operationalHealth;
+  runtime.groundTruthCorrections = state.corrections;
+  runtime.groundTruthReconciliation = state.reconciliation;
+  runtime.groundTruthSignature = state.semanticSignature;
+  runtime.groundTruthInputSignature = state.inputSignature;
+  return state;
 }
 
 async function persistGroundTruthState(force = false) {
   const now = Date.now();
-  if (!force && now - Number(runtime.groundTruthLastSavedAt || 0) < 10000) return;
+  const plan = groundTruthPersistencePlan(
+    runtime.groundTruthRuntime,
+    runtime.roomPolicies,
+    force
+  );
+  if (!plan.needed) return false;
+  if (
+    !force &&
+    now - Number(runtime.groundTruthLastSavedAt || 0) <
+      RELIABILITY_POLICY.groundTruth.persistenceThrottleMs
+  ) {
+    runtime.groundTruthReconciliation.persistencePending = true;
+    return false;
+  }
+
   runtime.groundTruthLastSavedAt = now;
   try {
     await saveGroundTruthState(groundTruthPersistenceSnapshot());
     await replaceGroundTruthCorrections(runtime.groundTruthCorrections);
+    notePersisted(runtime.groundTruthReconciliation, plan.signature);
+    return true;
   } catch (error) {
-    console.error('Could not persist V2.6 ground truth state', error);
+    runtime.groundTruthReconciliation.persistencePending = true;
+    console.error('Could not persist V2.6.1 ground truth state', error);
+    return false;
   }
 }
 
 async function initializeGroundTruthReliability() {
+  const now = Date.now();
+  let saved = null;
+  let corrections = [];
   try {
-    const [saved, corrections] = await Promise.all([
+    [saved, corrections] = await Promise.all([
       loadGroundTruthState(),
       listGroundTruthCorrections()
     ]);
-    runtime.groundTruthCorrections = corrections || [];
-    runtime.groundTruth = saved
-      ? recoverGroundTruthSnapshot(saved, Date.now())
-      : createGroundTruthState(Date.now());
   } catch (error) {
-    console.error('Could not load V2.6 ground truth state', error);
-    runtime.groundTruthCorrections = [];
-    runtime.groundTruth = createGroundTruthState(Date.now());
+    console.error('Could not load V2.6.1 ground truth state', error);
   }
-  runtime.operationalHealth = buildOperationalHealth({
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
-    rooms: runtime.environmentRooms,
-    cameras: runtime.cameraConfigs,
-    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
-    roomPolicies: runtime.roomPolicies,
-    environment: runtime.environmentAnalysis,
-    groundTruth: runtime.groundTruth
-  }, Date.now());
-  runtime.groundTruthSignature = null;
+
+  const state = initializeGroundTruthRuntimeState({
+    saved,
+    corrections:corrections || [],
+    inputSignature:currentGroundTruthInputSignature(),
+    roomPolicies:runtime.roomPolicies,
+    healthInput:{
+      rooms:runtime.environmentRooms,
+      cameras:runtime.cameraConfigs,
+      cameraStatuses:Object.fromEntries(runtime.cameraStatuses),
+      roomPolicies:runtime.roomPolicies,
+      environment:runtime.environmentAnalysis
+    }
+  },now);
+  syncGroundTruthRuntimeState(state);
 }
 
-function groundTruthSemanticSignature(state, health) {
-  return JSON.stringify({
-    recoveryMode:state.recoveryMode===true,
-    entities:(state.entities || []).map((item) => [
-      item.subjectId,item.state,item.roomId,item.lastKnownRoomId,item.authority,item.freshness
-    ]),
-    conflicts:(state.conflicts || []).map((item) => [item.id,item.type,item.subjectId,item.unresolved]),
-    health:{
-      status:health?.status || null,
-      staleEntityCount:Number(health?.staleEntityCount || 0),
-      conflictedEntityCount:Number(health?.conflictedEntityCount || 0),
-      issues:(health?.issues || []).map((item) => [item.type,item.id,item.issue])
-    }
-  });
+function markGroundTruthDirty(reason = 'world') {
+  markReconciliationDirty(runtime.groundTruthReconciliation, reason);
 }
 
 function updateGroundTruthRuntime(now = Date.now(), reason = 'world-update') {
-  runtime.groundTruth = buildGroundTruth(
-    privacyGovernedGroundTruthInput(),
-    runtime.groundTruth,
-    now
-  );
-
-  const reportedMovedCameraIds = activeGroundTruthCorrections(runtime.groundTruthCorrections)
-    .filter((item) => item.type === 'camera-moved' && item.cameraId)
-    .map((item) => item.cameraId);
-
-  runtime.operationalHealth = buildOperationalHealth({
-    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
-    rooms: runtime.environmentRooms,
-    cameras: runtime.cameraConfigs,
-    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
-    roomPolicies: runtime.roomPolicies,
-    environment:{
-      ...(runtime.environmentAnalysis || {}),
-      reportedMovedCameraIds
+  const inputSignature = currentGroundTruthInputSignature();
+  const result = reconcileGroundTruthRuntimeState(
+    runtime.groundTruthRuntime,
+    {
+      inputSignature,
+      groundTruthInput:privacyGovernedGroundTruthInput(),
+      healthInput:{
+        rooms:runtime.environmentRooms,
+        cameras:runtime.cameraConfigs,
+        cameraStatuses:Object.fromEntries(runtime.cameraStatuses),
+        roomPolicies:runtime.roomPolicies,
+        environment:runtime.environmentAnalysis
+      }
     },
-    groundTruth:runtime.groundTruth
-  }, now);
+    now,
+    reason
+  );
+  syncGroundTruthRuntimeState(result.state);
+  if (!result.reconciled) {
+    return {
+      groundTruth:result.groundTruth,
+      operationalHealth:result.operationalHealth,
+      changed:false,
+      reconciled:false
+    };
+  }
 
-  runtime.groundTruth.health = {
-    status:runtime.operationalHealth.status,
-    staleEntityCount:runtime.operationalHealth.staleEntityCount,
-    conflictedEntityCount:runtime.operationalHealth.conflictedEntityCount,
-    issueCount:(runtime.operationalHealth.issues || []).length
-  };
-
-  const signature = groundTruthSemanticSignature(runtime.groundTruth, runtime.operationalHealth);
-  const changed = signature !== runtime.groundTruthSignature;
-  runtime.groundTruthSignature = signature;
   void persistGroundTruthState(false);
-
-  if (changed) {
+  if (result.changed) {
     const detail = copySerializable({
-      groundTruth:groundTruthSnapshot(runtime.groundTruth),
-      operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
+      groundTruth:result.groundTruth,
+      operationalHealth:result.operationalHealth,
       reason
     });
     for (const listener of groundTruthListeners) listener(detail);
     window.dispatchEvent(new CustomEvent('tracky:ground-truth', { detail }));
   }
-  return {
-    groundTruth:groundTruthSnapshot(runtime.groundTruth),
-    operationalHealth:operationalHealthSnapshot(runtime.operationalHealth),
-    changed
-  };
+  return result;
 }
 
 function purgeForgottenGroundTruthEntity(subjectId) {
@@ -3287,44 +3283,66 @@ function purgeForgottenGroundTruthEntity(subjectId) {
 function resolveCameraMovedCorrection(cameraId, now = Date.now()) {
   let changed = false;
   runtime.groundTruthCorrections = runtime.groundTruthCorrections.map((item) => {
-    if (item.type === 'camera-moved' && item.cameraId === cameraId && item.status !== 'superseded') {
+    if (item.type === 'camera-moved' && item.cameraId === cameraId && item.status === 'active') {
       changed = true;
       return { ...item, status:'superseded', updatedAt:now, supersededReason:'camera-recalibrated' };
     }
     return item;
   });
-  if (changed) void persistGroundTruthState(true);
+  if (changed) {
+    syncGroundTruthRuntimeState(
+      replaceRuntimeCorrections(runtime.groundTruthRuntime, runtime.groundTruthCorrections)
+    );
+    updateGroundTruthRuntime(now, 'camera-recalibrated');
+    void persistGroundTruthState(true);
+  }
   return changed;
 }
 
 async function applyGroundTruthCorrectionRuntime(input = {}, now = Date.now()) {
   const normalized = normalizeGroundTruthCorrection(input, now);
   const result = appendGroundTruthCorrection(runtime.groundTruthCorrections, normalized, now);
-  runtime.groundTruthCorrections = result.corrections;
+  syncGroundTruthRuntimeState(
+    replaceRuntimeCorrections(runtime.groundTruthRuntime, result.corrections)
+  );
 
   if (result.correction.type === 'forget-entity') {
     purgeForgottenGroundTruthEntity(result.correction.subjectId);
   }
 
-  if (
-    result.correction.type === 'entity-merge' &&
-    result.correction.aliasEntityId &&
-    result.correction.canonicalEntityId
-  ) {
-    for (const [alias, canonical] of Object.entries(runtime.multiRoomWorld.objectAliases || {})) {
-      if (canonical === result.correction.aliasEntityId) {
-        runtime.multiRoomWorld.objectAliases[alias] = result.correction.canonicalEntityId;
-      }
-    }
-  }
-
-  await persistGroundTruthState(true);
   const updated = updateGroundTruthRuntime(now, 'user-correction');
+  await persistGroundTruthState(true);
   refreshAgentContext('ground-truth-correction', now);
   return copySerializable({
     status:'ready',
     correction:result.correction,
     ...updated
+  });
+}
+
+async function revokeGroundTruthCorrectionRuntime(id, reason = 'user-undo', now = Date.now()) {
+  const result = revokeGroundTruthCorrection(
+    runtime.groundTruthCorrections,
+    id,
+    reason,
+    now
+  );
+  if (result.status !== 'revoked') return copySerializable(result);
+
+  syncGroundTruthRuntimeState(
+    replaceRuntimeCorrections(runtime.groundTruthRuntime, result.corrections)
+  );
+  const updated = updateGroundTruthRuntime(now, 'correction-revoked');
+  await persistGroundTruthState(true);
+  refreshAgentContext('ground-truth-correction-revoked', now);
+  return copySerializable({
+    ...result,
+    ...updated,
+    boundaries:[
+      'correction-audit-history-preserved',
+      'forget-history-cannot-be-restored-after-explicit-purge',
+      'no-autonomous-physical-control'
+    ]
   });
 }
 
@@ -3341,10 +3359,8 @@ async function processGroundTruthCorrectionRuntime(text, options = {}, now = Dat
 
 async function clearGroundTruthReliabilityRuntime() {
   await clearGroundTruthStore();
-  runtime.groundTruthCorrections = [];
-  runtime.groundTruth = createGroundTruthState(Date.now());
-  runtime.operationalHealth = buildOperationalHealth({});
-  runtime.groundTruthSignature = null;
+  syncGroundTruthRuntimeState(resetGroundTruthRuntimeState(Date.now()));
+  runtime.groundTruthLastSavedAt = 0;
   updateGroundTruthRuntime(Date.now(), 'ground-truth-cleared');
   refreshAgentContext('ground-truth-cleared', Date.now());
   return true;
@@ -3497,50 +3513,14 @@ function updateSpatialMemory(now = Date.now()) {
     ? 'session-' + runtime.startedAt
     : 'session-' + Math.floor(now / 60000);
 
-  const memoryWorld = multiRoomSnapshot(runtime.multiRoomWorld);
-  for (const [id, participant] of Object.entries(memoryWorld.participants || {})) {
-    if (!spatialMemoryRetentionAllowed(
-      policyForRoom(participant.roomId || participant.lastKnownRoomId),
-      participant.roomPosition
-    )) {
-      delete memoryWorld.participants[id];
-    }
-  }
-  for (const [id, object] of Object.entries(memoryWorld.objects || {})) {
-    if (!spatialMemoryRetentionAllowed(
-      policyForRoom(object.roomId || object.lastKnownRoomId),
-      object.roomPosition
-    )) {
-      delete memoryWorld.objects[id];
-    }
-  }
-
-  const graph = sceneGraphSnapshot(runtime.sceneGraph);
-  const activePolicy = policyForRoom(graph.roomId);
-  const allowedGraphNodes = new Set(
-    (graph.nodes || [])
-      .filter((node) => (
-        !node.position ||
-        spatialMemoryRetentionAllowed(activePolicy, node.position)
-      ))
-      .map((node) => node.id)
-  );
-  graph.edges = (graph.edges || []).filter((edge) => (
-    allowedGraphNodes.has(edge.subjectId) &&
-    allowedGraphNodes.has(edge.objectId)
-  ));
+  const memoryProjection = governedWorldProjection('memory');
 
   observeSpatialMemory(runtime.spatialMemory, {
     sessionId,
-    multiRoom: memoryWorld,
+    multiRoom: memoryProjection.multiRoom,
     landmarksByRoom: spatialLandmarksByRoom(),
-    sceneGraph: graph,
-    transitions: (runtime.multiRoomEvents || []).filter((transition) => (
-      spatialMemoryRetentionAllowed(
-        policyForRoom(transition.toRoomId || transition.fromRoomId),
-        null
-      )
-    ))
+    sceneGraph: memoryProjection.sceneGraph,
+    transitions: memoryProjection.multiRoom.transitions || []
   }, now);
 
   for (const proposal of runtime.spatialMemory.proposals) {
@@ -9807,4 +9787,7 @@ setInterval(() => {
   const now = Date.now();
   const result = updateGroundTruthRuntime(now, 'ground-truth-timer');
   if (result.changed) refreshAgentContext('ground-truth-timer', now);
-}, 5000);
+  if (runtime.groundTruthReconciliation.persistencePending) {
+    void persistGroundTruthState(false);
+  }
+}, 1000);

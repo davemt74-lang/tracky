@@ -216,3 +216,33 @@ test('timeline filters historical events when room spatial memory is disabled',(
   const timeline=buildWorldTimeline(ctx,{now:10000,sinceMs:5000});
   assert.equal(timeline.some((item)=>item.roomIds?.includes('ROOM02')),false);
 });
+
+test('world query current-location lookup prefers canonical ground truth over conflicting multi-room evidence',()=>{
+  const ctx=context();
+  ctx.groundTruth={
+    generatedAt:9900,
+    entities:[{subjectId:'WO1',entityType:'object',label:'phone',roomId:'ROOM02',lastKnownRoomId:'ROOM02',state:'confirmed',authority:'direct-observation',freshness:'current',confidence:.95,observedAt:9900}],
+    conflicts:[]
+  };
+  const result=answerPhysicalWorldQuery('Where is phone?',ctx,10000);
+  assert.equal(result.status,'answered');
+  assert.match(result.summary,/Kitchen/);
+  assert.equal(result.facts[0].roomId,'ROOM02');
+  assert.equal(result.provenance[0].source,'ground-truth-canonical');
+});
+test('room occupants query prefers canonical ground truth people over legacy multi-room evidence',()=>{
+  const ctx=context();
+  ctx.groundTruth={
+    generatedAt:9900,
+    entities:[
+      {subjectId:'PERSON:p1',entityType:'person',label:'Dave',roomId:'ROOM02',lastKnownRoomId:'ROOM02',state:'confirmed',authority:'reconciled-observation',freshness:'current',confidence:.95,observedAt:9900}
+    ],
+    conflicts:[]
+  };
+  const office=answerPhysicalWorldQuery('Who is in office?',ctx,10000);
+  assert.equal(office.facts.length,0);
+  const kitchen=answerPhysicalWorldQuery('Who is in kitchen?',ctx,10000);
+  assert.equal(kitchen.facts.length,1);
+  assert.equal(kitchen.facts[0].name,'Dave');
+  assert.equal(kitchen.provenance[0].source,'ground-truth-canonical');
+});

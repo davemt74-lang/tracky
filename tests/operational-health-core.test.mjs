@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
- combinedCoverage,cameraOperationalHealth,roomOperationalHealth,buildOperationalHealth
+ combinedCoverage,cameraOperationalHealth,roomOperationalHealth,buildOperationalHealth,clearCoverageCache
 } from '../src/operational-health-core.js';
 
 const cam=(id,roomId='OFFICE',points=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}])=>({
@@ -45,4 +45,16 @@ test('operational health includes stale and conflicted truth diagnostics',()=>{
  },2000);
  assert.equal(h.staleEntityCount,1);assert.equal(h.conflictedEntityCount,1);
  assert.equal(h.status,'needs-attention');
+});
+
+test('coverage cache remains geometry-sensitive and can be explicitly cleared',()=>{
+ clearCoverageCache();
+ const full=combinedCoverage([cam('CAM1')]);
+ const partial=combinedCoverage([cam('CAM1','OFFICE',[
+  {x:0,y:0},{x:.4,y:0},{x:.4,y:.4},{x:0,y:.4}
+ ])]);
+ assert.ok(full>.98);
+ assert.ok(partial<.25);
+ clearCoverageCache();
+ assert.equal(combinedCoverage([cam('CAM1')]),full);
 });

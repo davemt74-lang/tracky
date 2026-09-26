@@ -3,6 +3,113 @@
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
 
+## V2.6.1 — Runtime Consolidation & Reliability Optimization
+
+V2.6.1 is a behavior-preserving optimization pass over the V2.6 physical-world reliability layer. It does not add predictive authority or autonomous physical behavior.
+
+### Canonical semantic reads
+
+Ground truth is now the canonical current-world read layer for Agent people/object context, physical-world queries, room occupancy queries, and the legacy participant/object location getters.
+
+Multi-room fusion, scene graph, physical-world state, and spatial memory remain available as evidence and diagnostic layers. They no longer independently override reconciled ground truth in user-facing semantic reads.
+
+### One governed semantic projection
+
+Ground truth, spatial memory, and routine learning now share the same privacy-governed semantic projection and eligibility rules.
+
+The shared projection applies:
+
+- visual observation policy
+- participant identity / anonymous-tracking policy
+- object observation policy
+- privacy-region decisions
+- spatial-memory retention policy
+- transition retention policy
+
+This removes parallel privacy filtering paths that could drift apart over time.
+
+### Event-driven reconciliation
+
+Tracky no longer performs a full ground-truth rebuild on every timer tick or semantically identical camera frame.
+
+The runtime now uses:
+
+- a semantic input fingerprint
+- dirty reasons for meaningful camera/environment/privacy changes
+- confidence/freshness boundary scheduling
+- a lightweight safety timer
+- stable semantic output signatures
+
+Observation timestamp churn and small confidence jitter do not create false semantic changes.
+
+### Reduced persistence churn
+
+Ground-truth IndexedDB writes now use a retention-safe semantic persistence signature.
+
+If truth and correction lifecycle state have not materially changed, Tracky skips the write. A centralized throttle still bounds necessary writes.
+
+### Runtime modularization
+
+Ground-truth runtime responsibilities are split into focused modules:
+
+- `reliability-policy.js`
+- `governed-world-projection-core.js`
+- `runtime-reconciliation-core.js`
+- `ground-truth-runtime-core.js`
+- `ground-truth-runtime-controller.js`
+- `agent-runtime-context-core.js`
+
+`agent-eyes.js` remains the browser orchestration surface rather than owning the reconciliation engine itself.
+
+### Central reliability policy
+
+Coverage, calibration, persistence, correction-retention, and runtime reliability thresholds now live in one tested policy module.
+
+Operational camera coverage geometry is cached by calibrated camera layout and invalidates automatically when geometry changes.
+
+### Reversible correction lifecycle
+
+Correction records now support:
+
+- active
+- superseded
+- revoked
+
+Applying a newer correction supersedes the prior correction for the same logical target. Revoking the newer correction can reactivate its predecessor.
+
+Entity merges are now reversible because merge corrections no longer mutate the underlying multi-room evidence alias map.
+
+An explicit `forget-entity` still deletes retained historical semantic memory as a privacy action; revoking its correction record cannot reconstruct history that was deliberately erased. Fresh future observation can re-establish the entity.
+
+New Agent APIs:
+
+```js
+TrackyAgentEyes.getGroundTruthCorrections(subjectId)
+TrackyAgentEyes.revokeGroundTruthCorrection(id, reason)
+```
+
+### Soak and replay reliability
+
+V2.6.1 adds long-running semantic soak coverage for:
+
+- thousands of timestamp-only observations
+- room transitions
+- camera outage and recovery
+- privacy-policy changes
+- restart recovery
+- correction undo
+- merge / unmerge
+- raw-payload immunity
+
+The optimization goal is fewer rebuilds and writes without weakening freshness, privacy, conflict, or recovery guarantees.
+
+### Authority boundary
+
+V2.6.1 remains semantic and observational.
+
+It does not add device-control authority, camera movement authority, autonomous correction authority, or predictive decision authority.
+
+
 ## V2.6 — Physical-World Ground Truth & Operational Reliability
 
 V2.6 strengthens the reliability of everything Tracky already knows before adding more predictive behavior.
