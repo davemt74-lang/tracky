@@ -11,10 +11,11 @@ test('Agent Eyes imports V2.4 goal core store and language modules',()=>{
     './src/physical-goal-language-core.js'
   ]) assert.ok(source.includes("from '"+modulePath+"'"));
   for(const symbol of [
-    'evaluatePhysicalGoal','evaluatePhysicalGoals','normalizePhysicalGoal',
+    'evaluatePhysicalGoal','normalizePhysicalGoal',
     'listPhysicalGoals','savePhysicalGoal','savePhysicalGoalEvent',
     'interpretPhysicalGoalCommand'
   ]) assert.match(source,new RegExp('\\b'+symbol+'\\b'));
+  assert.match(source,/evaluateTemporalPhysicalGoals/);
 });
 
 test('Agent Eyes exposes V2.4 goal and routine APIs',()=>{
