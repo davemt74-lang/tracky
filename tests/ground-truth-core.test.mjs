@@ -191,3 +191,31 @@ test('forget removes retained history but newer fresh observation can re-establi
  assert.equal(entity.state,'confirmed');
  assert.equal(entity.roomId,'OFFICE');
 });
+
+test('user-confirmed entity label does not automatically elevate observed room authority',()=>{
+ const state=buildGroundTruth({
+  multiRoom:{objects:{}},
+  sceneGraph:{
+   roomId:'OFFICE',
+   nodes:[{id:'O1',type:'object',label:'keys',state:'user-confirmed',confidence:.99,lastObservedAt:1000,properties:{}}],
+   edges:[{id:'e1',subjectId:'O1',predicate:'located-in',objectId:'OFFICE',state:'observed',confidence:.8,lastObservedAt:1000}]
+  }
+ },null,1000);
+ const entity=state.entities.find(x=>x.subjectId==='O1');
+ assert.equal(entity.authority,'direct-observation');
+ assert.equal(entity.roomId,'OFFICE');
+});
+test('newer direct observation conflicts with older user-confirmed location instead of losing silently',()=>{
+ const state=buildGroundTruth({
+  multiRoom:{objects:{O1:object('O1','keys','KITCHEN',3000)}},
+  sceneGraph:{
+   roomId:'OFFICE',
+   nodes:[{id:'O1',type:'object',label:'keys',state:'observed',confidence:.9,lastObservedAt:1000,properties:{}}],
+   edges:[{id:'e1',subjectId:'O1',predicate:'located-in',objectId:'OFFICE',state:'user-confirmed',confidence:.99,lastObservedAt:1000}]
+  }
+ },null,3000);
+ const entity=state.entities.find(x=>x.subjectId==='O1');
+ assert.equal(entity.state,'conflicted');
+ assert.equal(entity.roomId,null);
+ assert.equal(state.conflicts.some(x=>x.type==='newer-observation-vs-confirmed-location'),true);
+});
