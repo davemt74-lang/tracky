@@ -63,6 +63,32 @@ export function buildPhysicalGoalBriefing(event={},goal={},now=Date.now()){
   };
 }
 
+export function buildRoutineLearningBriefing(proposal={},now=Date.now()){
+  return {
+    schemaVersion:1,
+    id:'BRIEF-'+String(proposal.id||now),
+    status:'pending',
+    type:'routine-learning-proposal',
+    urgency:'info',
+    generatedAt:Number(proposal.updatedAt||proposal.createdAt||now),
+    proposalId:proposal.id||null,
+    title:'Possible physical-world routine',
+    summary:txt(
+      'I noticed a recurring pattern: '+(proposal.label||proposal.type||'physical-world routine')+
+      '. It is only a proposal and will not become active unless you confirm it.',
+      320
+    ),
+    confidence:clamp01(proposal.confidence??0),
+    evidence:{
+      proposalType:proposal.type||null,
+      occurrences:Number(proposal.evidence?.occurrences||proposal.evidence?.observations||0),
+      sessions:Number(proposal.evidence?.sessions||0)
+    },
+    provenance:['routine-learning','governed-semantic-evidence'],
+    boundaries:['proposal-only','requires-user-confirmation','semantic-briefing-only','no-autonomous-physical-control']
+  };
+}
+
 export function acknowledgeAgentBriefing(briefing,now=Date.now()){
   if(!briefing) return null;
   return {...briefing,status:'acknowledged',acknowledgedAt:Number(now)};
