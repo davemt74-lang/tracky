@@ -1060,6 +1060,7 @@ const routineLearningCore = read('src/routine-learning-core.js');
 for (const symbol of [
   'ROUTINE_LEARNING_SCHEMA_VERSION',
   'createRoutineLearningState',
+  'hydrateRoutineLearningState',
   'observeRoutineTransitions',
   'observeTemporalLocations',
   'confirmRoutineLearningProposal',
@@ -1303,6 +1304,15 @@ if (!/temporal-timer/.test(agentEyes) || !/tickSequenceRoutinesRuntime/.test(age
 }
 if (!/observeRoutineLearningRuntime\(multiRoomEvents, now\)/.test(agentEyes)) {
   fail('Agent Eyes must feed governed semantic transitions into V2.5 learning');
+}
+
+if (
+  !/routineLearningLocationContext/.test(agentEyes) ||
+  !/spatialMemoryRetentionAllowed/.test(agentEyes) ||
+  !/allowParticipantIdentity !== false/.test(agentEyes) ||
+  !/allowObjectObservation !== false/.test(agentEyes)
+) {
+  fail('V2.5 temporal-location learning must enforce retention and identity/object observation policy');
 }
 if (!agentEyes.includes('buildRoutineLearningBriefing')) {
   fail('V2.5 learned routine proposals must flow through governed Agent briefings');
