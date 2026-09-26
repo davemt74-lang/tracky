@@ -320,7 +320,9 @@ import {
   operationalHealthSnapshot
 } from './src/operational-health-core.js';
 import {
-  buildGovernedSemanticProjection
+  buildGovernedSemanticProjection,
+  semanticLearningEntityAllowed,
+  semanticTransitionRetentionAllowed
 } from './src/governed-world-projection-core.js';
 import {
   RELIABILITY_POLICY
@@ -1287,16 +1289,7 @@ async function initializeRoutineLearning() {
 }
 
 function routineLearningTransitionAllowed(event) {
-  if (!['participant.room_transition','object.room_transition'].includes(event?.type)) return false;
-  const roomIds = [event.fromRoomId, event.toRoomId].filter(Boolean);
-  for (const roomId of roomIds) {
-    const policy = policyForRoom(roomId);
-    if (!spatialMemoryRetentionAllowed(policy, null)) return false;
-    if (policy.allowVisualObservation === false) return false;
-    if (event.type === 'participant.room_transition' && policy.allowParticipantIdentity === false) return false;
-    if (event.type === 'object.room_transition' && policy.allowObjectObservation === false) return false;
-  }
-  return true;
+  return semanticTransitionRetentionAllowed(event, runtime.roomPolicies);
 }
 
 async function publishRoutineLearningProposal(proposal, reason = 'learned-pattern', now = Date.now()) {
@@ -1313,22 +1306,12 @@ async function publishRoutineLearningProposal(proposal, reason = 'learned-patter
 
 function routineLearningLocationContext(now = Date.now()) {
   const context = physicalGoalCommandContext({}, now);
-  const allowedPeople = (context.people || []).filter((person) => {
-    const policy = policyForRoom(person.roomId);
-    return (
-      policy.allowVisualObservation !== false &&
-      policy.allowParticipantIdentity !== false &&
-      spatialMemoryRetentionAllowed(policy, null)
-    );
-  });
-  const allowedObjects = (context.objects || []).filter((object) => {
-    const policy = policyForRoom(object.roomId);
-    return (
-      policy.allowVisualObservation !== false &&
-      policy.allowObjectObservation !== false &&
-      spatialMemoryRetentionAllowed(policy, null)
-    );
-  });
+  const allowedPeople = (context.people || []).filter((person) => (
+    semanticLearningEntityAllowed(person, runtime.roomPolicies, 'participant')
+  ));
+  const allowedObjects = (context.objects || []).filter((object) => (
+    semanticLearningEntityAllowed(object, runtime.roomPolicies, 'object')
+  ));
   const allowedIds = new Set([
     ...allowedPeople.map((person) => person.participantId).filter(Boolean),
     ...allowedObjects.map((object) => object.objectId).filter(Boolean)
