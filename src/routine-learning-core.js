@@ -39,8 +39,8 @@ export function hydrateRoutineLearningState(input={}){
     temporalLocations:{...(input?.temporalLocations||{})},
     proposals:arr(input?.proposals).map((item)=>({...item})),
     ignoredProposalKeys:{...(input?.ignoredProposalKeys||{})},
-    recentBySubject:{},
-    lastLocationEvidenceAt:{}
+    recentBySubject:{...(input?.recentBySubject||{})},
+    lastLocationEvidenceAt:{...(input?.lastLocationEvidenceAt||{})}
   };
 }
 
