@@ -1,3 +1,4 @@
+import { RELIABILITY_POLICY } from './reliability-policy.js';
 const DB_NAME='tracky-ground-truth-v1';
 const DB_VERSION=1;
 const STATE='state';
@@ -23,10 +24,10 @@ export async function saveGroundTruthState(value){
   const db=await openDb();try{const tx=db.transaction(STATE,'readwrite'),wait=done(tx);tx.objectStore(STATE).put({id:'ground-truth',updatedAt:Date.now(),value});await wait;return value;}finally{db.close();}
 }
 export async function listGroundTruthCorrections(){
-  const db=await openDb();try{const tx=db.transaction(CORRECTIONS,'readonly'),wait=done(tx);const rows=await req(tx.objectStore(CORRECTIONS).getAll());await wait;return rows.sort((a,b)=>Number(a.createdAt||0)-Number(b.createdAt||0)).slice(-250);}finally{db.close();}
+  const db=await openDb();try{const tx=db.transaction(CORRECTIONS,'readonly'),wait=done(tx);const rows=await req(tx.objectStore(CORRECTIONS).getAll());await wait;return rows.sort((a,b)=>Number(a.createdAt||0)-Number(b.createdAt||0)).slice(-RELIABILITY_POLICY.corrections.maxRecords);}finally{db.close();}
 }
 export async function replaceGroundTruthCorrections(items=[]){
-  const db=await openDb();try{const tx=db.transaction(CORRECTIONS,'readwrite'),wait=done(tx),store=tx.objectStore(CORRECTIONS);store.clear();for(const item of items.slice(-250))store.put(item);await wait;return items.slice(-250);}finally{db.close();}
+  const db=await openDb();try{const tx=db.transaction(CORRECTIONS,'readwrite'),wait=done(tx),store=tx.objectStore(CORRECTIONS);store.clear();for(const item of items.slice(-RELIABILITY_POLICY.corrections.maxRecords))store.put(item);await wait;return items.slice(-RELIABILITY_POLICY.corrections.maxRecords);}finally{db.close();}
 }
 export async function clearGroundTruthStore(){
   const db=await openDb();try{const tx=db.transaction([STATE,CORRECTIONS],'readwrite'),wait=done(tx);tx.objectStore(STATE).clear();tx.objectStore(CORRECTIONS).clear();await wait;return true;}finally{db.close();}
