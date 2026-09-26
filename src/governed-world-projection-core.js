@@ -53,6 +53,40 @@ function objectProjection(item,key,policies,purpose){
     privacy:{...(item.privacy||{}),mode:decision.region?.mode||'observe',retentionAllowed:decision.retentionAllowed}
   }];
 }
+export function semanticLearningEntityAllowed(entity={},policies={},kind=null){
+  const entityKind=kind||(
+    entity.participantId||entity.entityType==='person'?'participant':'object'
+  );
+  const roomId=entity.roomId||entity.lastKnownRoomId||null;
+  if(!roomId) return false;
+  const policy=policyFor(policies,roomId);
+  const decision=observationDecision({
+    policy,
+    kind:entityKind,
+    position:entity.roomPosition||null,
+    roomId
+  });
+  if(!decision.allowed) return false;
+  if(entityKind==='participant'&&decision.anonymize) return false;
+  return spatialMemoryRetentionAllowed(policy,entity.roomPosition||null);
+}
+
+export function semanticTransitionRetentionAllowed(transition={},policies={}){
+  const entityKind=String(transition.type||'').startsWith('participant.')
+    ?'participant'
+    :String(transition.type||'').startsWith('object.')?'object':null;
+  if(!entityKind) return false;
+  const roomIds=[transition.fromRoomId,transition.toRoomId].filter(Boolean);
+  if(!roomIds.length) return false;
+  return roomIds.every((roomId)=>{
+    const policy=policyFor(policies,roomId);
+    const decision=observationDecision({policy,kind:entityKind,position:null,roomId});
+    if(!decision.allowed) return false;
+    if(entityKind==='participant'&&decision.anonymize) return false;
+    return spatialMemoryRetentionAllowed(policy,null);
+  });
+}
+
 function nodeAllowed(node,policy,purpose){
   if(!['person','object'].includes(node.type)) return true;
   const kind=node.type==='person'?'participant':'object';
@@ -91,12 +125,9 @@ export function buildGovernedSemanticProjection(input={},options={}){
   ));
 
   const transitions=purpose==='memory'
-    ? arr(world.transitions).filter((transition)=>{
-        const roomIds=[transition.fromRoomId,transition.toRoomId].filter(Boolean);
-        return roomIds.length>0&&roomIds.every((roomId)=>(
-          spatialMemoryRetentionAllowed(policyFor(policies,roomId),null)
-        ));
-      })
+    ? arr(world.transitions).filter((transition)=>(
+        semanticTransitionRetentionAllowed(transition,policies)
+      ))
     : arr(world.transitions);
 
   return {
