@@ -328,6 +328,7 @@ import {
   reconciliationDue
 } from './src/runtime-reconciliation-core.js';
 import {
+  groundTruthInputSignature,
   groundTruthPersistenceSignature,
   groundTruthPersistenceSnapshot as buildGroundTruthPersistenceSnapshot,
   groundTruthSemanticSignature as buildGroundTruthSemanticSignature,
@@ -750,6 +751,7 @@ const runtime = {
   groundTruthLastSavedAt: 0,
   groundTruthSignature: null,
   groundTruthReconciliation: createReconciliationState(),
+  groundTruthInputSignature: null,
   operationalHealth: buildOperationalHealth({})
 };
 
@@ -2273,7 +2275,7 @@ function emit(type, payload = {}) {
 }
 
 function groundTruthRelevantEvent(type = '') {
-  return /^(participant\.|object\.|camera\.|environment\.|visibility\.|portal\.|privacy\.)/.test(type);
+  return /^(camera\.|environment\.|privacy\.)/.test(type);
 }
 
 bus.subscribe('*', (event) => {
@@ -3144,6 +3146,20 @@ function governedWorldProjection(purpose = 'ground-truth') {
   }, { purpose });
 }
 
+function currentGroundTruthInputSignature() {
+  return groundTruthInputSignature({
+    runtimeActive: runtime.running,
+    activeRoomId: primaryCameraConfig()?.roomId || runtime.fusionState.roomId || null,
+    multiRoom: multiRoomSnapshot(runtime.multiRoomWorld),
+    sceneGraph: sceneGraphSnapshot(runtime.sceneGraph),
+    roomPolicies: runtime.roomPolicies,
+    cameras: runtime.cameraConfigs,
+    cameraStatuses: Object.fromEntries(runtime.cameraStatuses),
+    environment: runtime.environmentAnalysis,
+    corrections: runtime.groundTruthCorrections
+  });
+}
+
 function privacyGovernedGroundTruthInput() {
   return {
     ...governedWorldProjection('ground-truth'),
@@ -3219,6 +3235,7 @@ async function initializeGroundTruthReliability() {
     groundTruth: runtime.groundTruth
   }, now);
   runtime.groundTruthSignature = null;
+  runtime.groundTruthInputSignature = currentGroundTruthInputSignature();
   runtime.groundTruthReconciliation.lastPersistedSignature =
     groundTruthPersistenceSignature(
       runtime.groundTruth,
@@ -3234,7 +3251,11 @@ function markGroundTruthDirty(reason = 'world') {
 
 function updateGroundTruthRuntime(now = Date.now(), reason = 'world-update') {
   if (reason !== 'ground-truth-timer') {
-    markGroundTruthDirty(reason);
+    const inputSignature = currentGroundTruthInputSignature();
+    if (inputSignature !== runtime.groundTruthInputSignature) {
+      runtime.groundTruthInputSignature = inputSignature;
+      markGroundTruthDirty(reason);
+    }
   }
   if (!reconciliationDue(runtime.groundTruthReconciliation, now)) {
     return {
@@ -3397,6 +3418,7 @@ async function clearGroundTruthReliabilityRuntime() {
   runtime.operationalHealth = buildOperationalHealth({});
   runtime.groundTruthSignature = null;
   runtime.groundTruthReconciliation = createReconciliationState(Date.now());
+  runtime.groundTruthInputSignature = null;
   updateGroundTruthRuntime(Date.now(), 'ground-truth-cleared');
   refreshAgentContext('ground-truth-cleared', Date.now());
   return true;
