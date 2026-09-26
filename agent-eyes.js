@@ -3199,8 +3199,7 @@ function groundTruthSemanticSignature(state, health) {
   return JSON.stringify({
     recoveryMode:state.recoveryMode===true,
     entities:(state.entities || []).map((item) => [
-      item.subjectId,item.state,item.roomId,item.lastKnownRoomId,item.authority,item.freshness,
-      Math.round(Number(item.confidence || 0) * 20) / 20
+      item.subjectId,item.state,item.roomId,item.lastKnownRoomId,item.authority,item.freshness
     ]),
     conflicts:(state.conflicts || []).map((item) => [item.id,item.type,item.subjectId,item.unresolved]),
     health:{
