@@ -12,7 +12,7 @@ export const FORECAST_OUTCOME_AUTHORITY=Object.freeze({
   'reconciled-observation':.90
 });
 
-function clone(value){return JSON.parse(JSON.stringify(value));}
+function copyValue(value){return JSON.parse(JSON.stringify(value));}
 const FORBIDDEN_RAW_KEYS=/^(?:imageDataUrl|image|frame|frameData|rawFrame|video|audio|embedding|embeddings|blob|bytes|pixels)$/i;
 function semanticClone(value,depth=0){
   if(depth>8)throw new Error('Forecast semantic value is too deeply nested.');
@@ -184,7 +184,7 @@ export function recordForecastPrediction(stateInput,input={},now=Date.now()){
   const id=idText(input.id,'prediction id');
   const existing=state.predictions.find((item)=>item.id===id);
   if(existing){
-    return {state,prediction:clone(existing),created:false,idempotent:true};
+    return {state,prediction:copyValue(existing),created:false,idempotent:true};
   }
   const rawConfidence=clamp01(input.rawConfidence);
   const channel=FORECAST_CHANNELS.includes(input.channel)?input.channel:'active';
@@ -207,7 +207,7 @@ export function recordForecastPrediction(stateInput,input={},now=Date.now()){
   };
   state.predictions=[...state.predictions,prediction].slice(-RELIABILITY_POLICY.calibration.maxPredictions);
   state.updatedAt=Number(now);
-  return {state,prediction:clone(prediction),created:true,idempotent:false};
+  return {state,prediction:copyValue(prediction),created:true,idempotent:false};
 }
 
 export function settleForecastPrediction(stateInput,input={},now=Date.now()){
@@ -219,7 +219,7 @@ export function settleForecastPrediction(stateInput,input={},now=Date.now()){
   if(!FORECAST_OUTCOME_AUTHORITY[authority])throw new Error('Forecast settlement requires verified outcome authority.');
   const id=idText(input.id,'settlement id');
   const existing=state.settlements.find((item)=>item.id===id);
-  if(existing)return {state,settlement:clone(existing),created:false,idempotent:true};
+  if(existing)return {state,settlement:copyValue(existing),created:false,idempotent:true};
 
   const prior=effectiveSettlements(state)
     .filter((item)=>item.predictionId===predictionId)
@@ -243,7 +243,7 @@ export function settleForecastPrediction(stateInput,input={},now=Date.now()){
   };
   state.settlements=[...state.settlements,settlement].slice(-RELIABILITY_POLICY.calibration.maxSettlements);
   state.updatedAt=Number(now);
-  return {state,settlement:clone(settlement),created:true,idempotent:false};
+  return {state,settlement:copyValue(settlement),created:true,idempotent:false};
 }
 
 export function forecastCalibrationProfile(stateInput,input={}){
