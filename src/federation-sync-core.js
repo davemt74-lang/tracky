@@ -63,7 +63,7 @@ export function applyFederationDelta(stateInput,delta={},options={}){
   let applied=0,stale=0,idempotent=0,localSkipped=0,last=state.cursor;
   for(const change of changes.sort((a,b)=>a.change_id-b.change_id)){
     if(change.change_id<=state.cursor){idempotent++;last=Math.max(last,change.change_id);continue;}
-    if(change.change_id!==last+1&&last>=state.cursor)throw new Error('Federation change stream contains a cursor gap.');
+    if(change.change_id<=last)throw new Error('Federation changes must be strictly ordered by change_id.');
     last=change.change_id;
     if(localSiteIds.has(change.site_id)){localSkipped++;continue;}
     const prior=state.remoteSites[change.site_id]||null;
