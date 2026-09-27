@@ -21,6 +21,17 @@ export const RELIABILITY_POLICY=Object.freeze({
   corrections:{
     maxRecords:250
   },
+  calibration:{
+    minimumModelSettlements:20,
+    minimumContextSettlements:12,
+    minimumBucketSettlements:6,
+    confidenceBucketStep:.10,
+    priorStrength:12,
+    maximumConfidenceAdjustment:.20,
+    maximumHorizonMs:7*24*60*60*1000,
+    maxPredictions:2000,
+    maxSettlements:4000
+  },
   soak:{
     maximumSemanticEventBurst:5000,
     maximumSimulatedDurationMs:7*24*60*60*1000

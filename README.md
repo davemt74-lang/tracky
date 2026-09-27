@@ -2,6 +2,56 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V2.76 — Forecast Calibration & Physical-World Model Accuracy
+
+V2.76 adds a semantic, append-only calibration layer for physical-world forecasts. It does not replace canonical ground truth and it does not add autonomous physical authority.
+
+### Immutable prediction + verified settlement
+
+Forecasts are recorded with their original raw confidence, model/version, context, horizon, subject, and semantic predicted value. The raw prediction is never rewritten after the outcome is known.
+
+Verified outcomes are appended separately as settlements. Calibration accepts only:
+
+- user-confirmed outcomes
+- direct observations
+- reconciled observations
+
+Semantic inference cannot settle its own forecast, preventing a model from grading itself.
+
+### Evidence thresholds and bounded adjustment
+
+Future confidence remains unchanged until enough verified settlements exist. Calibration can fall back from a context-specific profile to a broader model profile while evidence is sparse.
+
+When calibration becomes eligible:
+
+- confidence is evaluated in bounded buckets
+- empirical accuracy is authority-weighted
+- a prior prevents small samples from overreacting
+- the adjustment is capped by centralized reliability policy
+- raw and calibrated confidence remain separately inspectable
+
+### Model accuracy reporting
+
+V2.76 reports settled sample count, weighted evidence, empirical accuracy, Brier score, expected calibration error, and confidence-bucket accuracy.
+
+Active, shadow, and canary channels are tracked separately. Shadow/canary evidence may be evaluated, but it does not alter active-channel confidence.
+
+### Semantic-only privacy boundary
+
+The calibration ledger rejects raw image/frame/audio/video/embedding payloads. It stores semantic forecast values, verified outcomes, evidence IDs, and bounded metadata only.
+
+### Agent Eyes APIs
+
+```js
+TrackyAgentEyes.recordForecastPrediction(input)
+TrackyAgentEyes.settleForecastPrediction(input)
+TrackyAgentEyes.calibrateForecastConfidence(input)
+TrackyAgentEyes.getForecastCalibrationReport()
+TrackyAgentEyes.clearForecastCalibration()
+```
+
+Canonical ground truth and user-confirmed corrections remain higher authority than learned calibration.
+
 
 ## V2.6.1 — Runtime Consolidation & Reliability Optimization
 

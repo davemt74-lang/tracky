@@ -327,6 +327,18 @@ import {
   RELIABILITY_POLICY
 } from './src/reliability-policy.js';
 import {
+  calibratedForecastConfidence,
+  createForecastCalibrationState,
+  forecastCalibrationReport,
+  recordForecastPrediction,
+  settleForecastPrediction
+} from './src/forecast-calibration-core.js';
+import {
+  clearForecastCalibrationState,
+  loadForecastCalibrationState,
+  saveForecastCalibrationState
+} from './src/forecast-calibration-store.js';
+import {
   createReconciliationState,
   markReconciliationDirty,
   notePersisted
@@ -754,6 +766,8 @@ const runtime = {
   physicalGoalHistory: [],
   routineLearning: createRoutineLearningState(),
   routineLearningLastSavedAt: 0,
+  forecastCalibration: createForecastCalibrationState(),
+  forecastCalibrationLastSavedAt: 0,
   groundTruth: createGroundTruthState(),
   groundTruthCorrections: [],
   groundTruthLastSavedAt: 0,
@@ -1285,6 +1299,72 @@ async function initializeRoutineLearning() {
     console.error('Could not load routine learning state', error);
     runtime.routineLearning = createRoutineLearningState();
   }
+}
+
+async function persistForecastCalibration(force = false) {
+  const now = Date.now();
+  if (!force && now - Number(runtime.forecastCalibrationLastSavedAt || 0) < 10000) return;
+  runtime.forecastCalibrationLastSavedAt = now;
+  try {
+    await saveForecastCalibrationState(runtime.forecastCalibration);
+  } catch (error) {
+    console.error('Could not persist forecast calibration state', error);
+  }
+}
+
+async function initializeForecastCalibration() {
+  try {
+    runtime.forecastCalibration =
+      await loadForecastCalibrationState() ||
+      createForecastCalibrationState();
+  } catch (error) {
+    console.error('Could not load forecast calibration state', error);
+    runtime.forecastCalibration = createForecastCalibrationState();
+  }
+}
+
+async function recordForecastPredictionRuntime(input = {}, now = Date.now()) {
+  const result = recordForecastPrediction(runtime.forecastCalibration, input, now);
+  runtime.forecastCalibration = result.state;
+  if (result.created) await persistForecastCalibration(true);
+  return copySerializable({
+    status:'ready',
+    created:result.created,
+    idempotent:result.idempotent,
+    prediction:result.prediction
+  });
+}
+
+async function settleForecastPredictionRuntime(input = {}, now = Date.now()) {
+  const result = settleForecastPrediction(runtime.forecastCalibration, input, now);
+  runtime.forecastCalibration = result.state;
+  if (result.created) await persistForecastCalibration(true);
+  return copySerializable({
+    status:'ready',
+    created:result.created,
+    idempotent:result.idempotent,
+    settlement:result.settlement,
+    report:forecastCalibrationReport(runtime.forecastCalibration)
+  });
+}
+
+function calibrateForecastConfidenceRuntime(input = {}) {
+  return copySerializable(
+    calibratedForecastConfidence(runtime.forecastCalibration, input)
+  );
+}
+
+function forecastCalibrationReportRuntime(input = {}) {
+  return copySerializable(
+    forecastCalibrationReport(runtime.forecastCalibration, input)
+  );
+}
+
+async function clearForecastCalibrationRuntime() {
+  await clearForecastCalibrationState();
+  runtime.forecastCalibration = createForecastCalibrationState();
+  runtime.forecastCalibrationLastSavedAt = 0;
+  return true;
 }
 
 function routineLearningTransitionAllowed(event) {
@@ -2297,6 +2377,7 @@ window.TrackyAgentEyes = Object.freeze({
       proactiveAwareness: anomalySnapshot(runtime.anomalyState),
       physicalGoals: copySerializable(runtime.physicalGoals),
       routineLearning: routineLearningSnapshot(runtime.routineLearning),
+      forecastCalibration: forecastCalibrationReport(runtime.forecastCalibration),
       groundTruth: groundTruthSnapshot(runtime.groundTruth),
       operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
     };
@@ -2320,6 +2401,21 @@ window.TrackyAgentEyes = Object.freeze({
   },
   getOperationalHealth() {
     return operationalHealthSnapshot(runtime.operationalHealth);
+  },
+  getForecastCalibrationReport() {
+    return forecastCalibrationReportRuntime();
+  },
+  calibrateForecastConfidence(input = {}) {
+    return calibrateForecastConfidenceRuntime(input);
+  },
+  recordForecastPrediction(input = {}) {
+    return recordForecastPredictionRuntime(input, Date.now());
+  },
+  settleForecastPrediction(input = {}) {
+    return settleForecastPredictionRuntime(input, Date.now());
+  },
+  clearForecastCalibration() {
+    return clearForecastCalibrationRuntime();
   },
   getEntityTruth(subjectId) {
     return copySerializable(
@@ -9754,6 +9850,7 @@ await initializeWorldQueries();
 await initializeWorldWatches();
 await initializeAgentBriefings();
 await initializeRoutineLearning();
+await initializeForecastCalibration();
 await initializePhysicalGoals();
 runtime.agentContext = currentAgentContext({}, Date.now());
 await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now(), { suppressRoutineTriggers:true });
