@@ -339,6 +339,24 @@ import {
   saveForecastCalibrationState
 } from './src/forecast-calibration-store.js';
 import {
+  canaryAssignment,
+  createModelLifecycleState,
+  enforceLatestActiveHealth,
+  importCalibrationReport,
+  modelLifecycleReport,
+  promoteModel,
+  recordAccuracySnapshot,
+  recordGoldenScenarioEvaluation,
+  registerEnvironmentProfile,
+  registerModelCandidate,
+  selectEnvironmentProfile
+} from './src/model-lifecycle-core.js';
+import {
+  clearModelLifecycleState,
+  loadModelLifecycleState,
+  saveModelLifecycleState
+} from './src/model-lifecycle-store.js';
+import {
   createReconciliationState,
   markReconciliationDirty,
   notePersisted
@@ -768,6 +786,8 @@ const runtime = {
   routineLearningLastSavedAt: 0,
   forecastCalibration: createForecastCalibrationState(),
   forecastCalibrationLastSavedAt: 0,
+  modelLifecycle: createModelLifecycleState(),
+  modelLifecycleLastSavedAt: 0,
   groundTruth: createGroundTruthState(),
   groundTruthCorrections: [],
   groundTruthLastSavedAt: 0,
@@ -1338,13 +1358,47 @@ async function recordForecastPredictionRuntime(input = {}, now = Date.now()) {
 async function settleForecastPredictionRuntime(input = {}, now = Date.now()) {
   const result = settleForecastPrediction(runtime.forecastCalibration, input, now);
   runtime.forecastCalibration = result.state;
+  const report = forecastCalibrationReport(runtime.forecastCalibration);
+  const imported = importCalibrationReport(runtime.modelLifecycle, report, now);
+  runtime.modelLifecycle = imported.state;
+  const healthActions = [];
+  for (const model of runtime.modelLifecycle.models.filter((item) => item.channel === 'active')) {
+    const health = enforceLatestActiveHealth(runtime.modelLifecycle, {
+      modelKey:model.modelKey,
+      modelVersion:model.modelVersion
+    }, now);
+    runtime.modelLifecycle = health.state;
+    if (health.action && health.action !== 'none') {
+      healthActions.push(copySerializable({
+        modelKey:model.modelKey,
+        modelVersion:model.modelVersion,
+        action:health.action,
+        drift:health.drift || null
+      }));
+      emit('model.lifecycle_changed', {
+        source:'tracky-model-lifecycle',
+        confidence:1,
+        data:{
+          modelKey:model.modelKey,
+          modelVersion:model.modelVersion,
+          action:health.action,
+          reasons:health.drift?.reasons || []
+        }
+      });
+    }
+  }
   if (result.created) await persistForecastCalibration(true);
+  if (imported.imported.length || healthActions.length) await persistModelLifecycle(true);
   return copySerializable({
     status:'ready',
     created:result.created,
     idempotent:result.idempotent,
     settlement:result.settlement,
-    report:forecastCalibrationReport(runtime.forecastCalibration)
+    report,
+    lifecycle:{
+      importedSnapshots:imported.imported.length,
+      healthActions
+    }
   });
 }
 
@@ -1364,6 +1418,53 @@ async function clearForecastCalibrationRuntime() {
   await clearForecastCalibrationState();
   runtime.forecastCalibration = createForecastCalibrationState();
   runtime.forecastCalibrationLastSavedAt = 0;
+  return true;
+}
+
+async function persistModelLifecycle(force = false) {
+  const now = Date.now();
+  if (!force && now - Number(runtime.modelLifecycleLastSavedAt || 0) < 10000) return;
+  runtime.modelLifecycleLastSavedAt = now;
+  try {
+    await saveModelLifecycleState(runtime.modelLifecycle);
+  } catch (error) {
+    console.error('Could not persist model lifecycle state', error);
+  }
+}
+
+async function initializeModelLifecycle() {
+  try {
+    runtime.modelLifecycle =
+      await loadModelLifecycleState() ||
+      createModelLifecycleState();
+    const imported = importCalibrationReport(
+      runtime.modelLifecycle,
+      forecastCalibrationReport(runtime.forecastCalibration),
+      Date.now()
+    );
+    runtime.modelLifecycle = imported.state;
+    if (imported.imported.length) await persistModelLifecycle(true);
+  } catch (error) {
+    console.error('Could not load model lifecycle state', error);
+    runtime.modelLifecycle = createModelLifecycleState();
+  }
+}
+
+async function mutateModelLifecycle(mutator, input = {}, now = Date.now()) {
+  const result = mutator(runtime.modelLifecycle, input, now);
+  runtime.modelLifecycle = result.state;
+  await persistModelLifecycle(true);
+  return copySerializable(result);
+}
+
+function modelLifecycleReportRuntime() {
+  return copySerializable(modelLifecycleReport(runtime.modelLifecycle));
+}
+
+async function clearModelLifecycleRuntime() {
+  await clearModelLifecycleState();
+  runtime.modelLifecycle = createModelLifecycleState();
+  runtime.modelLifecycleLastSavedAt = 0;
   return true;
 }
 
@@ -2378,6 +2479,7 @@ window.TrackyAgentEyes = Object.freeze({
       physicalGoals: copySerializable(runtime.physicalGoals),
       routineLearning: routineLearningSnapshot(runtime.routineLearning),
       forecastCalibration: forecastCalibrationReport(runtime.forecastCalibration),
+      modelLifecycle: modelLifecycleReport(runtime.modelLifecycle),
       groundTruth: groundTruthSnapshot(runtime.groundTruth),
       operationalHealth: operationalHealthSnapshot(runtime.operationalHealth)
     };
@@ -2416,6 +2518,39 @@ window.TrackyAgentEyes = Object.freeze({
   },
   clearForecastCalibration() {
     return clearForecastCalibrationRuntime();
+  },
+  getModelLifecycleReport() {
+    return modelLifecycleReportRuntime();
+  },
+  registerModelCandidate(input = {}) {
+    return mutateModelLifecycle(registerModelCandidate, input, Date.now());
+  },
+  recordModelAccuracy(input = {}) {
+    return mutateModelLifecycle(recordAccuracySnapshot, input, Date.now());
+  },
+  recordGoldenScenarioEvaluation(input = {}) {
+    return mutateModelLifecycle(recordGoldenScenarioEvaluation, input, Date.now());
+  },
+  promoteModel(input = {}) {
+    return mutateModelLifecycle(promoteModel, input, Date.now());
+  },
+  canaryAssignment(input = {}) {
+    return copySerializable(canaryAssignment(runtime.modelLifecycle, input));
+  },
+  registerEnvironmentCalibrationProfile(input = {}) {
+    return mutateModelLifecycle(registerEnvironmentProfile, input, Date.now());
+  },
+  selectEnvironmentCalibrationProfile(input = {}) {
+    return copySerializable(selectEnvironmentProfile(runtime.modelLifecycle, input));
+  },
+  evaluateActiveModelHealth(input = {}) {
+    const result = enforceLatestActiveHealth(runtime.modelLifecycle, input, Date.now());
+    runtime.modelLifecycle = result.state;
+    if (result.action && result.action !== 'none') void persistModelLifecycle(true);
+    return copySerializable(result);
+  },
+  clearModelLifecycle() {
+    return clearModelLifecycleRuntime();
   },
   getEntityTruth(subjectId) {
     return copySerializable(
@@ -9851,6 +9986,7 @@ await initializeWorldWatches();
 await initializeAgentBriefings();
 await initializeRoutineLearning();
 await initializeForecastCalibration();
+await initializeModelLifecycle();
 await initializePhysicalGoals();
 runtime.agentContext = currentAgentContext({}, Date.now());
 await evaluatePhysicalGoalsRuntime({}, runtime.agentContext, 'startup', Date.now(), { suppressRoutineTriggers:true });

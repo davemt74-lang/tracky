@@ -80,6 +80,10 @@ const requiredFiles = [
   'src/reliability-policy.js',
   'src/forecast-calibration-core.js',
   'src/forecast-calibration-store.js',
+  'src/model-lifecycle-core.js',
+  'src/model-lifecycle-store.js',
+  'src/model-lifecycle-core.js',
+  'src/model-lifecycle-store.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -1359,6 +1363,29 @@ if (!/getGroundTruthCorrections/.test(read('agent-eyes.js')) || !/revokeGroundTr
 }
 if (!fs.existsSync(path.join(root, 'tests/reliability-soak.test.mjs'))) {
   fail('V2.6.1 must include the semantic reliability soak harness');
+}
+
+const modelLifecycleCore = read('src/model-lifecycle-core.js');
+if (!/physical_model_lifecycle\.v1/.test(modelLifecycleCore) ||
+    !/shadow-before-canary/.test(modelLifecycleCore) ||
+    !/canary-before-active/.test(modelLifecycleCore) ||
+    !/rollback-to-known-good/.test(modelLifecycleCore)) {
+  fail('V2.77 model lifecycle must enforce shadow → canary → active with known-good rollback');
+}
+if (!/enforceLatestActiveHealth/.test(modelLifecycleCore) ||
+    !/maximumAccuracyRegression/.test(modelLifecycleCore) ||
+    !/automaticRollback/.test(read('src/reliability-policy.js'))) {
+  fail('V2.77 must enforce bounded drift detection and automatic rollback policy');
+}
+if (!/registerEnvironmentProfile/.test(modelLifecycleCore) ||
+    !/lightingBucket/.test(modelLifecycleCore) ||
+    !/angleKey/.test(modelLifecycleCore) ||
+    !/seasonBucket/.test(modelLifecycleCore)) {
+  fail('V2.77 must preserve environment-specific calibration profile support');
+}
+if (!/recordGoldenScenarioEvaluation/.test(modelLifecycleCore) ||
+    !/minimumGoldenScenarios/.test(modelLifecycleCore)) {
+  fail('V2.77 promotions must require the golden physical-world scenario gate');
 }
 
 const agentEyes = read('agent-eyes.js');

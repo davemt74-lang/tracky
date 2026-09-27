@@ -2,6 +2,18 @@
 
 Tracky is a local-first experimental perception runtime for Agent systems. The original camera-tracked games remain in the repo as sensor-validation experiments.
 
+## V2.77 — Model Lifecycle, Drift Detection & Safe Rollouts
+
+V2.77 consumes V2.76 verified accuracy without becoming a second calibration authority. New perception models must move through **shadow → canary → active**; they cannot jump directly into production.
+
+Promotion requires verified settlement volume, empirical-accuracy/Brier/calibration-error gates, failure/latency limits, and a fully green permanent golden physical-world scenario set. Canary assignment is deterministic and bounded, so the same camera/environment stays consistently inside or outside a rollout.
+
+Active models are monitored for accuracy, calibration, failure-rate, and latency drift. When policy thresholds are breached, Tracky automatically rolls back to the prior known-good model when one exists; otherwise the active model is marked degraded rather than silently continuing as healthy.
+
+Environment calibration profiles distinguish room, camera, camera angle, lighting bucket, time-of-day, season/layout variants, and model version. Profile selection is semantic-only; raw frames, images, audio, video, embeddings, and pixels are rejected from lifecycle storage.
+
+Agent Eyes exposes model registration, golden-scenario evaluation, promotion, canary assignment, environment-profile management, lifecycle reporting, and active-health evaluation. Canonical ground truth and V2.76 calibration history remain separate authorities.
+
 ## V2.76 — Forecast Calibration & Physical-World Model Accuracy
 
 V2.76 adds a semantic, append-only calibration layer for physical-world forecasts. It does not replace canonical ground truth and it does not add autonomous physical authority.
