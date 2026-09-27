@@ -2134,6 +2134,12 @@ if (!/audioWorklet\.addModule/.test(roomAudio) || !/createScriptProcessor/.test(
   fail('Room audio must provide AudioWorklet primary path and ScriptProcessor fallback');
 }
 
+const siteTopologyCore = read('src/site-topology-core.js');
+for (const symbol of ['physical_site_topology.v1','registerSite','registerDevice','claimSiteAuthority','releaseSiteAuthority','cloudTopologySummary']) {
+  if (!siteTopologyCore.includes(symbol)) fail('Site topology core is missing required V2.78 interface: ' + symbol);
+}
+if (!/cloud_read_only/.test(siteTopologyCore) || !/authority_assignment/.test(siteTopologyCore)) fail('Site topology core must preserve local authority / read-only Cloud boundary');
+
 if (failures.length) {
   console.error('\nTracky release audit: FAIL\n');
   for (const failure of failures) console.error(' - ' + failure);
