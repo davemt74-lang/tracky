@@ -212,11 +212,11 @@ export function applyFederationEnvelope(syncStateInput,worldStateInput,envelopeI
   if(localSiteId&&!federatedPair(topology,envelope.source_site_id,localSiteId)){
     return {state,worldState,status:'quarantined',quarantine:quarantine(state,envelope,'source_not_federated','Source site is not an approved federation peer.',now)};
   }
-  if(envelope.topology_revision>topologyRevision(topology)){
-    return {state,worldState,status:'held_topology_ahead',quarantine:quarantine(state,envelope,'topology_ahead','Envelope requires a newer topology revision before authority can be verified.',now)};
-  }
   const authority=authorityOf(topology,envelope.source_site_id);
-  if(!authority||authority.deviceId!==envelope.source_authority_device_id||authority.epoch!==envelope.source_authority_epoch){
+  if(!authority||authority.epoch<envelope.source_authority_epoch){
+    return {state,worldState,status:'held_topology_ahead',quarantine:quarantine(state,envelope,'topology_ahead','Local topology cannot yet verify the source authority epoch.',now)};
+  }
+  if(authority.deviceId!==envelope.source_authority_device_id||authority.epoch!==envelope.source_authority_epoch){
     return {state,worldState,status:'quarantined',quarantine:quarantine(state,envelope,'authority_mismatch','Envelope authority does not match current topology authority.',now)};
   }
   const peer=peerState(state,envelope.source_site_id);
