@@ -86,6 +86,7 @@ const requiredFiles = [
   'src/site-topology-store.js',
   'src/federated-world-core.js',
   'src/federation-sync-core.js',
+  'src/mobile-transition-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2152,6 +2153,15 @@ for (const symbol of ['physical_federation_sync.v1','buildFederationEnvelope','a
 for (const guard of ['topology_ahead','authority_mismatch','revision_conflict','source_not_federated']) {
   if (!federationSyncCore.includes(guard)) fail('Federation sync core is missing required conflict guard: ' + guard);
 }
+
+const mobileTransitionCore = read('src/mobile-transition-core.js');
+for (const symbol of ['physical_mobile_transition.v1','beginMobileTransition','applyMobileTransitionEvidence','advanceMobileTransitionTimers','mobileTransitionAgentContext','cloudMobileTransitionProjection']) {
+  if (!mobileTransitionCore.includes(symbol)) fail('Mobile transition core is missing required V2.78 Section 4 interface: ' + symbol);
+}
+for (const state of ['departing','in_transit','arriving','arrived','uncertain','offline','temporary_context']) {
+  if (!mobileTransitionCore.includes(state)) fail('Mobile transition core is missing required state: ' + state);
+}
+if (!/person_object_identity_linking:false/.test(mobileTransitionCore) || !/temporary_context_site_authority:false/.test(mobileTransitionCore)) fail('Mobile transition core must preserve Section 4 identity and authority boundaries');
 
 if (failures.length) {
   console.error('\nTracky release audit: FAIL\n');
