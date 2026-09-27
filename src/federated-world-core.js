@@ -95,8 +95,8 @@ function normalizeEntity(siteId,item={},now=Date.now()){
 }
 function normalizeRelation(siteId,item={},now=Date.now()){
   semantic(item,'relation');
-  const subject=localId(item.subjectId??item.subject_id,'relation subject');
-  const rawObject=item.objectId??item.object_id??'';
+  const subject=localId(item.subjectId??item.subject_id??item.subject_local_id,'relation subject');
+  const rawObject=item.objectId??item.object_id??item.object_local_id??'';
   const objectId=rawObject===''?'':localId(rawObject,'relation object');
   const temporal=txt(item.temporalState??item.temporal_state??'current',30).toLowerCase();
   const sequence=Math.max(0,Number(item.sequence??item.sequence_no??0)||0);
