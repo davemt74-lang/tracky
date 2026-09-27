@@ -210,8 +210,13 @@ export function applySiteWorldFragment(stateInput,fragmentInput,topology={},now=
     throw new Error('Federated fragment authority does not match the current site authority epoch.');
   }
   const prior=state.sites[fragment.site_id]||null;
-  if(prior&&fragment.revision<prior.revision)return {state,fragment:copy(prior),stale:true,idempotent:false,changed:false};
-  if(prior&&fragment.revision===prior.revision){
+  if(prior&&fragment.authority_epoch<prior.authority_epoch){
+    return {state,fragment:copy(prior),stale:true,idempotent:false,changed:false,reason:'older_authority_epoch'};
+  }
+  if(prior&&fragment.authority_epoch===prior.authority_epoch&&fragment.revision<prior.revision){
+    return {state,fragment:copy(prior),stale:true,idempotent:false,changed:false,reason:'older_world_revision'};
+  }
+  if(prior&&fragment.authority_epoch===prior.authority_epoch&&fragment.revision===prior.revision){
     if(prior.fingerprint!==fragment.fingerprint)throw new Error('Federated fragment revision conflicts with existing site world.');
     return {state,fragment:copy(prior),stale:false,idempotent:true,changed:false};
   }
