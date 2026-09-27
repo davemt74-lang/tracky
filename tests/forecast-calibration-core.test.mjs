@@ -177,6 +177,19 @@ test('profile reports Brier score, calibration error and evidence buckets',()=>{
   assert.equal(profile.eligibleToInfluenceActive,true);
 });
 
+test('raw perception payload keys are rejected at prediction and settlement boundaries',()=>{
+  let state=createForecastCalibrationState(0);
+  assert.throws(()=>recordForecastPrediction(state,{
+    id:'p-raw',kind:'entity-location',modelKey:'location-model',modelVersion:'1',
+    contextKey:'office',rawConfidence:.8,predictedValue:{roomId:'OFFICE',imageDataUrl:'private'}
+  },1000),/cannot retain raw perception payloads/);
+  state=prediction(state,'p-safe',.8);
+  assert.throws(()=>settleForecastPrediction(state,{
+    id:'s-raw',predictionId:'p-safe',authority:'user-confirmed',correctness:1,
+    outcomeValue:{roomId:'OFFICE',embedding:[1,2,3]}
+  },2000),/cannot retain raw perception payloads/);
+});
+
 test('forecast report never stores raw perception payload contracts',()=>{
   const state=seeded(20,{correct:1,confidence:.8});
   const report=forecastCalibrationReport(state);
