@@ -128,13 +128,30 @@ test('federated payload is filtered independently per scope',()=>{
   const out=filterFederatedPayloadForDestination(state,{
     sourceSiteId:HOME,destinationSiteId:OFFICE,
     payload:{
-      federated_world:{protocol:'physical_federated_world.v1',sites:[{site_id:HOME}]},
+      federated_world:{protocol:'physical_federated_world.v1',sites:[{
+        site_id:HOME,
+        entities:[
+          {local_id:'object:keys',type:'object'},
+          {local_id:'person:dave',type:'person'}
+        ],
+        relations:[
+          {subject_local_id:'object:keys',object_local_id:'room:kitchen'},
+          {subject_local_id:'person:dave',object_local_id:'room:kitchen'}
+        ],
+        context:{recent_changes:['Dave entered kitchen']}
+      }]},
       federated_agent_context:{protocol:'physical_federated_agent_context.v1',agent_state:'current'},
+      mobile_transitions:{protocol:'physical_mobile_transition.v1',transitions:[{transition_id:'t1'}]},
       identity_continuity:{protocol:'physical_identity_continuity.v1',identities:[],links:[]}
     }
   });
   assert.ok(out.federated_world);
+  assert.equal(out.federated_world.sites[0].entities.length,1);
+  assert.equal(out.federated_world.sites[0].entities[0].local_id,'object:keys');
+  assert.equal(out.federated_world.sites[0].relations.length,1);
+  assert.deepEqual(out.federated_world.sites[0].context,{});
   assert.ok(out.federated_agent_context);
+  assert.ok(out.mobile_transitions);
   assert.equal(out.identity_continuity,null);
   assert.equal(out.remote_observation_allowed,false);
   assert.ok(out.denied_scopes.includes('identity_continuity_read'));
