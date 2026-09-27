@@ -84,10 +84,7 @@ const requiredFiles = [
   'src/model-lifecycle-store.js',
   'src/site-topology-core.js',
   'src/site-topology-store.js',
-  'src/model-lifecycle-core.js',
-  'src/model-lifecycle-store.js',
-  'src/site-topology-core.js',
-  'src/site-topology-store.js',
+  'src/federated-world-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -270,6 +267,7 @@ for (const file of [
   'src/reliability-policy.js',
   'src/site-topology-core.js',
   'src/site-topology-store.js',
+  'src/federated-world-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2139,6 +2137,12 @@ for (const symbol of ['physical_site_topology.v1','registerSite','registerDevice
   if (!siteTopologyCore.includes(symbol)) fail('Site topology core is missing required V2.78 interface: ' + symbol);
 }
 if (!/cloud_read_only/.test(siteTopologyCore) || !/authority_assignment/.test(siteTopologyCore)) fail('Site topology core must preserve local authority / read-only Cloud boundary');
+
+const federatedWorldCore = read('src/federated-world-core.js');
+for (const symbol of ['physical_federated_world.v1','buildSiteWorldFragment','applySiteWorldFragment','federatedWorldSnapshot','cloudFederatedWorldSummary']) {
+  if (!federatedWorldCore.includes(symbol)) fail('Federated world core is missing required V2.78 Section 2 interface: ' + symbol);
+}
+if (!/cross_site_identity_links/.test(federatedWorldCore) || !/identity_scope:'site_local'/.test(federatedWorldCore)) fail('Federated world must preserve site-local identity until Section 5');
 
 if (failures.length) {
   console.error('\nTracky release audit: FAIL\n');
