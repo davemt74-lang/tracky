@@ -126,17 +126,18 @@ test('authority epoch mismatch is quarantined rather than last-write-wins',()=>{
   assert.equal(result.quarantine.reason,'authority_mismatch');
 });
 
-test('topology-ahead envelopes hold until authority can be verified',()=>{
-  const newer=topology(20);
-  const env=buildFederationEnvelope({fragment:fragment(HOME,12,'keys',newer),topology:newer,destinationSiteId:OFFICE},2600);
-  const older=topology(19);
+test('newer authority epochs hold until local topology can verify them',()=>{
+  const current=topology(20);
+  const env=buildFederationEnvelope({fragment:fragment(HOME,12,'keys',current),topology:current,destinationSiteId:OFFICE},2600);
+  const staleAuthority=topology(99);
+  staleAuthority.sites.find(x=>x.id===HOME).authorityEpoch=1;
   let r=applyFederationEnvelope(
     createFederationSyncState({localSiteId:OFFICE}),createFederatedWorldState(),
-    env,older,{localSiteId:OFFICE},2610
+    env,staleAuthority,{localSiteId:OFFICE},2610
   );
   assert.equal(r.status,'held_topology_ahead');
   assert.equal(r.quarantine.reason,'topology_ahead');
-  r=applyFederationEnvelope(r.state,r.worldState,env,newer,{localSiteId:OFFICE},2620);
+  r=applyFederationEnvelope(r.state,r.worldState,env,current,{localSiteId:OFFICE},2620);
   assert.equal(r.status,'applied');
 });
 
