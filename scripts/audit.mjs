@@ -88,6 +88,7 @@ const requiredFiles = [
   'src/federation-sync-core.js',
   'src/mobile-transition-core.js',
   'src/identity-continuity-core.js',
+  'src/federated-agent-context-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2170,6 +2171,14 @@ for (const symbol of ['physical_identity_continuity.v1','proposeIdentityLink','a
 }
 for (const guard of ['site-local-entity-refs-never-mutated','no-silent-person-merge','independent-evidence-required','raw-perception-never-retained']) {
   if (!identityContinuityCore.includes(guard)) fail('Identity continuity core is missing required safety boundary: ' + guard);
+}
+
+const federatedAgentContextCore = read('src/federated-agent-context-core.js');
+for (const symbol of ['physical_federated_agent_context.v1','buildFederatedAgentContext','cloudFederatedAgentContext','changed_elsewhere','no_location_invention']) {
+  if (!federatedAgentContextCore.includes(symbol)) fail('Federated Agent context core is missing required V2.78 Section 6 interface: ' + symbol);
+}
+for (const guard of ['context_mutation_authority:false','site_authority_mutation:false','cloud_read_only:true']) {
+  if (!federatedAgentContextCore.includes(guard)) fail('Federated Agent context core is missing required read-only boundary: ' + guard);
 }
 
 if (failures.length) {
