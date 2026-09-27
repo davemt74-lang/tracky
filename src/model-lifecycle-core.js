@@ -15,6 +15,11 @@ function safeId(value,label,max=128){
   if(!out||!/^[A-Za-z0-9._:-]{2,128}$/.test(out))throw new Error(label+' is invalid.');
   return out;
 }
+function safeVersion(value,label='modelVersion',max=80){
+  const out=txt(value,max);
+  if(!out||!/^[A-Za-z0-9._:-]{1,80}$/.test(out))throw new Error(label+' is invalid.');
+  return out;
+}
 function semanticCopy(value,depth=0){
   if(depth>8)throw new Error('Model lifecycle semantic value is too deeply nested.');
   if(value==null||['string','number','boolean'].includes(typeof value))return value;
@@ -28,7 +33,7 @@ function semanticCopy(value,depth=0){
   return out;
 }
 function modelId(modelKey,modelVersion){
-  return safeId(modelKey,'modelKey')+'@'+safeId(modelVersion,'modelVersion',80);
+  return safeId(modelKey,'modelKey')+'@'+safeVersion(modelVersion);
 }
 function stableHash(value){
   let h=2166136261;
@@ -146,7 +151,7 @@ export function registerModelCandidate(stateInput,input={},now=Date.now()){
   const model={
     id,
     modelKey:safeId(input.modelKey,'modelKey'),
-    modelVersion:safeId(input.modelVersion,'modelVersion',80),
+    modelVersion:safeVersion(input.modelVersion),
     channel:'shadow',
     status:'evaluating',
     registeredAt:Number(now),
@@ -167,7 +172,7 @@ export function registerModelCandidate(stateInput,input={},now=Date.now()){
 export function recordAccuracySnapshot(stateInput,input={},now=Date.now()){
   const state=hydrateModelLifecycleState(stateInput,now);
   const modelKey=safeId(input.modelKey,'modelKey');
-  const modelVersion=safeId(input.modelVersion,'modelVersion',80);
+  const modelVersion=safeVersion(input.modelVersion);
   const id=modelId(modelKey,modelVersion);
   if(!findModel(state,id))throw new Error('Model must be registered before accuracy can be recorded.');
   const channel=txt(input.channel||'shadow',20);
@@ -225,7 +230,7 @@ export function registerEnvironmentProfile(stateInput,input={},now=Date.now()){
     timeBucket:txt(input.timeBucket||'any',40)||'any',
     seasonBucket:txt(input.seasonBucket||'any',40)||'any',
     modelKey:safeId(input.modelKey,'modelKey'),
-    modelVersion:safeId(input.modelVersion,'modelVersion',80),
+    modelVersion:safeVersion(input.modelVersion),
     calibrationKey:txt(input.calibrationKey||profileKey,128),
     metadata:semanticCopy(input.metadata||{}),
     updatedAt:Number(now)
