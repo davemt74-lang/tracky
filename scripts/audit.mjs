@@ -89,6 +89,7 @@ const requiredFiles = [
   'src/mobile-transition-core.js',
   'src/identity-continuity-core.js',
   'src/federated-agent-context-core.js',
+  'src/federation-policy-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2179,6 +2180,14 @@ for (const symbol of ['physical_federated_agent_context.v1','buildFederatedAgent
 }
 for (const guard of ['context_mutation_authority:false','site_authority_mutation:false','cloud_read_only:true']) {
   if (!federatedAgentContextCore.includes(guard)) fail('Federated Agent context core is missing required read-only boundary: ' + guard);
+}
+
+const federationPolicyCore = read('src/federation-policy-core.js');
+for (const symbol of ['physical_federation_policy.v1','federationPermissionDecision','recognitionDecision','filterFederatedPayloadForDestination','cloudFederationPolicyProjection']) {
+  if (!federationPolicyCore.includes(symbol)) fail('Federation policy core is missing required V2.78 Section 7 interface: ' + symbol);
+}
+for (const guard of ['deny-by-default','revocation-monotonic','raw-perception-never-federated','cloud_can_grant:false','cloud_can_revoke:false','cloud_can_change_consent:false']) {
+  if (!federationPolicyCore.includes(guard)) fail('Federation policy core is missing required Section 7 boundary: ' + guard);
 }
 
 if (failures.length) {
