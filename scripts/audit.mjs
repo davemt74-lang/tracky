@@ -85,6 +85,7 @@ const requiredFiles = [
   'src/site-topology-core.js',
   'src/site-topology-store.js',
   'src/federated-world-core.js',
+  'src/federation-sync-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2143,6 +2144,14 @@ for (const symbol of ['physical_federated_world.v1','buildSiteWorldFragment','ap
   if (!federatedWorldCore.includes(symbol)) fail('Federated world core is missing required V2.78 Section 2 interface: ' + symbol);
 }
 if (!/cross_site_identity_links/.test(federatedWorldCore) || !/identity_scope:'site_local'/.test(federatedWorldCore)) fail('Federated world must preserve site-local identity until Section 5');
+
+const federationSyncCore = read('src/federation-sync-core.js');
+for (const symbol of ['physical_federation_sync.v1','buildFederationEnvelope','applyFederationEnvelope','buildFederationBatch','acknowledgeFederationBatch','federationSyncStatus']) {
+  if (!federationSyncCore.includes(symbol)) fail('Federation sync core is missing required V2.78 Section 3 interface: ' + symbol);
+}
+for (const guard of ['topology_ahead','authority_mismatch','revision_conflict','source_not_federated']) {
+  if (!federationSyncCore.includes(guard)) fail('Federation sync core is missing required conflict guard: ' + guard);
+}
 
 if (failures.length) {
   console.error('\nTracky release audit: FAIL\n');
