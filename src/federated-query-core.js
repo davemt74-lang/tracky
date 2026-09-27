@@ -245,6 +245,10 @@ export function executeFederatedQuery(input={}, context={}){
 
     const targetSiteMismatch=query.target_site_id && query.target_site_id!==site;
     const localId=targetSiteMismatch?'':query.target_local_id;
+    if(localId && remote && /^person:/i.test(localId)){
+      denied.push({site_id:site,reason:'person_query_requires_identity_continuity'});
+      continue;
+    }
     if(localId && remote){
       const currentEntity=entityIn(current,localId);
       const historyEntity=history.some(s=>entityIn(s.fragment,localId));
