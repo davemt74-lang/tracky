@@ -57,6 +57,10 @@ test('site authority is capability-driven, trusted and single-owner',()=>{
   let result=claimSiteAuthority(state,{siteId:SITE_HOME,deviceId:NODE_A},1300);
   state=result.state;
   assert.equal(result.authority.epoch,1);
+  const retry=claimSiteAuthority(state,{siteId:SITE_HOME,deviceId:NODE_A},1301);
+  assert.equal(retry.authority.epoch,1);
+  assert.equal(retry.idempotent,true);
+  state=retry.state;
   state=registerDevice(state,{
     id:NODE_B,label:'Backup Node',siteId:SITE_HOME,hardwareProfile:'Node',trustState:'trusted',
     roles:['site_authority','persistence'],capabilities:{site_authority_eligible:true,reconciliation:true}
@@ -99,6 +103,27 @@ test('authority must be released before move, trust loss, or role loss',()=>{
   state=releaseSiteAuthority(state,{siteId:SITE_HOME,deviceId:NODE_A,reason:'maintenance'},1620).state;
   state=assignDeviceToSite(state,{deviceId:NODE_A,siteId:SITE_OFFICE},1630).state;
   assert.equal(topologySnapshot(state).devices[0].siteId,SITE_OFFICE);
+});
+
+test('active authority cannot be mutated out of eligibility through registration',()=>{
+  let state=authorityNode(withSites());
+  state=claimSiteAuthority(state,{siteId:SITE_HOME,deviceId:NODE_A},1650).state;
+  assert.throws(()=>registerDevice(state,{
+    id:NODE_A,siteId:SITE_OFFICE,hardwareProfile:'Node',trustState:'trusted',
+    roles:['site_authority'],capabilities:{site_authority_eligible:true}
+  },1651),/Release site authority/);
+  assert.throws(()=>registerDevice(state,{
+    id:NODE_A,siteId:SITE_HOME,hardwareProfile:'Node',trustState:'revoked',
+    roles:['site_authority'],capabilities:{site_authority_eligible:true}
+  },1652),/Release site authority/);
+  assert.throws(()=>registerDevice(state,{
+    id:NODE_A,siteId:SITE_HOME,hardwareProfile:'Node',trustState:'trusted',
+    roles:['perception'],capabilities:{site_authority_eligible:true}
+  },1653),/Release site authority/);
+  assert.throws(()=>registerDevice(state,{
+    id:NODE_A,siteId:SITE_HOME,hardwareProfile:'Node',trustState:'trusted',
+    roles:['site_authority'],capabilities:{site_authority_eligible:false}
+  },1654),/Release site authority/);
 });
 
 test('topology relationships are typed and reference registered entities',()=>{
