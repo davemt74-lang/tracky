@@ -82,8 +82,12 @@ const requiredFiles = [
   'src/forecast-calibration-store.js',
   'src/model-lifecycle-core.js',
   'src/model-lifecycle-store.js',
+  'src/site-topology-core.js',
+  'src/site-topology-store.js',
   'src/model-lifecycle-core.js',
   'src/model-lifecycle-store.js',
+  'src/site-topology-core.js',
+  'src/site-topology-store.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -264,6 +268,8 @@ for (const file of [
   'src/ground-truth-store.js',
   'src/operational-health-core.js',
   'src/reliability-policy.js',
+  'src/site-topology-core.js',
+  'src/site-topology-store.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2128,6 +2134,12 @@ if (!/audioWorklet\.addModule/.test(roomAudio) || !/createScriptProcessor/.test(
   fail('Room audio must provide AudioWorklet primary path and ScriptProcessor fallback');
 }
 
+const siteTopologyCore = read('src/site-topology-core.js');
+for (const symbol of ['physical_site_topology.v1','registerSite','registerDevice','claimSiteAuthority','releaseSiteAuthority','cloudTopologySummary']) {
+  if (!siteTopologyCore.includes(symbol)) fail('Site topology core is missing required V2.78 interface: ' + symbol);
+}
+if (!/cloud_read_only/.test(siteTopologyCore) || !/authority_assignment/.test(siteTopologyCore)) fail('Site topology core must preserve local authority / read-only Cloud boundary');
+
 if (failures.length) {
   console.error('\nTracky release audit: FAIL\n');
   for (const failure of failures) console.error(' - ' + failure);
@@ -2140,3 +2152,5 @@ console.log(
   'Checked ' + requiredFiles.length +
   ' release files, Agent Eyes DOM contracts, person/object/scene/camera/environment/multi-room interfaces, temporal memory, multi-camera fusion, environment baselines, assisted mapping, room topology, cross-room continuity, visibility reasoning, learned spatial memory, expected-location evidence, entity journeys, proposal governance, privacy zones, observation-policy enforcement, anonymization, retention gating, masked environment capture, task-conditioned perception, adaptive budgets, attention queue governance, proactive anomaly verification, persistent anomaly history, privacy-gated anomaly derivation, physical-world recall, provenance-backed explanations, privacy-aware timeline queries, compact query history, natural-language watch interpretation, ambiguity-safe watch management, persistent Agent briefings, briefing acknowledgement, proactive delivery policy, delivery queue coalescing, reconnect recovery, digest delivery, voice handoff boundaries, persistent physical goals, observation-aware expectations, recurring semantic routines, natural-language goal management, goal briefing integration, temporal windows, deadline expectations, durable grace periods, predictive routine sequences, multi-session learned routine proposals, temporal-location learning, explicit proposal confirmation, routine health, authoritative ground truth reconciliation, fact authority, confidence freshness decay, reboot recovery, continuity ambiguity, explicit physical-world corrections, canonical semantic reads, shared governed projection, dirty reconciliation, semantic input fingerprints, write-on-change persistence, reversible correction lifecycle, runtime controller modularization, reliability soak coverage, calibration and cached coverage health, operational reliability diagnostics, Agent ground-truth explanations, scene graph, physical world state, privacy policy, replay contracts, calibration, evidence inspectors, provider configuration, imports, model pins, runtime safety, experiments, and deploy manifest.'
 );
+
+
