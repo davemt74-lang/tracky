@@ -162,6 +162,14 @@ export function registerDevice(stateInput,input={},now=Date.now()){
     createdAt:existing?.createdAt||Number(now),updatedAt:Number(now)
   };
   if(normalized.mobility==='mobile'&&normalized.roles.includes('site_authority'))throw new Error('Mobile devices cannot be assigned the site_authority role.');
+  const activeAuthority=existing&&state.authority.find((row)=>row.deviceId===id&&row.active);
+  if(activeAuthority){
+    if(normalized.siteId!==activeAuthority.siteId)throw new Error('Release site authority before moving the device to another site.');
+    if(normalized.trustState!=='trusted')throw new Error('Release site authority before removing device trust.');
+    if(!normalized.roles.includes('site_authority'))throw new Error('Release site authority before removing the site_authority role.');
+    if(normalized.capabilities.site_authority_eligible!==true)throw new Error('Release site authority before removing authority eligibility.');
+    if(normalized.mobility==='mobile')throw new Error('Release site authority before making the device mobile.');
+  }
   if(existing){
     const index=state.devices.findIndex((device)=>device.id===id);state.devices[index]=normalized;
   }else state.devices=[...state.devices,normalized].slice(-512);
@@ -232,6 +240,7 @@ export function claimSiteAuthority(stateInput,input={},now=Date.now()){
   if(device.siteId!==siteId)throw new Error('Authority device must belong to the site.');
   assertSiteAuthorityEligible(device);
   const active=state.authority.find((row)=>row.siteId===siteId&&row.active);
+  if(active&&active.deviceId===deviceId)return {state,authority:copy(active),replaced:null,idempotent:true};
   if(active&&active.deviceId!==deviceId&&!input.replace)throw new Error('Site already has an active authority device.');
   const epoch=Math.max(0,...state.authority.filter((row)=>row.siteId===siteId).map((row)=>Number(row.epoch)||0))+1;
   for(const row of state.authority){if(row.siteId===siteId&&row.active){row.active=false;row.releasedAt=Number(now);row.releaseReason=txt(input.reason||'authority_replaced',200);}}
