@@ -277,6 +277,23 @@ export function recognitionDecision(stateInput,input={}){
   return {allowed:true,reason:'site_scoped_consent',revision:Number(consent.revision||0),revocation_epoch:Number(state.revocationEpoch||0)};
 }
 
+function filterWorld(input){
+  if(!input||typeof input!=='object')return input??null;
+  const out=copy(input);
+  const filterFragment=(fragment)=>{
+    if(!fragment||typeof fragment!=='object')return fragment;
+    const f=copy(fragment);
+    const denied=new Set(arr(f.entities).filter(e=>e&&e.type==='person').map(e=>String(e.local_id||'')).filter(Boolean));
+    f.entities=arr(f.entities).filter(e=>e&&e.type!=='person');
+    f.relations=arr(f.relations).filter(r=>r&&!denied.has(String(r.subject_local_id||''))&&!denied.has(String(r.object_local_id||'')));
+    f.context={};
+    return f;
+  };
+  if(Array.isArray(out.sites))out.sites=out.sites.map(filterFragment);
+  else if(Array.isArray(out.entities)||Array.isArray(out.relations))return filterFragment(out);
+  return out;
+}
+
 function filterIdentity(input,state,source,destination){
   const identities=arr(input?.identities);
   const links=arr(input?.links);
@@ -315,8 +332,9 @@ export function filterFederatedPayloadForDestination(stateInput,input={}){
     revocation_epoch:Number(state.revocationEpoch||0),
     policy_revision:Number(state.revision||0),
     semantic_only:true,raw_perception:false,
-    federated_world:worldDecision.allowed?copy(payload.federated_world??null):null,
+    federated_world:worldDecision.allowed?filterWorld(payload.federated_world??null):null,
     federated_agent_context:agentDecision.allowed?copy(payload.federated_agent_context??null):null,
+    mobile_transitions:agentDecision.allowed?copy(payload.mobile_transitions??null):null,
     identity_continuity:identityDecision.allowed&&payload.identity_continuity
       ?filterIdentity(payload.identity_continuity,state,source,destination):null,
     remote_observation_allowed:remoteDecision.allowed,
