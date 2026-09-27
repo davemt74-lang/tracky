@@ -227,13 +227,13 @@ export function beginMobileTransition(stateInput,input={},now=Date.now()){
   const destinationSiteId=input.destinationSiteId??input.destination_site_id
     ?uuid(input.destinationSiteId??input.destination_site_id,'destination site id'):'';
   if(destinationSiteId&&destinationSiteId===sourceSiteId)throw new Error('Transition destination must differ from source site.');
+  const transitionId=id(input.transitionId??input.transition_id??nextTransitionId(sub,sourceSiteId,now),'transition id');
+  const key=transitionKey(sub,transitionId);
+  if(state.transitions[key])return {state,transition:copy(state.transitions[key]),idempotent:true};
   const active=activeTransitionFor(state,sub);
   if(active&&!['arrived','canceled'].includes(active.state)){
     throw new Error('Subject already has an active mobile transition.');
   }
-  const transitionId=id(input.transitionId??input.transition_id??nextTransitionId(sub,sourceSiteId,now),'transition id');
-  const key=transitionKey(sub,transitionId);
-  if(state.transitions[key])return {state,transition:copy(state.transitions[key]),idempotent:true};
   const transition={
     key,transition_id:transitionId,
     subject_kind:sub.kind,subject_id:sub.id,subject_scope:sub.scope,
