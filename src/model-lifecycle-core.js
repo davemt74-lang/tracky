@@ -172,6 +172,9 @@ export function recordAccuracySnapshot(stateInput,input={},now=Date.now()){
   if(!findModel(state,id))throw new Error('Model must be registered before accuracy can be recorded.');
   const channel=txt(input.channel||'shadow',20);
   if(!['shadow','canary','active'].includes(channel))throw new Error('Accuracy snapshot channel is invalid.');
+  const snapshotId=safeId(input.id||('accuracy-'+id.replace('@','-')+'-'+now),'accuracy snapshot id');
+  const existing=arr(state.accuracySnapshots).find((item)=>item.id===snapshotId);
+  if(existing)return {state,snapshot:copyValue(existing),created:false,idempotent:true};
   const metrics={
     settledCount:Math.max(0,Number(input.settledCount)||0),
     empiricalAccuracy:input.empiricalAccuracy==null?null:clamp01(input.empiricalAccuracy),
@@ -181,14 +184,14 @@ export function recordAccuracySnapshot(stateInput,input={},now=Date.now()){
     p95LatencyMs:Math.max(0,Number(input.p95LatencyMs)||0)
   };
   const row={
-    id:safeId(input.id||('accuracy-'+id.replace('@','-')+'-'+now),'accuracy snapshot id'),
+    id:snapshotId,
     modelId:id,modelKey,modelVersion,channel,
     contextKey:txt(input.contextKey||'global',120)||'global',
     metrics,observedAt:Number(input.observedAt||now)
   };
   state.accuracySnapshots=[...state.accuracySnapshots,row].slice(-RELIABILITY_POLICY.modelLifecycle.maxAccuracySnapshots);
   state.updatedAt=Number(now);
-  return {state,snapshot:copyValue(row)};
+  return {state,snapshot:copyValue(row),created:true,idempotent:false};
 }
 export function importCalibrationReport(stateInput,report={},now=Date.now()){
   let state=hydrateModelLifecycleState(stateInput,now);
