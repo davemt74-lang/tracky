@@ -215,7 +215,7 @@ export function buildFederatedAgentContext(input={},now=Date.now()){
   const identity=input.identityContinuity??input.identity_continuity??{};
   const localSite=input.localSiteId??input.local_site_id?uuid(input.localSiteId??input.local_site_id,'local site id'):'';
   const currentAgeMs=Math.max(1000,Number(input.currentAgeMs??input.current_age_ms??120000));
-  const staleMs=Math.max(currentAgeMs,Number(input.siteStaleAgeMs??input.site_stale_age_ms??300000));
+  const staleMs=Math.max(1000,Number(input.siteStaleAgeMs??input.site_stale_age_ms??300000));
 
   const topoById=new Map(topologySites(topology).map(s=>[siteId(s),s]));
   const worldById=new Map(worldSites(world).map(s=>[worldSiteId(s),s]));
