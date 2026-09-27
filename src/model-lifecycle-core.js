@@ -401,6 +401,22 @@ export function enforceActiveHealth(stateInput,input={},now=Date.now()){
     return {state,action:'degraded',drift,decision:d};
   }
 }
+export function enforceLatestActiveHealth(stateInput,input={},now=Date.now()){
+  const state=hydrateModelLifecycleState(stateInput,now);
+  const id=modelId(input.modelKey,input.modelVersion);
+  const active=findModel(state,id);
+  if(!active||active.channel!=='active')return {state,action:'none',reason:'not_active'};
+  const snapshots=arr(state.accuracySnapshots)
+    .filter((x)=>x.modelId===id&&x.channel==='active')
+    .sort((a,b)=>Number(a.observedAt||0)-Number(b.observedAt||0));
+  if(snapshots.length<2)return {state,action:'none',reason:'insufficient_active_history'};
+  const baseline=snapshots[0].metrics;
+  const current=snapshots[snapshots.length-1].metrics;
+  return enforceActiveHealth(state,{
+    modelKey:active.modelKey,modelVersion:active.modelVersion,baseline,current
+  },now);
+}
+
 export function modelLifecycleReport(stateInput){
   const state=hydrateModelLifecycleState(stateInput);
   const active=state.models.filter((x)=>x.channel==='active');
