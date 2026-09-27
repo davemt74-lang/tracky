@@ -13,6 +13,19 @@ export const FORECAST_OUTCOME_AUTHORITY=Object.freeze({
 });
 
 function clone(value){return JSON.parse(JSON.stringify(value));}
+const FORBIDDEN_RAW_KEYS=/^(?:imageDataUrl|image|frame|frameData|rawFrame|video|audio|embedding|embeddings|blob|bytes|pixels)$/i;
+function semanticClone(value,depth=0){
+  if(depth>8)throw new Error('Forecast semantic value is too deeply nested.');
+  if(value==null||['string','number','boolean'].includes(typeof value))return value;
+  if(Array.isArray(value))return value.slice(0,64).map((item)=>semanticClone(item,depth+1));
+  if(typeof value!=='object')return null;
+  const out={};
+  for(const [key,item] of Object.entries(value).slice(0,64)){
+    if(FORBIDDEN_RAW_KEYS.test(key))throw new Error('Forecast calibration cannot retain raw perception payloads.');
+    out[txt(key,80)]=semanticClone(item,depth+1);
+  }
+  return out;
+}
 function idText(value,label){
   const out=txt(value,128);
   if(!out||!/^[A-Za-z0-9._:-]{3,128}$/.test(out))throw new Error(label+' is invalid.');
@@ -185,12 +198,12 @@ export function recordForecastPrediction(stateInput,input={},now=Date.now()){
     predictedAt:Number(input.predictedAt||now),
     horizonMs:Math.max(0,Math.min(Number(input.horizonMs)||0,RELIABILITY_POLICY.calibration.maximumHorizonMs)),
     rawConfidence,
-    predictedValue:clone(input.predictedValue??null),
+    predictedValue:semanticClone(input.predictedValue??null),
     subjectId:txt(input.subjectId||'',128)||null,
     roomId:txt(input.roomId||'',128)||null,
     sourceEvidenceIds:arr(input.sourceEvidenceIds).map((v)=>txt(v,128)).filter(Boolean).slice(0,24),
     profileKey:predictionKey({...input,channel}),
-    metadata:clone(input.metadata&&typeof input.metadata==='object'?input.metadata:{})
+    metadata:semanticClone(input.metadata&&typeof input.metadata==='object'?input.metadata:{})
   };
   state.predictions=[...state.predictions,prediction].slice(-RELIABILITY_POLICY.calibration.maxPredictions);
   state.updatedAt=Number(now);
@@ -223,7 +236,7 @@ export function settleForecastPrediction(stateInput,input={},now=Date.now()){
     authority,
     authorityWeight:FORECAST_OUTCOME_AUTHORITY[authority],
     correctness,
-    outcomeValue:clone(input.outcomeValue??null),
+    outcomeValue:semanticClone(input.outcomeValue??null),
     evidenceIds:arr(input.evidenceIds).map((v)=>txt(v,128)).filter(Boolean).slice(0,24),
     reason:txt(input.reason||'',500),
     supersedesSettlementId:input.supersedesSettlementId?String(input.supersedesSettlementId):null
