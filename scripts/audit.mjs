@@ -90,6 +90,7 @@ const requiredFiles = [
   'src/identity-continuity-core.js',
   'src/federated-agent-context-core.js',
   'src/federation-policy-core.js',
+  'src/federated-query-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2188,6 +2189,15 @@ for (const symbol of ['physical_federation_policy.v1','federationPermissionDecis
 }
 for (const guard of ['deny-by-default','revocation-monotonic','raw-perception-never-federated','cloud_can_grant:false','cloud_can_revoke:false','cloud_can_change_consent:false']) {
   if (!federationPolicyCore.includes(guard)) fail('Federation policy core is missing required Section 7 boundary: ' + guard);
+}
+
+
+const federatedQueryCore = read('src/federated-query-core.js');
+for (const symbol of ['physical_federated_query.v1','normalizeFederatedQuery','normalizeFederatedHistorySnapshot','executeFederatedQuery','federatedQueryCapability']) {
+  if (!federatedQueryCore.includes(symbol)) fail('Federated query core is missing required V2.78 Section 8 interface: ' + symbol);
+}
+for (const guard of ['history-deny-by-default','person-query-via-identity-continuity','no-location-invention','raw-perception-never-queryable','cloud-mirror-only']) {
+  if (!federatedQueryCore.includes(guard)) fail('Federated query core is missing required Section 8 boundary: ' + guard);
 }
 
 if (failures.length) {
