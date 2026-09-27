@@ -87,6 +87,7 @@ const requiredFiles = [
   'src/federated-world-core.js',
   'src/federation-sync-core.js',
   'src/mobile-transition-core.js',
+  'src/identity-continuity-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2162,6 +2163,14 @@ for (const state of ['departing','in_transit','arriving','arrived','uncertain','
   if (!mobileTransitionCore.includes(state)) fail('Mobile transition core is missing required state: ' + state);
 }
 if (!/person_object_identity_linking:false/.test(mobileTransitionCore) || !/temporary_context_site_authority:false/.test(mobileTransitionCore)) fail('Mobile transition core must preserve Section 4 identity and authority boundaries');
+
+const identityContinuityCore = read('src/identity-continuity-core.js');
+for (const symbol of ['physical_identity_continuity.v1','proposeIdentityLink','addIdentityEvidence','evaluateIdentityLink','rejectIdentityLink','splitIdentityLink','revokeCanonicalIdentity','resolveCanonicalIdentity','cloudIdentityContinuityProjection']) {
+  if (!identityContinuityCore.includes(symbol)) fail('Identity continuity core is missing required V2.78 Section 5 interface: ' + symbol);
+}
+for (const guard of ['site-local-entity-refs-never-mutated','no-silent-person-merge','independent-evidence-required','raw-perception-never-retained']) {
+  if (!identityContinuityCore.includes(guard)) fail('Identity continuity core is missing required safety boundary: ' + guard);
+}
 
 if (failures.length) {
   console.error('\nTracky release audit: FAIL\n');
