@@ -78,7 +78,7 @@ export function evaluateFederationOperation(input={},now=Date.now()){
   const requiresApproval=HIGH_RISK.has(op)||agentOnly||input.require_approval===true;
   const executable=hardBlocks.length===0&&actorCanOperate;
   const state=hardBlocks.length?'rejected':requiresApproval?'awaiting_approval':'approved';
-  const requiresReconciliation=['reconnect','reconcile','restart_runtime','request_update','transfer_authority'].includes(op);
+  const requiresReconciliation=['reconnect','reconcile','restart_runtime','transfer_authority'].includes(op);
   return {
     protocol:FEDERATION_GOVERNED_OPERATIONS_PROTOCOL,version:FEDERATION_GOVERNED_OPERATIONS_VERSION,schema_version:1,
     request_id:requestId,idempotency_key:idempotencyKey,operation_type:op,target_site_id:targetSite,device_id:deviceId||null,
@@ -145,6 +145,6 @@ export function federationGovernedOperationsCapability(){
     operations:[...FEDERATION_OPERATION_TYPES],states:[...FEDERATION_OPERATION_STATES],
     idempotent_requests:true,monotonic_state_machine:true,durable_audit_required:true,approval_required_for_high_risk:true,operation_expiration:true,revocation_wins:true,
     agent_proposal_only:true,cloud_execution_allowed:false,authority_transfer_automatic:false,
-    authority_transfer_requires_epoch_advance:true,completion_requires_authoritative_reconciliation:true,
+    authority_transfer_requires_epoch_advance:true,completion_requires_authoritative_reconciliation:true,update_request_not_install:true,rollback_delegated_to_rollout_runtime:true,
     section7_health_is_authoritative:true};
 }
