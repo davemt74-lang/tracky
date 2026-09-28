@@ -2193,6 +2193,13 @@ for (const guard of ['deny-by-default','revocation-monotonic','raw-perception-ne
 }
 
 
+const goldenMultisiteScenarios = JSON.parse(read('tests/fixtures/tracky_v278_golden_multisite_scenarios.json'));
+if (goldenMultisiteScenarios.format !== 'tracky_v278_golden_multisite_scenarios.v1') fail('Golden multi-site scenario library format is invalid.');
+if (!Array.isArray(goldenMultisiteScenarios.scenarios) || goldenMultisiteScenarios.scenarios.length < 10) fail('Golden multi-site scenario library must retain at least 10 release scenarios.');
+for (const id of ['transport-partition-stale-query','reconnect-revision-gap-full-snapshot','authority-epoch-change-revalidation','same-revision-fingerprint-conflict','restart-during-reconciliation','three-site-cloud-relay-no-authority']) {
+  if (!goldenMultisiteScenarios.scenarios.some(item => item?.id === id)) fail('Golden multi-site scenario library is missing: ' + id);
+}
+
 const federationReconciliationCore = read('src/federation-reconciliation-core.js');
 for (const symbol of ['physical_federation_reconciliation.v1','createFederationReconciliationState','markFederationPartition','buildFederationReconciliationRequest','applyFederationReconciliationResult','annotateFederatedQueryFreshness']) {
   if (!federationReconciliationCore.includes(symbol)) fail('Federation reconciliation core is missing required V2.78 Section 9 interface: ' + symbol);
