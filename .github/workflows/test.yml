@@ -135,7 +135,8 @@ jobs:
           unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/ground-truth-runtime-core.js"
           unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/ground-truth-runtime-controller.js"
           unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/agent-runtime-context-core.js"
-          unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/federated-automation-trigger-runtime.js"\n          unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/federated-automation-execution-runtime.js"
+          unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/federated-automation-trigger-runtime.js"
+          unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/federated-automation-execution-runtime.js"
           sha256sum tracky-v2.6.1-deploy.zip
 
       - name: Upload deploy ZIP
