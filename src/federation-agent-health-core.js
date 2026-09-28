@@ -125,7 +125,7 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
     severity:severity(relayHealth,0,0),cause:relay.last_error?'cloud_relay_error':'cloud_relay_'+relay.state,
     recovery_complete:relayHealth==='current',message:relayHealth==='current'?'VP3 Cloud relay is connected or not required.':relayHealth==='recovering'?'VP3 Cloud relay is reconnecting; federation recovery is not yet complete.':'VP3 Cloud relay is unavailable.'
   };
-  if(relayRow.previous_state&&relayRow.previous_state!==relayHealth){
+  if((relayRow.previous_state&&relayRow.previous_state!==relayHealth)||(!relayRow.previous_state&&relayHealth!=='current')){
     events.push({
       event_id:'federation-health:vp3-cloud-relay:'+relayHealth+':'+String(Number(now)),
       event_type:relayHealth==='current'?'relay.recovered':'relay.'+relayHealth,component:'vp3_cloud_relay',
@@ -172,14 +172,16 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
     sites.push(row);
     eventState[id]={state,state_since:stateSince,transition_times:times.slice(-20)};
     const changed=!previousState||previousState!==state;
-    if(changed&&!(state==='current'&&!previousState)){
-      const type=eventType(state,previousState);
+    const priorSeverity=txt(prior?.severity||'info',20);
+    const escalated=!changed&&(severityRank[sev]??0)>(severityRank[priorSeverity]??0);
+    if((changed||escalated)&&!(state==='current'&&!previousState)){
+      const type=escalated?'site.escalated':eventType(state,previousState);
       events.push({
         event_id:'federation-health:'+id+':'+state+':'+String(Number(now)),
         event_type:type,site_id:id,label:row.label,state,previous_state:previousState||null,
         severity:sev,importance:sev==='critical'?0.95:sev==='warning'?0.75:0.55,
         priority:sev==='critical'?'priority':'normal',
-        title:row.title,summary:row.message,cause:row.cause,trust:copy(row.trust),
+        title:escalated?(row.label+' health escalated'):row.title,summary:row.message,cause:row.cause,trust:copy(row.trust),
         recovery_complete:row.recovery_complete,voice_eligible:sev!=='info'||type==='site.recovered',
         dedupe_key:id+'|'+state+'|'+row.cause,
         flap_count_10m:flapCount,occurred_at_ms:Number(now)
@@ -189,8 +191,10 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
   const nonCurrent=sites.filter(s=>s.state!=='current');
   let overall='current';
   for(const row of sites)if((rank[row.state]??1)>(rank[overall]??0))overall=row.state;
+  if((rank[relayHealth]??0)>(rank[overall]??0))overall=relayHealth;
   const visible=sites.filter(s=>s.agent_visible);
-  const priorityEvents=events.filter(e=>e.severity==='critical'||e.event_type==='site.recovered');
+  const relayIssue=relayHealth!=='current'?{component:'vp3_cloud_relay',state:relayHealth,severity:relayRow.severity,cause:relayRow.cause,message:relayRow.message}:null;
+  const priorityEvents=events.filter(e=>e.severity==='critical'||e.event_type==='site.recovered'||e.event_type==='relay.recovered');
   return {
     protocol:FEDERATION_AGENT_HEALTH_PROTOCOL,version:FEDERATION_AGENT_HEALTH_VERSION,schema_version:1,
     generated_at:Number(now),local_site_id:siteId(operations.local_site_id),overall_state:overall,relay,relay_health:relayRow,sites,events,event_state:eventState,
@@ -203,8 +207,14 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
     agent_context:{
       overall_state:overall,
       sites:visible.map(s=>({site_id:s.site_id,label:s.label,state:s.state,severity:s.severity,cause:s.cause,fresh:s.fresh,recovery_complete:s.recovery_complete,trust:s.trust})),
-      active_issues:visible.filter(s=>s.state!=='current').map(s=>({site_id:s.site_id,label:s.label,state:s.state,severity:s.severity,cause:s.cause,message:s.message,trust:s.trust})).slice(0,24),
-      summary:nonCurrent.length?nonCurrent.map(s=>s.label+' is '+s.state).slice(0,6).join('; '):'All authorized federation sites are current.',
+      active_issues:[
+        ...visible.filter(s=>s.state!=='current').map(s=>({site_id:s.site_id,label:s.label,state:s.state,severity:s.severity,cause:s.cause,message:s.message,trust:s.trust})),
+        ...(relayIssue?[relayIssue]:[])
+      ].slice(0,24),
+      summary:(nonCurrent.length||relayIssue)?[
+        ...nonCurrent.map(s=>s.label+' is '+s.state).slice(0,6),
+        ...(relayIssue?['VP3 Cloud relay is '+relayHealth]:[])
+      ].join('; '):'All authorized federation sites and the Cloud relay are current.',
       recovery_requires_authoritative_reconciliation:true,
       connectivity_returned_is_not_recovery:true
     },
