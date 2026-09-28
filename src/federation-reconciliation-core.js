@@ -345,7 +345,7 @@ export function annotateFederatedQueryFreshness(resultInput,stateInput,now=Date.
       row.federation_freshness={site_id:siteId,status:'current',fresh:true,age_ms:0,reconciliation_required:false};
     }else{
       row.federation_freshness=federationFreshnessForSite(state,siteId,now);
-      if(!row.federation_freshness.fresh) staleCount++;
+      if(['partitioned','reconciling','stale','failed'].includes(row.federation_freshness.status)) staleCount++;
     }
     freshness.push(copy(row.federation_freshness));
   }
