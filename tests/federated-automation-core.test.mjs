@@ -24,11 +24,11 @@ test('normalizes a governed cross-site automation DAG',()=>{
  assert.equal(d.safety.execution_enabled,false);assert.equal(d.safety.origin_homeserver_authoritative,true);
 });
 test('rejects dependency cycles and unpermitted physical actions',()=>{
- assert.throws(()=>normalizeFederatedAutomationDefinition({origin_site_id:HOME,actor:owner,steps:[
+ assert.throws(()=>normalizeFederatedAutomationDefinition({automation_id:'fa:cycle',origin_site_id:HOME,actor:owner,steps:[
   {step_id:'a',action_type:'data_operation',authority_site_id:HOME,action_key:'a',depends_on:['b']},
   {step_id:'b',action_type:'data_operation',authority_site_id:HOME,action_key:'b',depends_on:['a']}
  ]}),/dependency_cycle/);
- assert.throws(()=>normalizeFederatedAutomationDefinition({origin_site_id:HOME,actor:owner,steps:[
+ assert.throws(()=>normalizeFederatedAutomationDefinition({automation_id:'fa:no-permission',origin_site_id:HOME,actor:owner,steps:[
   {step_id:'a',action_type:'physical_action',authority_site_id:HOME,action_key:'light.on'}
  ]}),/physical_action_permission_required/);
 });
