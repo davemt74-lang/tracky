@@ -100,7 +100,7 @@ function relayProjection(relay={}){
   const state=txt(cloud?.state||'unknown',30).toLowerCase();
   return {
     state:['connected','reconnecting','offline','not_connected'].includes(state)?state:'unknown',
-    connected:!!cloud?.connected,last_seen_at:cloud?.last_seen_at??null,last_error:txt(cloud?.last_error,240),
+    connected:!!cloud?.connected,paired:!!cloud?.paired,last_seen_at:cloud?.last_seen_at??null,last_error:txt(cloud?.last_error,240),
     transport:txt(cloud?.transport,40)
   };
 }
@@ -115,6 +115,26 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
   const sites=[];
   const events=[];
   const eventState={};
+  const previousRelay=previous?.relay_health&&typeof previous.relay_health==='object'?previous.relay_health:{};
+  let relayHealth='current';
+  if(relay.paired&&relay.state==='offline')relayHealth='offline';
+  else if(relay.paired&&relay.state==='reconnecting')relayHealth='recovering';
+  else if(relay.paired&&!relay.connected&&relay.state!=='not_connected')relayHealth='degraded';
+  const relayRow={
+    component:'vp3_cloud_relay',state:relayHealth,previous_state:txt(previousRelay.state||'',30)||null,
+    severity:severity(relayHealth,0,0),cause:relay.last_error?'cloud_relay_error':'cloud_relay_'+relay.state,
+    recovery_complete:relayHealth==='current',message:relayHealth==='current'?'VP3 Cloud relay is connected or not required.':relayHealth==='recovering'?'VP3 Cloud relay is reconnecting; federation recovery is not yet complete.':'VP3 Cloud relay is unavailable.'
+  };
+  if(relayRow.previous_state&&relayRow.previous_state!==relayHealth){
+    events.push({
+      event_id:'federation-health:vp3-cloud-relay:'+relayHealth+':'+String(Number(now)),
+      event_type:relayHealth==='current'?'relay.recovered':'relay.'+relayHealth,component:'vp3_cloud_relay',
+      severity:relayRow.severity,importance:relayRow.severity==='critical'?0.95:0.75,priority:relayRow.severity==='critical'?'priority':'normal',
+      title:relayHealth==='current'?'VP3 Cloud relay recovered':'VP3 Cloud relay '+relayHealth,
+      summary:relayRow.message,cause:relayRow.cause,recovery_complete:relayRow.recovery_complete,
+      voice_eligible:true,dedupe_key:'vp3_cloud_relay|'+relayHealth+'|'+relayRow.cause,flap_count_10m:0,occurred_at_ms:Number(now)
+    });
+  }
   for(const site of arr(operations.sites)){
     if(!site||typeof site!=='object')continue;
     const id=siteId(site.id??site.site_id);if(!id)continue;
@@ -173,7 +193,7 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
   const priorityEvents=events.filter(e=>e.severity==='critical'||e.event_type==='site.recovered');
   return {
     protocol:FEDERATION_AGENT_HEALTH_PROTOCOL,version:FEDERATION_AGENT_HEALTH_VERSION,schema_version:1,
-    generated_at:Number(now),overall_state:overall,relay,sites,events,event_state:eventState,
+    generated_at:Number(now),overall_state:overall,relay,relay_health:relayRow,sites,events,event_state:eventState,
     counts:{
       sites:sites.length,current:sites.filter(s=>s.state==='current').length,
       degraded:sites.filter(s=>['degraded','stale','reconciling','recovering'].includes(s.state)).length,
