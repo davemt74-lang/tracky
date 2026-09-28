@@ -15,6 +15,13 @@ export const ACTION_TYPES=Object.freeze(['physical_action','local_routine','agen
 
 const RUN_TERMINAL=new Set(['completed','failed','cancelled','expired']);
 const STEP_TERMINAL=new Set(['completed','failed','cancelled','expired']);
+const STEP_TRANSITIONS={
+ pending:new Set(['blocked','ready','cancelled','expired','failed']),
+ blocked:new Set(['ready','cancelled','expired','failed']),
+ ready:new Set(['running','blocked','cancelled','expired','failed']),
+ running:new Set(['completed','failed','cancelled','expired']),
+ completed:new Set(),failed:new Set(),cancelled:new Set(),expired:new Set()
+};
 const RUN_TRANSITIONS={
  planned:new Set(['waiting','ready','blocked','cancelled','expired','failed']),
  waiting:new Set(['ready','blocked','recovering','cancelled','expired','failed']),
@@ -184,6 +191,7 @@ export function appendAutomationRunEvent(ledger=[],event={},now=Date.now()){
     if(RUN_TERMINAL.has(row.state))throw new Error('terminal_run');
     if(!RUN_TRANSITIONS[row.state]?.has(next))throw new Error('invalid_run_transition');
   }
+  if(['running','completed'].includes(next)&&row.safety?.execution_enabled!==true)throw new Error('section1_execution_disabled');
   const at=num(event.occurred_at_ms)||num(now);
   rows[idx]={...row,state:next,updated_at_ms:at,last_event:{state:next,reason:txt(event.reason,240),occurred_at_ms:at},
     recovery:{...row.recovery,resume_required:next==='recovering',last_checkpoint_ms:at}};
@@ -198,13 +206,14 @@ export function appendAutomationStepEvent(run={},event={},now=Date.now()){
   const next=txt(event.state,30).toLowerCase();
   if(!STEP_STATES.includes(next))throw new Error('step_state_invalid');
   if(STEP_TERMINAL.has(step.state)&&step.state!==next)throw new Error('terminal_step');
+  if(step.state!==next&&!STEP_TRANSITIONS[step.state]?.has(next))throw new Error('invalid_step_transition');
+  if(['running','completed'].includes(next)&&copyRun.safety?.execution_enabled!==true)throw new Error('section1_execution_disabled');
   if(next==='running'&&event.authoritative_homeserver!==true)throw new Error('authoritative_homeserver_required');
   if(next==='running'&&event.permissions_granted!==true)throw new Error('permissions_required');
-  if(next==='running'&&copyRun.safety?.execution_enabled!==true)throw new Error('section1_execution_disabled');
   step.state=next;step.updated_at_ms=num(event.occurred_at_ms)||num(now);
   step.last_error=next==='failed'?txt(event.error,500):null;
   step.dispatch_id=txt(event.dispatch_id,160)||step.dispatch_id;
-  if(next==='running')step.attempt=Math.max(1,Number(step.attempt)||0)+1;
+  if(next==='running')step.attempt=Math.max(0,Number(step.attempt)||0)+1;
   for(const candidate of copyRun.steps){
     if(candidate.state==='blocked'&&candidate.depends_on.every(dep=>copyRun.steps.find(x=>x.step_id===dep)?.state==='completed'))candidate.state='ready';
   }
