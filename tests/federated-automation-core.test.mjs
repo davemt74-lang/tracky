@@ -53,7 +53,8 @@ test('run ledger is idempotent and durable',()=>{
 });
 test('Section 1 cannot claim run or step execution/completion',()=>{
  const r=createFederatedAutomationRun(def(),{run_id:'run-exec'},2000);
- assert.throws(()=>appendAutomationRunEvent([r],{run_id:'run-exec',state:'running'},2050),/section1_execution_disabled/);
+ const ready=appendAutomationRunEvent([r],{run_id:'run-exec',state:'ready'},2025);
+ assert.throws(()=>appendAutomationRunEvent(ready,{run_id:'run-exec',state:'running'},2050),/section1_execution_disabled/);
  assert.throws(()=>appendAutomationStepEvent(r,{step_id:'home-check',state:'running',authoritative_homeserver:true,permissions_granted:true},2100),/section1_execution_disabled/);
  assert.throws(()=>appendAutomationStepEvent(r,{step_id:'home-check',state:'completed'},2200),/invalid_step_transition|section1_execution_disabled/);
 });
