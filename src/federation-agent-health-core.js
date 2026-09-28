@@ -161,7 +161,7 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
       fresh:!!sync.fresh,reconciliation_required:!!sync.reconciliation_required,
       revision_gap:n(sync.revision_gap),stale_age_ms:n(sync.stale_age_ms),
       authority:{status:txt(site?.authority?.status||'unknown',30),device_id:siteId(site?.authority?.device_id),epoch:n(site?.authority?.epoch)},
-      authority_device_runtime:txt(device?.runtime_status??device?.status||'unknown',40).toLowerCase(),
+      authority_device_runtime:txt(device?.runtime_status??device?.status??'unknown',40).toLowerCase(),
       trust:trustFor(state,sync),agent_visible:agentVisible,
       recovery_complete:state==='current'&&!!sync.fresh&&!sync.reconciliation_required,
       recovery_gate:'authoritative_reconciliation_current',
