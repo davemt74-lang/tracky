@@ -85,6 +85,18 @@ test('duplicate alert cooldown suppresses noise while severity escalation breaks
  assert.equal(escalated.reason,'severity_escalated');
 });
 
+test('relay failure is distinct from site partition and has its own recovery event',()=>{
+ const data=input('current',true);
+ data.relay.cloud={state:'offline',connected:false,paired:true,last_error:'relay unavailable'};
+ const first=buildFederationAgentHealth(data,{},1000);
+ assert.equal(first.relay_health.state,'offline');
+ assert.equal(first.sites.find(s=>s.site_id===OFFICE).state,'current');
+ data.relay.cloud={state:'connected',connected:true,paired:true};
+ const second=buildFederationAgentHealth(data,first,2000);
+ assert.equal(second.relay_health.state,'current');
+ assert.equal(second.events.some(e=>e.event_type==='relay.recovered'),true);
+});
+
 test('capability encodes the recovery gate',()=>{
  const cap=federationAgentHealthCapability();
  assert.equal(cap.recovery_requires_authoritative_reconciliation,true);
