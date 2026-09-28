@@ -19,7 +19,7 @@ const RUN_TRANSITIONS={
  planned:new Set(['waiting','ready','blocked','cancelled','expired','failed']),
  waiting:new Set(['ready','blocked','recovering','cancelled','expired','failed']),
  ready:new Set(['running','blocked','recovering','cancelled','expired','failed']),
- running:new Set(['waiting','blocked','recovering','completed','cancelled','failed']),
+ running:new Set(['waiting','blocked','recovering','completed','cancelled','expired','failed']),
  blocked:new Set(['waiting','ready','recovering','cancelled','expired','failed']),
  recovering:new Set(['waiting','ready','blocked','cancelled','expired','failed']),
  completed:new Set(),failed:new Set(),cancelled:new Set(),expired:new Set()
@@ -35,6 +35,11 @@ function uuidLike(v,label){
   const out=siteId(v);
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(out))throw new Error(label+'_invalid');
   return out;
+}
+function simpleStableId(value){
+  let h1=0x811c9dc5,h2=0x9e3779b9;
+  for(const ch of String(value||'')){const c=ch.codePointAt(0);h1=Math.imul(h1^c,16777619)>>>0;h2=Math.imul(h2^c,2246822519)>>>0;}
+  return h1.toString(16).padStart(8,'0')+h2.toString(16).padStart(8,'0')+h1.toString(16).padStart(8,'0')+h2.toString(16).padStart(8,'0');
 }
 function normalizedActor(v={}){
   return {actor_id:txt(v.actor_id??v.id,100),actor_type:txt(v.actor_type??v.type??'user',30).toLowerCase(),display_name:txt(v.display_name??v.label,120)};
@@ -98,7 +103,9 @@ export function normalizeFederatedAutomationDefinition(input={},now=Date.now()){
   const actorAllowed=['user','owner','admin','system'].includes(actor.actor_type);
   if(actor.actor_type==='agent')throw new Error('agent_may_propose_only');
   if(!actorAllowed)throw new Error('actor_not_authorized');
-  const automationId=id(input.automation_id??('fa:'+origin+':'+num(now)),'automation_id',128);
+  const explicitAutomation=txt(input.automation_id,128),explicitIdempotency=txt(input.idempotency_key,160);
+  if(!explicitAutomation&&!explicitIdempotency)throw new Error('automation_identity_required');
+  const automationId=id(explicitAutomation||('fa-'+simpleStableId(explicitIdempotency)),'automation_id',128);
   const revision=Math.max(1,Number(input.revision)||1);
   const state=txt(input.state??'draft',30).toLowerCase();
   if(!AUTOMATION_STATES.includes(state))throw new Error('automation_state_invalid');
@@ -133,8 +140,10 @@ function initialStepState(step){
 export function createFederatedAutomationRun(definition={},input={},now=Date.now()){
   if(definition.protocol!==FEDERATED_AUTOMATION_PROTOCOL)throw new Error('automation_protocol_invalid');
   if(definition.state!=='active')throw new Error('automation_not_runnable');
-  const runId=id(input.run_id??('far:'+definition.automation_id+':'+num(now)),'run_id',160);
-  const idem=id(input.idempotency_key??runId,'idempotency_key',160);
+  const explicitRun=txt(input.run_id,160),explicitIdem=txt(input.idempotency_key,160);
+  if(!explicitRun&&!explicitIdem)throw new Error('run_identity_required');
+  const runId=id(explicitRun||('far-'+simpleStableId(explicitIdem)),'run_id',160);
+  const idem=id(explicitIdem||runId,'idempotency_key',160);
   const deadlineAt=num(input.deadline_at_ms)||(definition.default_deadline_ms?num(now)+definition.default_deadline_ms:0);
   const steps=definition.steps.map(step=>({
     step_id:step.step_id,state:initialStepState(step),attempt:0,authority_site_id:step.authority_site_id,target_site_id:step.target_site_id,
