@@ -100,4 +100,9 @@ test('capability is read-only and cannot mutate authority or run remote commands
   assert.equal(cap.cloud_read_only,true);
   assert.equal(cap.remote_command_execution,false);
   assert.equal(cap.authority_mutation,false);
+  assert.ok(cap.hardware_profiles.includes('node'));
+  assert.ok(cap.hardware_profiles.includes('desk'));
+  assert.ok(cap.hardware_profiles.includes('studio'));
+  assert.ok(cap.hardware_profiles.includes('team_node'));
+  assert.ok(cap.hardware_profiles.includes('pocket'));
 });
