@@ -91,7 +91,7 @@ test('privacy projection excludes sensitive diagnostic payload fields',()=>{
   assert.equal(serialized.includes('SECRET'),false);
   assert.equal(serialized.includes('C:/secret'),false);
   assert.equal(serialized.includes('token'),false);
-  assert.equal(report.privacy.raw_logs_included,false);
+  assert.equal(report.privacy.diagnostic_content_included,false);
 });
 
 test('capability is read-only and cannot mutate authority or run remote commands',()=>{
