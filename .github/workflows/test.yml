@@ -44,8 +44,8 @@ jobs:
           cat > dist/tracky-v2.6.1/V2.81_RELEASE.json <<EOF
           {
             "feature_track": "Tracky V2.81",
-            "section": 1,
-            "status": "federated_automation_foundation",
+            "section": 2,
+            "status": "physical_world_trigger_runtime",
             "protocol": "physical_federated_automation.v1",
             "execution_enabled": false,
             "commit": "${GITHUB_SHA}"
@@ -134,7 +134,7 @@ jobs:
           unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/runtime-reconciliation-core.js"
           unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/ground-truth-runtime-core.js"
           unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/ground-truth-runtime-controller.js"
-          unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/agent-runtime-context-core.js"
+          unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/agent-runtime-context-core.js"\n          unzip -l tracky-v2.6.1-deploy.zip | grep -F "tracky-v2.6.1/src/federated-automation-trigger-runtime.js"
           sha256sum tracky-v2.6.1-deploy.zip
 
       - name: Upload deploy ZIP
