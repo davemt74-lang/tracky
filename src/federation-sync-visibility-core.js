@@ -73,7 +73,7 @@ function normalizeSite(site,peer,localSite,now){
   const staleSince=isLocal?0:toMs(peer?.stale_since??federation.stale_since);
   const partitionedAt=isLocal?0:toMs(peer?.partitioned_at??federation.partitioned_at);
   const reconcilingSince=isLocal?0:toMs(peer?.reconciling_since);
-  const lastContactAt=isLocal:Number(now):toMs(peer?.last_contact_at??federation.last_contact_at);
+  const lastContactAt=isLocal?Number(now):toMs(peer?.last_contact_at??federation.last_contact_at);
   const lastReconciledAt=isLocal:Number(now):toMs(peer?.last_reconciled_at);
   const nextRetryAt=isLocal?0:toMs(peer?.next_retry_at??federation.next_retry_at);
   const revisionGap=Math.max(0,remoteRevision-localRevision);
