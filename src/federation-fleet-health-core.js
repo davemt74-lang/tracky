@@ -70,6 +70,17 @@ function sanitizeDevice(raw,site,now,staleAfterMs,offlineAfterMs){
     storage_state:txt(raw.storage_state,24).toLowerCase(),
     watchdog_failures:Math.min(1000,num(raw.watchdog_failures)),
     privacy_fault:!!raw.privacy_fault,
+    runtime_status:txt(raw.runtime_status,32).toLowerCase(),
+    runtime_version:txt(raw.runtime_version??raw.version,80),
+    camera_count:Math.min(128,num(raw.camera_count)),
+    sensor_count:Math.min(512,num(raw.sensor_count)),
+    model_health:txt(raw.model_health??'unknown',32).toLowerCase(),
+    active_models:Math.min(256,num(raw.active_models)),
+    calibration_profiles:Math.min(256,num(raw.calibration_profiles)),
+    calibration_state:txt(raw.calibration_state??'unknown',32).toLowerCase(),
+    last_sync_at:raw.last_sync_at??null,
+    error_count:Math.min(1000,num(raw.error_count??state.issues.length)),
+    upgrade_state:txt(raw.upgrade_state??raw.update_status,32).toLowerCase(),
     last_seen_at:raw.last_seen_at??raw.reported_at??null,
     stale_age_ms:Number.isFinite(state.age)?state.age:0,
     state:state.state,
@@ -234,6 +245,7 @@ export function federationFleetHealthCapability(){
     version:FEDERATION_FLEET_HEALTH_VERSION,protocol:FEDERATION_FLEET_HEALTH_PROTOCOL,
     states:[...FEDERATION_FLEET_HEALTH_STATES],section7_health_is_authoritative:true,
     diagnostics_never_promote_federation_freshness:true,permission_filtered_agent_context:true,
-    privacy_safe_summary_only:true,cloud_read_only:true,remote_command_execution:false,authority_mutation:false
+    privacy_safe_summary_only:true,cloud_read_only:true,remote_command_execution:false,authority_mutation:false,
+    hardware_profiles:['homeserver','node','desk','studio','team_node','pocket','custom','future']
   };
 }
