@@ -1,0 +1,78 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {buildPhysicalWorldDashboard,physicalWorldDashboardCapability,PHYSICAL_WORLD_DASHBOARD_PROTOCOL} from '../src/physical-world-dashboard-core.js';
+
+const HOME='11111111-1111-4111-8111-111111111111';
+const OFFICE='22222222-2222-4222-8222-222222222222';
+const NODE='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const DESK='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+function input(selectedSiteId=OFFICE){
+  return {
+    selectedSiteId,
+    operations:{
+      local_site_id:HOME,
+      sites:[
+        {id:HOME,label:'Home',health:'healthy',federation:{status:'current'},authority:{device_id:NODE,epoch:3}},
+        {id:OFFICE,label:'Office',health:'healthy',federation:{status:'current'},authority:{device_id:DESK,epoch:2}}
+      ],
+      devices:[
+        {id:NODE,site_id:HOME,label:'Home Node',hardware_profile:'node',trust_state:'trusted'},
+        {id:DESK,site_id:OFFICE,label:'Office Desk',hardware_profile:'desk',trust_state:'trusted'}
+      ]
+    },
+    agentContext:{agent_state:'current',physical_state:'present',current_site:{site_id:HOME}},
+    federatedWorld:{
+      sites:[
+        {site_id:HOME,revision:4,entities:[{local_id:'home-room',type:'room',label:'Living Room',state:'observed',confidence:.95,observed_at:100}],relations:[]},
+        {site_id:OFFICE,revision:7,observed_at:200,entities:[
+          {local_id:'office-room',type:'room',label:'Studio',state:'user-confirmed',confidence:1,observed_at:190},
+          {local_id:'person-dave',type:'person',label:'Dave',state:'observed',confidence:.9,observed_at:200},
+          {local_id:'mug',type:'object',label:'Coffee Mug',state:'last-known',confidence:.8,observed_at:180},
+          {local_id:'camera',type:'camera',label:'Desk Camera',state:'observed',confidence:.99,observed_at:200}
+        ],relations:[
+          {subject_local_id:'person-dave',predicate:'located_in',object_local_id:'office-room',confidence:.95,temporal_state:'current',as_of:200},
+          {subject_local_id:'mug',predicate:'located_on',object_local_id:'office-room',confidence:.7,temporal_state:'last_seen',as_of:180}
+        ]}
+      ]
+    }
+  };
+}
+
+test('explicit site selection drives dashboard and Agent view context without changing physical current site',()=>{
+  const report=buildPhysicalWorldDashboard(input(),1000);
+  assert.equal(report.protocol,PHYSICAL_WORLD_DASHBOARD_PROTOCOL);
+  assert.equal(report.selected_site.site_id,OFFICE);
+  assert.equal(report.selected_site.basis,'explicit_user_selection');
+  assert.equal(report.agent_context.view_site_id,OFFICE);
+  assert.equal(report.agent_context.physical_current_site_id,HOME);
+  assert.equal(report.agent_context.changes_physical_location,false);
+  assert.equal(report.agent_context.changes_physical_authority,false);
+});
+
+test('dashboard categorizes governed semantic world and preserves evidence-backed location',()=>{
+  const report=buildPhysicalWorldDashboard(input(),1000);
+  assert.deepEqual(report.counts,{rooms:1,people:1,objects:1,world_devices:1,hardware_units:1});
+  const person=report.people[0];
+  assert.equal(person.location.location_label,'Studio');
+  assert.equal(person.location.predicate,'located_in');
+  assert(person.confidence>.9);
+  assert.equal(person.identity_scope,'site_local');
+});
+
+test('unavailable requested site fails safely to current Agent site and reports issue',()=>{
+  const report=buildPhysicalWorldDashboard(input('33333333-3333-4333-8333-333333333333'),1000);
+  assert.equal(report.selected_site.site_id,HOME);
+  assert.equal(report.selected_site.basis,'current_agent_site');
+  assert.equal(report.issues[0].code,'requested_site_not_available');
+});
+
+test('capability makes Section 3 boundaries explicit',()=>{
+  const cap=physicalWorldDashboardCapability();
+  assert.equal(cap.site_switching,true);
+  assert.equal(cap.agent_context_follows_selected_site,true);
+  assert.equal(cap.view_only,true);
+  assert.equal(cap.authority_mutation,false);
+  assert.equal(cap.physical_location_mutation,false);
+  assert.equal(cap.cross_site_identity_merge,false);
+});
