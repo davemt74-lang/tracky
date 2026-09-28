@@ -66,7 +66,7 @@ test('run state supports cancellation, recovery and terminal immutability',()=>{
 test('agent context and capability preserve V2.80 authority boundary',()=>{
  const d=def(),r=createFederatedAutomationRun(d,{run_id:'r'},2000);
  const ctx=federatedAutomationAgentContext([d],[r]);assert.equal(ctx.agent_may_execute,false);assert.equal(ctx.cloud_may_execute,false);
- const cap=federatedAutomationCapability();assert.equal(cap.section,1);assert.equal(cap.execution_enabled,false);assert.equal(cap.origin_homeserver_authoritative,true);assert.equal(cap.durable_action_ledger,true);
+ const cap=federatedAutomationCapability();assert.equal(cap.section,2);assert.equal(cap.execution_enabled,false);assert.equal(cap.origin_homeserver_authoritative,true);assert.equal(cap.durable_action_ledger,true);
 });
 
 test('only active automation definitions may create runs',()=>{const d={...def(),state:'draft'};assert.throws(()=>createFederatedAutomationRun(d,{run_id:'draft-run'},2000),/automation_not_runnable/);});
