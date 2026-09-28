@@ -90,11 +90,23 @@ test('relay failure is distinct from site partition and has its own recovery eve
  data.relay.cloud={state:'offline',connected:false,paired:true,last_error:'relay unavailable'};
  const first=buildFederationAgentHealth(data,{},1000);
  assert.equal(first.relay_health.state,'offline');
+ assert.equal(first.overall_state,'offline');
  assert.equal(first.sites.find(s=>s.site_id===OFFICE).state,'current');
+ assert.equal(first.agent_context.active_issues.some(i=>i.component==='vp3_cloud_relay'),true);
  data.relay.cloud={state:'connected',connected:true,paired:true};
  const second=buildFederationAgentHealth(data,first,2000);
  assert.equal(second.relay_health.state,'current');
  assert.equal(second.events.some(e=>e.event_type==='relay.recovered'),true);
+});
+
+test('long-lived degraded state escalates without a state-string change',()=>{
+ const data=input('reconciling',false);
+ const first=buildFederationAgentHealth(data,{},1000);
+ const second=buildFederationAgentHealth(data,first,302000);
+ const office=second.sites.find(s=>s.site_id===OFFICE);
+ assert.equal(office.state,'reconciling');
+ assert.equal(office.severity,'critical');
+ assert.equal(second.events.some(e=>e.event_type==='site.escalated'),true);
 });
 
 test('capability encodes the recovery gate',()=>{
