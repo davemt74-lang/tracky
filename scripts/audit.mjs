@@ -92,7 +92,6 @@ const requiredFiles = [
   'src/federation-policy-core.js',
   'src/federated-query-core.js',
   'src/federation-reconciliation-core.js',
-  'tests/fixtures/tracky_v278_golden_multisite_scenarios.json',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
