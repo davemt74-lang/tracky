@@ -42,7 +42,7 @@ test('run ledger is idempotent and durable',()=>{
  assert.equal(r.state,'waiting');assert.equal(r.steps.find(x=>x.step_id==='home-check').state,'ready');
  assert.equal(r.steps.find(x=>x.step_id==='office-light').state,'blocked');assert.equal(r.recovery.durable,true);
  let ledger=upsertAutomationRun([],r);ledger=upsertAutomationRun(ledger,{...r,run_id:'run-2'});assert.equal(ledger.length,1);
- assert.throws(()=>upsertAutomationRun(ledger,{...r,automation_id:'different'}),/idempotency_conflict/);
+ assert.throws(()=>upsertAutomationRun(ledger,{...r,automation_id:'different'}),/idempotency_conflict/);assert.throws(()=>upsertAutomationRun(ledger,{...r,trigger_event_id:'changed'}),/idempotency_conflict/);
 });
 test('Section 1 cannot execute physical steps',()=>{
  const r=createFederatedAutomationRun(def(),{run_id:'run-exec'},2000);
@@ -58,3 +58,5 @@ test('agent context and capability preserve V2.80 authority boundary',()=>{
  const ctx=federatedAutomationAgentContext([d],[r]);assert.equal(ctx.agent_may_execute,false);assert.equal(ctx.cloud_may_execute,false);
  const cap=federatedAutomationCapability();assert.equal(cap.section,1);assert.equal(cap.execution_enabled,false);assert.equal(cap.origin_homeserver_authoritative,true);assert.equal(cap.durable_action_ledger,true);
 });
+
+test('only active automation definitions may create runs',()=>{const d={...def(),state:'draft'};assert.throws(()=>createFederatedAutomationRun(d,{run_id:'draft-run'},2000),/automation_not_runnable/);});
