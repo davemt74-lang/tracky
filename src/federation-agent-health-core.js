@@ -124,7 +124,7 @@ function bridgeState(bridge={},previousBridge={},now){
   const since=n(previousBridge?.state===state?previousBridge.state_since:now)||Number(now);
   const age=Math.max(0,Number(now)-since);
   return {
-    state,connected,state_since:since,state_age_ms:age,
+    state,connected,paired:bridge?.paired!==false,state_since:since,state_age_ms:age,
     last_error:txt(bridge.last_error,240),
     last_connected_at:bridge.last_connected_at??null,
     reconnect_count:n(bridge.reconnect_count),
@@ -134,6 +134,7 @@ function bridgeState(bridge={},previousBridge={},now){
   };
 }
 function bridgeEvent(current,previous,now){
+  if(current.state==='not_connected'&&!current.paired)return null;
   const changed=!previous||previous.state!==current.state;
   const escalation=previous&&previous.state===current.state&&escalationLevel(current.state,current.state_age_ms)>n(previous.escalation_level);
   if(!changed&&!escalation)return null;
