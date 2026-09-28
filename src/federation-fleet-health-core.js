@@ -12,7 +12,7 @@ export const FEDERATION_FLEET_HEALTH_STATES=Object.freeze(['healthy','degraded',
 
 function epochMs(v){
   if(v===null||v===undefined||v==='')return 0;
-  if(Number.isFinite(Number(v))&&Number(v)>100000000000)return Number(v);
+  if(Number.isFinite(Number(v))&&Number(v)>=0)return Number(v);
   const t=Date.parse(String(v));
   return Number.isFinite(t)?t:0;
 }
