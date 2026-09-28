@@ -132,7 +132,7 @@ function initialStepState(step){
 }
 export function createFederatedAutomationRun(definition={},input={},now=Date.now()){
   if(definition.protocol!==FEDERATED_AUTOMATION_PROTOCOL)throw new Error('automation_protocol_invalid');
-  if(!['active','draft'].includes(definition.state))throw new Error('automation_not_runnable');
+  if(definition.state!=='active')throw new Error('automation_not_runnable');
   const runId=id(input.run_id??('far:'+definition.automation_id+':'+num(now)),'run_id',160);
   const idem=id(input.idempotency_key??runId,'idempotency_key',160);
   const deadlineAt=num(input.deadline_at_ms)||(definition.default_deadline_ms?num(now)+definition.default_deadline_ms:0);
@@ -156,7 +156,7 @@ export function upsertAutomationRun(ledger=[],run={}){
   const rows=copy(ledger)||[];
   const existing=rows.find(x=>txt(x.idempotency_key,160)===txt(run.idempotency_key,160));
   if(existing){
-    const same=existing.automation_id===run.automation_id&&existing.automation_revision===run.automation_revision&&existing.origin_site_id===run.origin_site_id;
+    const same=existing.automation_id===run.automation_id&&existing.automation_revision===run.automation_revision&&existing.origin_site_id===run.origin_site_id&&existing.trigger_event_id===run.trigger_event_id&&Number(existing.deadline_at_ms||0)===Number(run.deadline_at_ms||0);
     if(!same)throw new Error('idempotency_conflict');
     return rows;
   }
