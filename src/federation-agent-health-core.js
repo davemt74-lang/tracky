@@ -193,6 +193,10 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
   for(const row of sites)if((rank[row.state]??1)>(rank[overall]??0))overall=row.state;
   if((rank[relayHealth]??0)>(rank[overall]??0))overall=relayHealth;
   const visible=sites.filter(s=>s.agent_visible);
+  let agentOverall='current';
+  for(const row of visible)if((rank[row.state]??1)>(rank[agentOverall]??0))agentOverall=row.state;
+  if((rank[relayHealth]??0)>(rank[agentOverall]??0))agentOverall=relayHealth;
+  const visibleNonCurrent=visible.filter(s=>s.state!=='current');
   const relayIssue=relayHealth!=='current'?{component:'vp3_cloud_relay',state:relayHealth,severity:relayRow.severity,cause:relayRow.cause,message:relayRow.message}:null;
   const priorityEvents=events.filter(e=>e.severity==='critical'||e.event_type==='site.recovered'||e.event_type==='relay.recovered');
   return {
@@ -205,14 +209,14 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
       recovering:sites.filter(s=>s.state==='recovering'||s.state==='reconciling').length
     },
     agent_context:{
-      overall_state:overall,
+      overall_state:agentOverall,
       sites:visible.map(s=>({site_id:s.site_id,label:s.label,state:s.state,severity:s.severity,cause:s.cause,fresh:s.fresh,recovery_complete:s.recovery_complete,trust:s.trust})),
       active_issues:[
         ...visible.filter(s=>s.state!=='current').map(s=>({site_id:s.site_id,label:s.label,state:s.state,severity:s.severity,cause:s.cause,message:s.message,trust:s.trust})),
         ...(relayIssue?[relayIssue]:[])
       ].slice(0,24),
-      summary:(nonCurrent.length||relayIssue)?[
-        ...nonCurrent.map(s=>s.label+' is '+s.state).slice(0,6),
+      summary:(visibleNonCurrent.length||relayIssue)?[
+        ...visibleNonCurrent.map(s=>s.label+' is '+s.state).slice(0,6),
         ...(relayIssue?['VP3 Cloud relay is '+relayHealth]:[])
       ].join('; '):'All authorized federation sites and the Cloud relay are current.',
       recovery_requires_authoritative_reconciliation:true,
