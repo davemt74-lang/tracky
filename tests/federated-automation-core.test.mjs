@@ -51,9 +51,11 @@ test('run ledger is idempotent and durable',()=>{
  let ledger=upsertAutomationRun([],r);ledger=upsertAutomationRun(ledger,{...r,run_id:'run-2'});assert.equal(ledger.length,1);
  assert.throws(()=>upsertAutomationRun(ledger,{...r,automation_id:'different'}),/idempotency_conflict/);assert.throws(()=>upsertAutomationRun(ledger,{...r,trigger_event_id:'changed'}),/idempotency_conflict/);
 });
-test('Section 1 cannot execute physical steps',()=>{
+test('Section 1 cannot claim run or step execution/completion',()=>{
  const r=createFederatedAutomationRun(def(),{run_id:'run-exec'},2000);
+ assert.throws(()=>appendAutomationRunEvent([r],{run_id:'run-exec',state:'running'},2050),/section1_execution_disabled/);
  assert.throws(()=>appendAutomationStepEvent(r,{step_id:'home-check',state:'running',authoritative_homeserver:true,permissions_granted:true},2100),/section1_execution_disabled/);
+ assert.throws(()=>appendAutomationStepEvent(r,{step_id:'home-check',state:'completed'},2200),/invalid_step_transition|section1_execution_disabled/);
 });
 test('run state supports cancellation, recovery and terminal immutability',()=>{
  const r=createFederatedAutomationRun(def(),{run_id:'run-state'},2000);let l=[r];
