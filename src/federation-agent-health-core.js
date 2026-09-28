@@ -193,7 +193,7 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
   const priorityEvents=events.filter(e=>e.severity==='critical'||e.event_type==='site.recovered');
   return {
     protocol:FEDERATION_AGENT_HEALTH_PROTOCOL,version:FEDERATION_AGENT_HEALTH_VERSION,schema_version:1,
-    generated_at:Number(now),overall_state:overall,relay,relay_health:relayRow,sites,events,event_state:eventState,
+    generated_at:Number(now),local_site_id:siteId(operations.local_site_id),overall_state:overall,relay,relay_health:relayRow,sites,events,event_state:eventState,
     counts:{
       sites:sites.length,current:sites.filter(s=>s.state==='current').length,
       degraded:sites.filter(s=>['degraded','stale','reconciling','recovering'].includes(s.state)).length,
