@@ -64,7 +64,7 @@ export function evaluateFederationOperation(input={},now=Date.now()){
   if(revoked)reasons.push('federation_access_revoked');
   if(!actorCanOperate&&!agentOnly)reasons.push('actor_not_authorized');
   if(agentOnly)reasons.push('agent_may_propose_only');
-  if(['restart_runtime','request_update','revoke_device'].includes(op)&&!deviceId)reasons.push('device_required');
+  if(op==='revoke_device'&&!deviceId)reasons.push('device_required');
   if(deviceId&&!device?.device_id&&op!=='revoke_device')reasons.push('device_not_known');
   if(op==='revoke_site'&&targetSite===local)reasons.push('revoke_site_must_target_peer');
   if(op==='request_update'&&!['healthy','degraded','stale','recovering','unknown'].includes(txt(fleetRow.state,32).toLowerCase()))reasons.push('fleet_state_blocks_update');
