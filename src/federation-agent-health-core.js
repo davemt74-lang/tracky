@@ -188,7 +188,6 @@ export function buildFederationAgentHealth(input={},previous={},now=Date.now()){
       });
     }
   }
-  const nonCurrent=sites.filter(s=>s.state!=='current');
   let overall='current';
   for(const row of sites)if((rank[row.state]??1)>(rank[overall]??0))overall=row.state;
   if((rank[relayHealth]??0)>(rank[overall]??0))overall=relayHealth;
