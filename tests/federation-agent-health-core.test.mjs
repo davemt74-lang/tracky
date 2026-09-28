@@ -72,6 +72,9 @@ test('agent site health is filtered by federation policy visibility',()=>{
  const report=buildFederationAgentHealth(data,{},1000);
  assert.equal(report.sites.some(s=>s.site_id===OFFICE),true);
  assert.equal(report.agent_context.sites.some(s=>s.site_id===OFFICE),false);
+ assert.equal(report.agent_context.active_issues.some(s=>s.site_id===OFFICE),false);
+ assert.equal(report.agent_context.summary.includes('Office'),false);
+ assert.equal(report.agent_context.overall_state,'current');
 });
 
 test('duplicate alert cooldown suppresses noise while severity escalation breaks cooldown',()=>{
