@@ -234,7 +234,7 @@ export function federatedAutomationAgentContext(definitions=[],runs=[]){
 
 export function federatedAutomationCapability(){
   return {
-    protocol:FEDERATED_AUTOMATION_PROTOCOL,version:FEDERATED_AUTOMATION_VERSION,section:1,
+    protocol:FEDERATED_AUTOMATION_PROTOCOL,version:FEDERATED_AUTOMATION_VERSION,section:2,
     automation_states:[...AUTOMATION_STATES],run_states:[...RUN_STATES],step_states:[...STEP_STATES],
     trigger_kinds:[...TRIGGER_KINDS],action_types:[...ACTION_TYPES],
     durable_action_ledger:true,immutable_audit_events:true,idempotent_runs:true,dag_dependencies:true,
