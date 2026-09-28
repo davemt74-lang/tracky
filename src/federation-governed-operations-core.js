@@ -16,8 +16,8 @@ const TRANSITIONS={
   awaiting_approval:new Set(['approved','rejected','cancelled','expired']),
   approved:new Set(['queued','rejected','cancelled','expired']),
   queued:new Set(['running','failed','cancelled','expired']),
-  running:new Set(['reconciling','completed','failed','cancelled']),
-  reconciling:new Set(['completed','failed','cancelled']),
+  running:new Set(['reconciling','completed','failed','cancelled','expired']),
+  reconciling:new Set(['completed','failed','cancelled','expired']),
   completed:new Set(),failed:new Set(),rejected:new Set(),cancelled:new Set(),expired:new Set()
 };
 
@@ -143,7 +143,7 @@ export function federationOperationAgentContext(ledger=[]){
 export function federationGovernedOperationsCapability(){
   return {version:FEDERATION_GOVERNED_OPERATIONS_VERSION,protocol:FEDERATION_GOVERNED_OPERATIONS_PROTOCOL,
     operations:[...FEDERATION_OPERATION_TYPES],states:[...FEDERATION_OPERATION_STATES],
-    idempotent_requests:true,monotonic_state_machine:true,durable_audit_required:true,approval_required_for_high_risk:true,
+    idempotent_requests:true,monotonic_state_machine:true,durable_audit_required:true,approval_required_for_high_risk:true,operation_expiration:true,revocation_wins:true,
     agent_proposal_only:true,cloud_execution_allowed:false,authority_transfer_automatic:false,
     authority_transfer_requires_epoch_advance:true,completion_requires_authoritative_reconciliation:true,
     section7_health_is_authoritative:true};
