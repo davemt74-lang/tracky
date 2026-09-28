@@ -6,10 +6,10 @@ const nowNum=v=>Math.max(0,Number(v)||0);
 
 export const FEDERATION_GOVERNED_OPERATIONS_PROTOCOL='physical_federation_governed_operations.v1';
 export const FEDERATION_GOVERNED_OPERATIONS_VERSION='2.80';
-export const FEDERATION_OPERATION_TYPES=Object.freeze(['reconnect','reconcile','restart_runtime','request_update','revoke_device','transfer_authority']);
+export const FEDERATION_OPERATION_TYPES=Object.freeze(['reconnect','reconcile','restart_runtime','request_update','revoke_site','revoke_device','transfer_authority']);
 export const FEDERATION_OPERATION_STATES=Object.freeze(['proposed','awaiting_approval','approved','queued','running','reconciling','completed','failed','rejected','cancelled','expired']);
 
-const HIGH_RISK=new Set(['restart_runtime','request_update','revoke_device','transfer_authority']);
+const HIGH_RISK=new Set(['restart_runtime','request_update','revoke_site','revoke_device','transfer_authority']);
 const TERMINAL=new Set(['completed','failed','rejected','cancelled','expired']);
 const TRANSITIONS={
   proposed:new Set(['awaiting_approval','approved','rejected','cancelled','expired']),
@@ -66,6 +66,7 @@ export function evaluateFederationOperation(input={},now=Date.now()){
   if(agentOnly)reasons.push('agent_may_propose_only');
   if(['restart_runtime','request_update','revoke_device'].includes(op)&&!deviceId)reasons.push('device_required');
   if(deviceId&&!device?.device_id&&op!=='revoke_device')reasons.push('device_not_known');
+  if(op==='revoke_site'&&targetSite===local)reasons.push('revoke_site_must_target_peer');
   if(op==='request_update'&&!['healthy','degraded','stale','recovering','unknown'].includes(txt(fleetRow.state,32).toLowerCase()))reasons.push('fleet_state_blocks_update');
   if(op==='transfer_authority'){
     if(!input.new_authority_device_id)reasons.push('new_authority_device_required');
