@@ -239,7 +239,7 @@ export function shouldDeliverFederationHealthEvent(event,deliveryState={},now=Da
   const prior=deliveryState[key]||{};
   const last=n(prior.last_delivered_at),priorSeverity=txt(prior.severity||'info',20);
   const cooldown=event.severity==='critical'?60000:120000;
-  const severityIncreased=(severityRank[event.severity]??0)>(severityRank[priorSeverity]??0);
+  const severityIncreased=Boolean(last)&&(severityRank[event.severity]??0)>(severityRank[priorSeverity]??0);
   if(last&&Number(now)-last<cooldown&&!severityIncreased)return {deliver:false,reason:'dedupe_cooldown'};
   return {deliver:true,reason:severityIncreased?'severity_escalated':'state_change',next:{last_delivered_at:Number(now),severity:event.severity}};
 }
