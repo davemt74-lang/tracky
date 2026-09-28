@@ -76,6 +76,13 @@ test('Cloud relay outage is separated from local physical truth',()=>{
  assert.match(relay.body,/Local physical truth may remain available/);
 });
 
+test('unpaired relay does not create disconnect chatter',()=>{
+ const input=base('current');
+ input.bridge={state:'not_connected',connected:false,paired:false,transport:'vp3_https'};
+ const report=buildFederationAgentHealth(input,T);
+ assert(!report.events.some(x=>x.event_type.startsWith('relay_')));
+});
+
 test('authority device offline becomes site offline',()=>{
  const input=base('current');
  input.operations.devices[1].runtime_status='offline';
