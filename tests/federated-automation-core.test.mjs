@@ -32,6 +32,13 @@ test('rejects dependency cycles and unpermitted physical actions',()=>{
   {step_id:'a',action_type:'physical_action',authority_site_id:HOME,action_key:'light.on'}
  ]}),/physical_action_permission_required/);
 });
+test('stable identities are required for replay-safe definitions and runs',()=>{
+ assert.throws(()=>normalizeFederatedAutomationDefinition({origin_site_id:HOME,actor:owner,steps:[{step_id:'a',action_type:'data_operation',authority_site_id:HOME,action_key:'x'}]}),/automation_identity_required/);
+ const d=normalizeFederatedAutomationDefinition({idempotency_key:'auto-only',origin_site_id:HOME,state:'active',actor:owner,steps:[{step_id:'a',action_type:'data_operation',authority_site_id:HOME,action_key:'x'}]},1000);
+ assert.equal(d.automation_id,normalizeFederatedAutomationDefinition({idempotency_key:'auto-only',origin_site_id:HOME,state:'active',actor:owner,steps:[{step_id:'a',action_type:'data_operation',authority_site_id:HOME,action_key:'x'}]},2000).automation_id);
+ assert.throws(()=>createFederatedAutomationRun(d,{},2000),/run_identity_required/);
+ assert.equal(createFederatedAutomationRun(d,{idempotency_key:'run-only'},2000).run_id,createFederatedAutomationRun(d,{idempotency_key:'run-only'},3000).run_id);
+});
 test('agent may not create authoritative definitions',()=>{
  assert.throws(()=>normalizeFederatedAutomationDefinition({origin_site_id:HOME,actor:{actor_type:'agent'},steps:[
   {step_id:'a',action_type:'data_operation',authority_site_id:HOME,action_key:'x'}
