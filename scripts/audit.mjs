@@ -91,6 +91,7 @@ const requiredFiles = [
   'src/federated-agent-context-core.js',
   'src/federation-policy-core.js',
   'src/federated-query-core.js',
+  'src/federation-reconciliation-core.js',
   'src/governed-world-projection-core.js',
   'src/runtime-reconciliation-core.js',
   'src/ground-truth-runtime-core.js',
@@ -2191,6 +2192,14 @@ for (const guard of ['deny-by-default','revocation-monotonic','raw-perception-ne
   if (!federationPolicyCore.includes(guard)) fail('Federation policy core is missing required Section 7 boundary: ' + guard);
 }
 
+
+const federationReconciliationCore = read('src/federation-reconciliation-core.js');
+for (const symbol of ['physical_federation_reconciliation.v1','createFederationReconciliationState','markFederationPartition','buildFederationReconciliationRequest','applyFederationReconciliationResult','annotateFederatedQueryFreshness']) {
+  if (!federationReconciliationCore.includes(symbol)) fail('Federation reconciliation core is missing required V2.78 Section 9 interface: ' + symbol);
+}
+for (const guard of ['origin-site-authority-only','stale-data-must-be-labeled','same-revision-fingerprint-conflict-fails-closed','retries-are-bounded-and-backoff-controlled','cloud-remains-relay-and-mirror-only']) {
+  if (!federationReconciliationCore.includes(guard)) fail('Federation reconciliation core is missing required Section 9 boundary: ' + guard);
+}
 
 const federatedQueryCore = read('src/federated-query-core.js');
 for (const symbol of ['physical_federated_query.v1','normalizeFederatedQuery','normalizeFederatedHistorySnapshot','executeFederatedQuery','federatedQueryCapability']) {
