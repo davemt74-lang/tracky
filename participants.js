@@ -1,4 +1,5 @@
 import { voiceProfileReadiness } from './src/voice-core.js';
+import { autoEnrollmentDecision, autoEnrollmentReceipt, AUTO_ENROLLMENT_TARGET } from './src/auto-enrollment-core.js';
 import { IdentityEngine, cropFacePhoto, qualityMessage } from './src/identity-engine.js';
 import {
   deleteParticipant,
@@ -14,6 +15,9 @@ const $ = (selector) => document.querySelector(selector);
 
 const ui = {
   modelStatus: $('#modelStatus'),
+  autoConsent: $('#selfVisualConsent'),
+  autoStart: $('#startSelfVisualEnrollment'),
+  autoStatus: $('#selfVisualEnrollmentStatus'),
   participantCount: $('#participantCount'),
   cameraStatus: $('#participantCameraStatus'),
   list: $('#participantList'),
@@ -61,7 +65,8 @@ const state = {
   primaryPhoto: null,
   latestPhoto: null,
   embeddings: [],
-  pendingId: null
+  pendingId: null,
+  selfEnroll: { active:false, consent:false, poses:[], lastCaptureAt:0, saving:false }
 };
 
 function setMessage(message = '', kind = '') {
@@ -94,6 +99,10 @@ function updatePhotos() {
 }
 
 function clearForm() {
+  state.selfEnroll={active:false,consent:false,poses:[],lastCaptureAt:0,saving:false};
+  if(ui.autoConsent)ui.autoConsent.checked=false;
+  if(ui.autoStart)ui.autoStart.disabled=false;
+  if(ui.autoStatus)ui.autoStatus.textContent='Optional · off';
   state.editingId = null;
   document.body.dataset.participantId = '';
   window.dispatchEvent(new CustomEvent('tracky:participant-cleared'));
@@ -226,11 +235,14 @@ async function ensureEngine() {
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
+    state.selfEnroll.active=false;
+    if(ui.autoStart)ui.autoStart.disabled=false;
+    if(ui.autoStatus)ui.autoStatus.textContent='Camera not supported · skip or use a compatible browser';
     setMessage('Camera access is not supported in this browser.', 'error');
     return;
   }
 
-  stopCamera();
+  stopCamera(true);
 
   try {
     state.stream = await navigator.mediaDevices.getUserMedia({
@@ -258,11 +270,19 @@ async function startCamera() {
   } catch (error) {
     console.error(error);
     ui.cameraStatus.textContent = 'Denied / unavailable';
+    state.selfEnroll.active=false;
+    if(ui.autoStart)ui.autoStart.disabled=false;
+    if(ui.autoStatus)ui.autoStatus.textContent='Camera unavailable · retry or skip';
     setMessage(window.isSecureContext ? 'Could not open camera.' : 'Camera access requires localhost or HTTPS.', 'error');
   }
 }
 
-function stopCamera() {
+function stopCamera(keepSelfEnrollment=false) {
+  if(keepSelfEnrollment!==true&&state.selfEnroll.active){
+    state.selfEnroll.active=false;
+    if(ui.autoStart)ui.autoStart.disabled=false;
+    if(ui.autoStatus)ui.autoStatus.textContent='Paused · restart when ready';
+  }
   state.scanning = false;
   clearTimeout(state.scanTimer);
   state.stream?.getTracks().forEach((track) => track.stop());
@@ -322,12 +342,103 @@ async function scanFace() {
 
     const captureReady = face.quality >= 0.55 && Boolean(face.embedding);
     ui.capturePrimary.disabled = !captureReady;
-    ui.captureSample.disabled = !captureReady || state.embeddings.length >= 5;
+    ui.captureSample.disabled = state.selfEnroll.active || !captureReady || state.embeddings.length >= 5;
+    if(state.selfEnroll.active)await collectSelfEnrollmentSample(faces,face);
   } catch (error) {
     console.error(error);
     ui.modelStatus.textContent = 'Identity scan error';
   } finally {
     scheduleScan(550);
+  }
+}
+
+
+/**
+ * The user initiates enrollment and browser camera permission. Subsequent
+ * quality/pose sample capture is automatic. Biometrics stay in the existing
+ * local participant IndexedDB; no contact or remote identity is created.
+ */
+async function startSelfEnrollment() {
+  if(!ui.autoConsent?.checked){
+    setMessage('Consent is required before local face enrollment. You can skip this step.', 'error');
+    return;
+  }
+  if(state.selfEnroll.active)return;
+  const existing=state.participants.find(p=>p.visualEnrollment?.scope==='owner-self');
+  if(existing){
+    await loadParticipant(existing.id);
+    setMessage('Your local visual profile already exists. Edit it or delete it before enrolling again.', 'error');
+    return;
+  }
+  const name=String(ui.name.value||'').trim()||'My visual profile';
+  clearForm();
+  ui.name.value=name;
+  ui.recognitionEnabled.checked=true;
+  state.selfEnroll={active:true,consent:true,poses:[],lastCaptureAt:0,saving:false};
+  ui.autoConsent.checked=true;
+  ui.autoStart.disabled=true;
+  ui.autoStatus.textContent='Camera consent requested · awaiting three distinct angles';
+  setMessage('Local self-enrollment is starting. Look at the camera, then gently turn your head to capture three distinct angles.', 'ok');
+  await startCamera();
+}
+
+async function collectSelfEnrollmentSample(faces,face) {
+  const enrollment=state.selfEnroll;
+  if(!enrollment.active||enrollment.saving)return;
+  const decision=autoEnrollmentDecision(
+    {consent:enrollment.consent,active:enrollment.active,samples:enrollment.poses,lastCaptureAt:enrollment.lastCaptureAt},
+    {faceCount:faces.length,face,now:Date.now()}
+  );
+  if(!decision.capture){
+    ui.autoStatus.textContent=decision.reason==='exactly-one-face-required'
+      ? 'Only your face may be in the camera'
+      : decision.reason==='turn-slightly-for-distinct-angle'
+      ? 'Turn or shift slightly to show another angle'
+      : decision.reason==='hold-for-next-angle'
+      ? 'Hold steady · adjusting capture'
+      : 'Align your face · no samples saved outside this device';
+    return;
+  }
+  if(enrollment.poses.length===0){
+    const photo=cropFacePhoto(ui.video,face.box,{mirror:true,size:360,quality:0.9});
+    if(!photo)return;
+    state.primaryPhoto=photo;
+  }
+  state.embeddings.push(Array.from(face.embedding));
+  enrollment.poses.push({pose:decision.pose});
+  enrollment.lastCaptureAt=Date.now();
+  state.latestPhoto=cropFacePhoto(ui.video,face.box,{mirror:true,size:360,quality:0.9})||state.primaryPhoto;
+  updatePhotos();updateEnrollmentUi();
+  ui.autoStatus.textContent='Captured '+enrollment.poses.length+'/'+AUTO_ENROLLMENT_TARGET+' local angles';
+  if(enrollment.poses.length<AUTO_ENROLLMENT_TARGET)return;
+  enrollment.saving=true;
+  enrollment.active=false;
+  try{
+    // Reuse the canonical local participant store, never a second face database.
+    const record=await saveParticipant({
+      name:ui.name.value.trim(),primaryPhoto:state.primaryPhoto,latestPhoto:state.latestPhoto,
+      embeddings:state.embeddings,recognitionEnabled:true,voiceRecognitionEnabled:false,
+      visualEnrollment:{scope:'owner-self',consentedAt:new Date().toISOString(),automatic:true,
+        cloudSync:false,trackingEnabled:false,contactCreation:'requires_owner_approval'}
+    });
+    state.editingId=record.id;
+    document.body.dataset.participantId=record.id;
+    ui.formModeLabel.textContent='OWNER VISUAL PROFILE';
+    ui.formTitle.textContent=record.name;
+    ui.delete.hidden=false;
+    await reloadParticipants();
+    // Semantic-only local event. The Cloud must not mistake it for a synced,
+    // HomeServer-verified receipt until the existing bridge proves delivery.
+    const receipt=autoEnrollmentReceipt(record);
+    if(receipt)window.dispatchEvent(new CustomEvent('tracky:owner-visual-enrollment',{detail:receipt}));
+    ui.autoStatus.textContent='Local enrollment complete · tracking and contact sharing stay off';
+    setMessage('Your local visual profile is enrolled. Future participant tracking and contact linking require separate approval.', 'ok');
+  }catch(error){
+    ui.autoStatus.textContent='Could not save local profile · retry';
+    setMessage('Local enrollment could not be saved. No Cloud identity was created.', 'error');
+    ui.autoStart.disabled=false;
+  }finally{
+    stopCamera(true);
   }
 }
 
@@ -447,9 +558,10 @@ async function loadPendingFromUrl() {
   setMessage('Live room capture imported. Enter the participant details and capture additional face angles.', 'ok');
 }
 
-ui.newParticipant.addEventListener('click', clearForm);
+ui.newParticipant.addEventListener('click', ()=>{stopCamera();clearForm();});
 ui.startCamera.addEventListener('click', startCamera);
-ui.stopCamera.addEventListener('click', stopCamera);
+ui.stopCamera.addEventListener('click', ()=>stopCamera());
+ui.autoStart.addEventListener('click',startSelfEnrollment);
 ui.capturePrimary.addEventListener('click', capturePrimaryPhoto);
 ui.captureSample.addEventListener('click', captureFaceSample);
 ui.useLatestPrimary.addEventListener('click', () => {
@@ -459,9 +571,9 @@ ui.useLatestPrimary.addEventListener('click', () => {
   setMessage('Latest capture selected as primary photo. Save the profile to keep the change.', 'ok');
 });
 ui.save.addEventListener('click', saveForm);
-ui.reset.addEventListener('click', clearForm);
+ui.reset.addEventListener('click', ()=>{stopCamera();clearForm();});
 ui.delete.addEventListener('click', removeCurrentParticipant);
-window.addEventListener('beforeunload', stopCamera);
+window.addEventListener('beforeunload', ()=>stopCamera());
 
 clearForm();
 await prunePendingCaptures().catch(() => {});
