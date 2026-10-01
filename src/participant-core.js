@@ -218,6 +218,16 @@ export function participantRecord(input = {}) {
     latestPhoto: input.latestPhoto || null,
     embeddings: Array.isArray(input.embeddings) ? input.embeddings.map((v) => Array.from(v)) : [],
     recognitionEnabled: input.recognitionEnabled !== false,
+    // Owner opt-in provenance survives the existing participant persistence
+    // boundary. This is local-only metadata, never evidence of Cloud enrollment.
+    visualEnrollment: input.visualEnrollment?.scope === 'owner-self'
+      && typeof input.visualEnrollment.consentedAt === 'string'
+      && !Number.isNaN(Date.parse(input.visualEnrollment.consentedAt))
+      ? {scope:'owner-self',consentedAt:input.visualEnrollment.consentedAt,
+          automatic:input.visualEnrollment.automatic===true,
+          trackingEnabled:false,cloudSync:false,
+          contactCreation:'requires_owner_approval'}
+      : null,
     voiceEmbeddings: Array.isArray(input.voiceEmbeddings) ? input.voiceEmbeddings.map((v) => Array.from(v)) : [],
     voiceRecognitionEnabled: input.voiceRecognitionEnabled !== false,
     voiceProfileSamples: Array.isArray(input.voiceProfileSamples) ? input.voiceProfileSamples : [],

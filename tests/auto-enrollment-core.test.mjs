@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {autoEnrollmentDecision,autoEnrollmentReceipt,AUTO_ENROLLMENT_TARGET} from '../src/auto-enrollment-core.js';
+import {participantRecord} from '../src/participant-core.js';
 const f=(cx=.5,cy=.5,yaw=0)=>({quality:.83,embedding:[.3,.4,.5],rotation:{yaw},box:{cx,cy}});
 test('no opt-in, active session, or single face means no automatic biometric capture',()=>{
   const state={consent:false,active:true,samples:[]};
@@ -45,4 +46,15 @@ test('camera, face collection and contact permissions are explicitly gated',()=>
   assert.match(script,/const receipt=autoEnrollmentReceipt\(record\)/);
   assert.match(html,/id="selfVisualConsent"/);
   assert.match(html,/No Cloud upload, background tracking or contact creation is enabled here/);
+});
+
+test('canonical participant store keeps only restricted explicit self-consent provenance',()=>{
+  const consentedAt='2026-10-01T18:00:00.000Z';
+  const p=participantRecord({name:'Owner',recognitionEnabled:true,embeddings:[[1],[2],[3]],visualEnrollment:{scope:'owner-self',consentedAt,automatic:true,trackingEnabled:true,cloudSync:true,contactCreation:'auto'}});
+  assert.equal(p.visualEnrollment.scope,'owner-self');
+  assert.equal(p.visualEnrollment.cloudSync,false);
+  assert.equal(p.visualEnrollment.trackingEnabled,false);
+  assert.equal(p.visualEnrollment.contactCreation,'requires_owner_approval');
+  assert.equal(autoEnrollmentReceipt(p)?.state,'enrolled_locally');
+  assert.equal(participantRecord({name:'Other',visualEnrollment:{scope:'other',consentedAt}}).visualEnrollment,null);
 });
