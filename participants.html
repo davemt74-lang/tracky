@@ -48,6 +48,11 @@
         <span class="status-chip" id="enrollmentStatus">Not enrolled</span>
       </div>
 
+      <div class="owner-auto-enroll">
+        <div><small>OPTIONAL · PRIVATE OWNER IDENTITY</small><h3>Let Tracky create your visual profile</h3><p>After you explicitly agree, Tracky starts your camera and automatically captures three good face angles. Face descriptors and your portrait stay in this browser's local participant store. Camera stops when finished. No Cloud upload, background tracking or contact creation is enabled here.</p></div>
+        <label><input type="checkbox" id="selfVisualConsent"> I consent to local face descriptor enrollment and recognition of my own profile on this device. I understand I can delete it later.</label>
+        <div class="owner-auto-actions"><button id="startSelfVisualEnrollment" class="hud-button primary" type="button">Start automatic self-enrollment</button><span id="selfVisualEnrollmentStatus" role="status" aria-live="polite">Optional · off</span></div>
+      </div>
       <div class="onboarding-grid">
         <div class="identity-camera-column">
           <div class="identity-camera-stage" id="identityCameraStage">

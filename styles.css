@@ -2895,3 +2895,6 @@ button,select,.button-link,.points-goal input,.participant-fields input,.partici
   .world-query-grid{grid-template-columns:1fr}
   .world-query-panel{grid-column:auto}
 }
+
+
+.owner-auto-enroll{margin:16px 0 24px;padding:22px;border:1px solid rgba(122,175,232,.38);border-radius:18px;background:linear-gradient(145deg,rgba(84,129,195,.12),rgba(0,0,0,.04));display:grid;gap:14px}.owner-auto-enroll h3{font-size:18px;margin:6px 0}.owner-auto-enroll p{max-width:780px;line-height:1.6;font-size:13px;opacity:.85}.owner-auto-enroll label{display:flex;align-items:flex-start;gap:10px;font-size:13px;line-height:1.55;max-width:850px}.owner-auto-enroll label input{margin-top:4px;flex-shrink:0}.owner-auto-actions{display:flex;align-items:center;gap:15px;flex-wrap:wrap}.owner-auto-actions span{font-size:12px;opacity:.85}
